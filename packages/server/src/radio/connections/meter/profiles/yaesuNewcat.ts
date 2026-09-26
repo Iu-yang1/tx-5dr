@@ -7,12 +7,21 @@ import {
   rawstrToLevelMeterReading,
   YAESU_DEFAULT_SWR_CAL,
   YAESU_FTDX10_SWR_CAL,
+  YAESU_HAMLIB_DEFAULT_ALC_CAL,
   YAESU_FT991_STR_CAL,
   YAESU_FTDX101D_STR_CAL,
   YAESU_DEFAULT_STR_CAL,
 } from '../calibration.js';
 
 const logger = createLogger('YaesuNewcatMeterProfile');
+
+function normalizeModelName(modelName: string | null | undefined): string {
+  return modelName?.trim().toUpperCase().replace(/[^A-Z0-9]/g, '') ?? '';
+}
+
+function isFtdx10(modelName: string | null | undefined): boolean {
+  return normalizeModelName(modelName) === 'FTDX10';
+}
 
 /**
  * Parse a Yaesu RM command response into a raw 0-255 integer.
@@ -106,8 +115,10 @@ function selectSwrCalTable(modelName: string | null | undefined): readonly CalPo
  * Matches Yaesu rigs connected in serial mode that expose the RAWSTR
  * level (a newcat-specific indicator).
  *
- * ALC: All newcat models — RM4 (raw 0-255), linear mapping to 0-100%.
+ * ALC: All newcat models — RM4. FTDX-10 uses Hamlib's 0-64 full-scale
+ * calibration; other models retain the established 0-255 mapping.
  * SWR: All newcat models — RM6 (raw 0-255), per-model interpolation table.
+ * S-meter: FTDX-10 uses its documented RM1 command, with RAWSTR as a fallback.
  */
 export const yaesuNewcatProfile: MeterProfile = {
   name: 'yaesu-newcat',
@@ -125,8 +136,12 @@ export const yaesuNewcatProfile: MeterProfile = {
     const raw = await readYaesuRM(ctx, 'RM4;', 'RM4');
     if (raw === null) return null;
 
-    // Linear mapping: raw 0-255 → percent 0-100%.
-    const percent = linearRawToPercent(raw);
+    // FTDX-10 has no model-specific alc_cal in Hamlib and therefore uses
+    // Hamlib's default Yaesu 0..64 full-scale table. The old 0..255 mapping
+    // under-reported this radio's ALC by roughly four times.
+    const percent = isFtdx10(ctx.rigMetadata?.modelName)
+      ? interpolateCalTable(raw, YAESU_HAMLIB_DEFAULT_ALC_CAL)
+      : linearRawToPercent(raw);
     const alert = percent >= 100;
     return { raw, percent, alert };
   },
@@ -144,7 +159,14 @@ export const yaesuNewcatProfile: MeterProfile = {
 
   async readLevel(ctx: MeterReadContext): Promise<MeterData['level']> {
     if (!ctx.supportedLevels.has('RAWSTR')) return null;
-    const rawValue = await ctx.getLevel('RAWSTR');
+
+    // The FTDX-10 CAT reference documents S-meter reads as RM1. Hamlib's
+    // newcat RAWSTR path asks the radio for SM0 instead, which real FTDX-10
+    // hardware can reject or leave empty. Keep RAWSTR as a safe fallback.
+    const directRawValue = isFtdx10(ctx.rigMetadata?.modelName)
+      ? await readYaesuRM(ctx, 'RM1;', 'RM1')
+      : null;
+    const rawValue = directRawValue ?? await ctx.getLevel('RAWSTR');
     if (rawValue === null) return null;
 
     // Per-model S-meter calibration using Hamlib-sourced tables.
