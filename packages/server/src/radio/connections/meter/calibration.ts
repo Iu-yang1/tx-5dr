@@ -88,6 +88,17 @@ export const YAESU_FTDX10_SWR_CAL: readonly CalPoint[] = [
   { raw: 255, val: 25.0 },
 ];
 
+/**
+ * Hamlib's default Yaesu ALC calibration.
+ *
+ * FTDX-10 does not declare a model-specific `alc_cal`, so Hamlib intentionally
+ * uses this table for RM4 instead of treating the CAT byte as 0-255 percent.
+ */
+export const YAESU_HAMLIB_DEFAULT_ALC_CAL: readonly CalPoint[] = [
+  { raw: 0, val: 0.0 },
+  { raw: 64, val: 100.0 },
+];
+
 // ---------------------------------------------------------------------------
 // Yaesu RF-Power calibration tables (from Hamlib source / FLRig)
 // ---------------------------------------------------------------------------
