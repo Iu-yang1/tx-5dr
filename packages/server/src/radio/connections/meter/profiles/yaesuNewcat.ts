@@ -48,23 +48,27 @@ async function readYaesuRM(
     );
 
     const replyStr = reply.toString('ascii');
-    const prefixIdx = replyStr.indexOf(prefix);
-    if (prefixIdx === -1) {
-      logger.debug(`Yaesu RM response missing prefix "${prefix}"`, { reply: replyStr });
-      return null;
+    const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const framePattern = new RegExp(`^${escapedPrefix}(\\d{3})(?:\\d{3})?$`);
+
+    // A Yaesu response is one semicolon-terminated CAT frame. Be strict here:
+    // accepting a prefix embedded in an echo, stale frame, or malformed payload
+    // can silently turn unrelated serial data into a meter reading. Both the
+    // three-digit and six-digit RM layouts are used by newcat radios; in the
+    // latter layout the first three digits are the meter value.
+    const frames = replyStr.split(';').map((frame) => frame.trim()).filter(Boolean);
+    for (let index = frames.length - 1; index >= 0; index -= 1) {
+      const match = framePattern.exec(frames[index]);
+      if (!match) continue;
+
+      const value = Number(match[1]);
+      if (Number.isInteger(value) && value >= 0 && value <= 255) {
+        return value;
+      }
     }
 
-    // Extract digits after the prefix, before the semicolon.
-    const afterPrefix = replyStr.slice(prefixIdx + prefix.length);
-    const digits = afterPrefix.replace(/;.*$/, '').slice(0, 3);
-    const value = parseInt(digits, 10);
-
-    if (!Number.isFinite(value)) {
-      logger.debug(`Yaesu RM response parse failed`, { reply: replyStr, digits });
-      return null;
-    }
-
-    return Math.min(255, Math.max(0, value));
+    logger.debug('Yaesu RM response parse failed', { prefix, reply: replyStr });
+    return null;
   } catch (error) {
     logger.debug(`Yaesu RM command failed: ${command}`, { error });
     return null;
@@ -118,7 +122,8 @@ function selectSwrCalTable(modelName: string | null | undefined): readonly CalPo
  * ALC: All newcat models — RM4. FTDX-10 uses Hamlib's 0-64 full-scale
  * calibration; other models retain the established 0-255 mapping.
  * SWR: All newcat models — RM6 (raw 0-255), per-model interpolation table.
- * S-meter: FTDX-10 uses its documented RM1 command, with RAWSTR as a fallback.
+ * S-meter: FTDX-10 uses Hamlib's validated RAWSTR/SM0 transaction first, with
+ * its documented RM1 command as a fallback when SM0 is unavailable or zero.
  */
 export const yaesuNewcatProfile: MeterProfile = {
   name: 'yaesu-newcat',
@@ -160,13 +165,16 @@ export const yaesuNewcatProfile: MeterProfile = {
   async readLevel(ctx: MeterReadContext): Promise<MeterData['level']> {
     if (!ctx.supportedLevels.has('RAWSTR')) return null;
 
-    // The FTDX-10 CAT reference documents S-meter reads as RM1. Hamlib's
-    // newcat RAWSTR path asks the radio for SM0 instead, which real FTDX-10
-    // hardware can reject or leave empty. Keep RAWSTR as a safe fallback.
+    // Keep protocol parsing/retry on Hamlib's validated newcat transaction for
+    // the normal path. It flushes unsolicited serial data and verifies that an
+    // SM reply matches the command. RM1 remains a model-specific fallback for
+    // the observed case where one documented FTDX-10 meter path reports zero.
+    const hamlibRawValue = await ctx.getLevel('RAWSTR');
     const directRawValue = isFtdx10(ctx.rigMetadata?.modelName)
+      && (hamlibRawValue === null || hamlibRawValue === 0)
       ? await readYaesuRM(ctx, 'RM1;', 'RM1')
       : null;
-    const rawValue = directRawValue ?? await ctx.getLevel('RAWSTR');
+    const rawValue = directRawValue ?? hamlibRawValue;
     if (rawValue === null) return null;
 
     // Per-model S-meter calibration using Hamlib-sourced tables.
