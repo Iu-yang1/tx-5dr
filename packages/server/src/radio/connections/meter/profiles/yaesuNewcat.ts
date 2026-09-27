@@ -24,18 +24,20 @@ function isFtdx10(modelName: string | null | undefined): boolean {
 }
 
 /**
- * Parse a Yaesu RM command response into a raw 0-255 integer.
+ * Parse a Yaesu meter command response into a raw 0-255 integer.
  *
- * Protocol: send "RM4;" → radio replies "RM4xxx;" where xxx is a 3-digit
- * value (000-255).  Some newer models (FTDX-101) may return longer values;
- * we truncate to the first 3 digits, matching the Hamlib newcat behaviour.
+ * Protocol examples:
+ * - send "SM0;" → radio replies "SM0xxx;"
+ * - send "RM4;" → radio replies "RM4xxx;" or "RM4xxxxxx;"
+ *
+ * The first three payload digits are the meter value (000-255).
  *
  * @param ctx     Runtime read context (provides sendRaw).
  * @param command Full CAT command string, e.g. "RM4;".
  * @param prefix  Expected response prefix, e.g. "RM4".
  * @returns Raw integer 0-255, or null on parse/communication failure.
  */
-async function readYaesuRM(
+async function readYaesuMeterRaw(
   ctx: MeterReadContext,
   command: string,
   prefix: string,
@@ -48,25 +50,29 @@ async function readYaesuRM(
     );
 
     const replyStr = reply.toString('ascii');
-    const prefixIdx = replyStr.indexOf(prefix);
-    if (prefixIdx === -1) {
-      logger.debug(`Yaesu RM response missing prefix "${prefix}"`, { reply: replyStr });
-      return null;
+    const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const framePattern = new RegExp(`^${escapedPrefix}(\\d{3})(?:\\d{3})?$`);
+
+    // A Yaesu response is one semicolon-terminated CAT frame. Be strict here:
+    // accepting a prefix embedded in an echo, stale frame, or malformed payload
+    // can silently turn unrelated serial data into a meter reading. Both the
+    // three-digit and six-digit RM layouts are used by newcat radios; in the
+    // latter layout the first three digits are the meter value.
+    const frames = replyStr.split(';').map((frame) => frame.trim()).filter(Boolean);
+    for (let index = frames.length - 1; index >= 0; index -= 1) {
+      const match = framePattern.exec(frames[index]);
+      if (!match) continue;
+
+      const value = Number(match[1]);
+      if (Number.isInteger(value) && value >= 0 && value <= 255) {
+        return value;
+      }
     }
 
-    // Extract digits after the prefix, before the semicolon.
-    const afterPrefix = replyStr.slice(prefixIdx + prefix.length);
-    const digits = afterPrefix.replace(/;.*$/, '').slice(0, 3);
-    const value = parseInt(digits, 10);
-
-    if (!Number.isFinite(value)) {
-      logger.debug(`Yaesu RM response parse failed`, { reply: replyStr, digits });
-      return null;
-    }
-
-    return Math.min(255, Math.max(0, value));
+    logger.debug('Yaesu meter response parse failed', { prefix, reply: replyStr });
+    return null;
   } catch (error) {
-    logger.debug(`Yaesu RM command failed: ${command}`, { error });
+    logger.debug(`Yaesu meter command failed: ${command}`, { error });
     return null;
   }
 }
@@ -118,7 +124,8 @@ function selectSwrCalTable(modelName: string | null | undefined): readonly CalPo
  * ALC: All newcat models — RM4. FTDX-10 uses Hamlib's 0-64 full-scale
  * calibration; other models retain the established 0-255 mapping.
  * SWR: All newcat models — RM6 (raw 0-255), per-model interpolation table.
- * S-meter: FTDX-10 uses its documented RM1 command, with RAWSTR as a fallback.
+ * S-meter: FTDX-10 uses Hamlib's RAWSTR transaction first, then reads the
+ * documented SM0 frame directly when the wrapper reports null or zero.
  */
 export const yaesuNewcatProfile: MeterProfile = {
   name: 'yaesu-newcat',
@@ -133,7 +140,7 @@ export const yaesuNewcatProfile: MeterProfile = {
   },
 
   async readAlc(ctx: MeterReadContext): Promise<MeterData['alc']> {
-    const raw = await readYaesuRM(ctx, 'RM4;', 'RM4');
+    const raw = await readYaesuMeterRaw(ctx, 'RM4;', 'RM4');
     if (raw === null) return null;
 
     // FTDX-10 has no model-specific alc_cal in Hamlib and therefore uses
@@ -147,7 +154,7 @@ export const yaesuNewcatProfile: MeterProfile = {
   },
 
   async readSwr(ctx: MeterReadContext): Promise<MeterData['swr']> {
-    const raw = await readYaesuRM(ctx, 'RM6;', 'RM6');
+    const raw = await readYaesuMeterRaw(ctx, 'RM6;', 'RM6');
     if (raw === null) return null;
 
     // Interpolate raw → SWR ratio using per-model calibration table.
@@ -160,13 +167,17 @@ export const yaesuNewcatProfile: MeterProfile = {
   async readLevel(ctx: MeterReadContext): Promise<MeterData['level']> {
     if (!ctx.supportedLevels.has('RAWSTR')) return null;
 
-    // The FTDX-10 CAT reference documents S-meter reads as RM1. Hamlib's
-    // newcat RAWSTR path asks the radio for SM0 instead, which real FTDX-10
-    // hardware can reject or leave empty. Keep RAWSTR as a safe fallback.
+    // Keep protocol parsing/retry on Hamlib's validated newcat transaction for
+    // the normal path. Real-device logs show that the radio can return a
+    // non-zero SM0 frame while the wrapped RAWSTR value still reaches JS as
+    // zero, so bypass that wrapper and parse the same documented CAT frame as
+    // the FTDX-10 fallback.
+    const hamlibRawValue = await ctx.getLevel('RAWSTR');
     const directRawValue = isFtdx10(ctx.rigMetadata?.modelName)
-      ? await readYaesuRM(ctx, 'RM1;', 'RM1')
+      && (hamlibRawValue === null || hamlibRawValue === 0)
+      ? await readYaesuMeterRaw(ctx, 'SM0;', 'SM0')
       : null;
-    const rawValue = directRawValue ?? await ctx.getLevel('RAWSTR');
+    const rawValue = directRawValue ?? hamlibRawValue;
     if (rawValue === null) return null;
 
     // Per-model S-meter calibration using Hamlib-sourced tables.

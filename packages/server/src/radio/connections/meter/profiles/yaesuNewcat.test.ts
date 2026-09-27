@@ -28,25 +28,25 @@ describe('yaesuNewcatProfile FTDX-10 meters', () => {
     14_074_000,
     21_074_000,
     28_074_000,
-  ])('reads the receive S-meter through RM1 at %d Hz', async (currentFrequencyHz) => {
+  ])('reads SM0 directly at %d Hz when the Hamlib RAWSTR wrapper reports zero', async (currentFrequencyHz) => {
     const ctx = createContext({
       currentFrequencyHz,
-      sendRaw: vi.fn().mockResolvedValue(Buffer.from('RM1130000;', 'ascii')),
-      getLevel: vi.fn().mockResolvedValue(20),
+      sendRaw: vi.fn().mockResolvedValue(Buffer.from('SM0130;', 'ascii')),
+      getLevel: vi.fn().mockResolvedValue(0),
     });
 
     const level = await yaesuNewcatProfile.readLevel!(ctx);
 
     expect(ctx.sendRaw).toHaveBeenCalledWith(
-      Buffer.from('RM1;', 'ascii'),
+      Buffer.from('SM0;', 'ascii'),
       16,
       Buffer.from(';'),
     );
-    expect(ctx.getLevel).not.toHaveBeenCalled();
+    expect(ctx.getLevel).toHaveBeenCalledWith('RAWSTR');
     expect(level).toMatchObject({ raw: 130, formatted: 'S9', displayStyle: 's-meter' });
   });
 
-  it('falls back to Hamlib RAWSTR if the direct RM1 reply is unavailable', async () => {
+  it('prefers Hamlib RAWSTR and avoids the less robust raw RM transaction when SM0 has a reading', async () => {
     const ctx = createContext({
       sendRaw: vi.fn().mockResolvedValue(Buffer.from('?;', 'ascii')),
       getLevel: vi.fn().mockResolvedValue(81),
@@ -55,7 +55,54 @@ describe('yaesuNewcatProfile FTDX-10 meters', () => {
     const level = await yaesuNewcatProfile.readLevel!(ctx);
 
     expect(ctx.getLevel).toHaveBeenCalledWith('RAWSTR');
+    expect(ctx.sendRaw).not.toHaveBeenCalled();
     expect(level).toMatchObject({ raw: 81, formatted: 'S6' });
+  });
+
+  it('parses the complete SM0 answer instead of a command echo', async () => {
+    const ctx = createContext({
+      sendRaw: vi.fn().mockResolvedValue(Buffer.from('SM0;SM0130;', 'ascii')),
+      getLevel: vi.fn().mockResolvedValue(0),
+    });
+
+    const level = await yaesuNewcatProfile.readLevel!(ctx);
+
+    expect(ctx.getLevel).toHaveBeenCalledWith('RAWSTR');
+    expect(level).toMatchObject({ raw: 130, formatted: 'S9' });
+  });
+
+  it('maps the non-zero SM0169 frame observed in real FTDX-10 logs', async () => {
+    const ctx = createContext({
+      sendRaw: vi.fn().mockResolvedValue(Buffer.from('SM0169;', 'ascii')),
+      getLevel: vi.fn().mockResolvedValue(0),
+    });
+
+    const level = await yaesuNewcatProfile.readLevel!(ctx);
+
+    expect(level).toMatchObject({ raw: 169, formatted: 'S9+17dB' });
+    expect(level?.percent).toBeGreaterThan(50);
+  });
+
+  it('rejects malformed SM0 payloads instead of partially parsing them', async () => {
+    const ctx = createContext({
+      sendRaw: vi.fn().mockResolvedValue(Buffer.from('SM013x;', 'ascii')),
+      getLevel: vi.fn().mockResolvedValue(0),
+    });
+
+    const level = await yaesuNewcatProfile.readLevel!(ctx);
+
+    expect(level).toMatchObject({ raw: 0, formatted: 'S0' });
+  });
+
+  it('preserves S0 when both Hamlib and direct SM0 reads report zero', async () => {
+    const ctx = createContext({
+      sendRaw: vi.fn().mockResolvedValue(Buffer.from('SM0000;', 'ascii')),
+      getLevel: vi.fn().mockResolvedValue(0),
+    });
+
+    const level = await yaesuNewcatProfile.readLevel!(ctx);
+
+    expect(level).toMatchObject({ raw: 0, formatted: 'S0' });
   });
 
   it('keeps non-FTDX-10 Yaesu radios on the existing RAWSTR path', async () => {
@@ -82,6 +129,25 @@ describe('yaesuNewcatProfile FTDX-10 meters', () => {
       percent: 100,
       alert: true,
     });
+  });
+
+  it('accepts the three-digit RM layout used by older newcat radios', async () => {
+    const ctx = createContext({
+      rigMetadata: { rigModel: 1035, mfgName: 'Yaesu', modelName: 'FT-991A' },
+      sendRaw: vi.fn().mockResolvedValue(Buffer.from('RM4064;', 'ascii')),
+    });
+
+    const alc = await yaesuNewcatProfile.readAlc!(ctx);
+
+    expect(alc?.raw).toBe(64);
+  });
+
+  it('rejects out-of-range RM values instead of clamping malformed data', async () => {
+    const ctx = createContext({
+      sendRaw: vi.fn().mockResolvedValue(Buffer.from('RM4999000;', 'ascii')),
+    });
+
+    await expect(yaesuNewcatProfile.readAlc!(ctx)).resolves.toBeNull();
   });
 
   it('does not apply the FTDX-10 ALC calibration to FTDX-101 models', async () => {

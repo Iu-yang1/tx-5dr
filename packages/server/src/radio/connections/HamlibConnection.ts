@@ -4282,6 +4282,8 @@ export class HamlibConnection
       manufacturer: this.meterRigMetadata?.mfgName ?? null,
       modelName: this.meterRigMetadata?.modelName ?? null,
       rigModel: this.meterRigMetadata?.rigModel ?? null,
+      frequencyHz: this.currentFrequencyHz,
+      displayedRaw: level.raw,
       rawstr: primaryValue,
       strength: fallbackStrength,
       formatted: level.formatted,
