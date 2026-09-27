@@ -28,17 +28,17 @@ describe('yaesuNewcatProfile FTDX-10 meters', () => {
     14_074_000,
     21_074_000,
     28_074_000,
-  ])('falls back to RM1 for the receive S-meter at %d Hz when SM0 reports zero', async (currentFrequencyHz) => {
+  ])('reads SM0 directly at %d Hz when the Hamlib RAWSTR wrapper reports zero', async (currentFrequencyHz) => {
     const ctx = createContext({
       currentFrequencyHz,
-      sendRaw: vi.fn().mockResolvedValue(Buffer.from('RM1130000;', 'ascii')),
+      sendRaw: vi.fn().mockResolvedValue(Buffer.from('SM0130;', 'ascii')),
       getLevel: vi.fn().mockResolvedValue(0),
     });
 
     const level = await yaesuNewcatProfile.readLevel!(ctx);
 
     expect(ctx.sendRaw).toHaveBeenCalledWith(
-      Buffer.from('RM1;', 'ascii'),
+      Buffer.from('SM0;', 'ascii'),
       16,
       Buffer.from(';'),
     );
@@ -59,9 +59,9 @@ describe('yaesuNewcatProfile FTDX-10 meters', () => {
     expect(level).toMatchObject({ raw: 81, formatted: 'S6' });
   });
 
-  it('parses the complete six-digit RM1 frame instead of a command echo', async () => {
+  it('parses the complete SM0 answer instead of a command echo', async () => {
     const ctx = createContext({
-      sendRaw: vi.fn().mockResolvedValue(Buffer.from('RM1;RM1130000;', 'ascii')),
+      sendRaw: vi.fn().mockResolvedValue(Buffer.from('SM0;SM0130;', 'ascii')),
       getLevel: vi.fn().mockResolvedValue(0),
     });
 
@@ -71,9 +71,21 @@ describe('yaesuNewcatProfile FTDX-10 meters', () => {
     expect(level).toMatchObject({ raw: 130, formatted: 'S9' });
   });
 
-  it('rejects malformed RM1 payloads instead of partially parsing them', async () => {
+  it('maps the non-zero SM0169 frame observed in real FTDX-10 logs', async () => {
     const ctx = createContext({
-      sendRaw: vi.fn().mockResolvedValue(Buffer.from('RM113x000;', 'ascii')),
+      sendRaw: vi.fn().mockResolvedValue(Buffer.from('SM0169;', 'ascii')),
+      getLevel: vi.fn().mockResolvedValue(0),
+    });
+
+    const level = await yaesuNewcatProfile.readLevel!(ctx);
+
+    expect(level).toMatchObject({ raw: 169, formatted: 'S9+17dB' });
+    expect(level?.percent).toBeGreaterThan(50);
+  });
+
+  it('rejects malformed SM0 payloads instead of partially parsing them', async () => {
+    const ctx = createContext({
+      sendRaw: vi.fn().mockResolvedValue(Buffer.from('SM013x;', 'ascii')),
       getLevel: vi.fn().mockResolvedValue(0),
     });
 
@@ -82,9 +94,9 @@ describe('yaesuNewcatProfile FTDX-10 meters', () => {
     expect(level).toMatchObject({ raw: 0, formatted: 'S0' });
   });
 
-  it('preserves S0 when both documented FTDX-10 meter paths report zero', async () => {
+  it('preserves S0 when both Hamlib and direct SM0 reads report zero', async () => {
     const ctx = createContext({
-      sendRaw: vi.fn().mockResolvedValue(Buffer.from('RM1000000;', 'ascii')),
+      sendRaw: vi.fn().mockResolvedValue(Buffer.from('SM0000;', 'ascii')),
       getLevel: vi.fn().mockResolvedValue(0),
     });
 
