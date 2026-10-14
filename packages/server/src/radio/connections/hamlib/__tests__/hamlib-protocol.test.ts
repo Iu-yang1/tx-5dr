@@ -15,6 +15,17 @@ describe('Hamlib protocol', () => {
     expect((result as { modeError: Error }).modeError).toBeInstanceOf(RadioError);
   });
 
+  it('retains correlated Yaesu A/B readback fields across worker IPC', () => {
+    const output = decodeHamlibResult('applyOperatingState', encodeHamlibResult('applyOperatingState', {
+      frequencyApplied: true, modeApplied: true, targetVfo: 'VFOB',
+      frequencyConfirmed: true, observedFrequency: 14074000,
+      modeConfirmed: true, observedMode: 'USB',
+    }));
+    expect(output).toMatchObject({ targetVfo: 'VFOB', observedFrequency: 14074000, observedMode: 'USB' });
+    expect(HamlibCommandSchema.safeParse({ type: 'call', generation: 'session', id: 2, operation: 'getVfo', args: [] }).success).toBe(true);
+    expect(HamlibCommandSchema.safeParse({ type: 'call', generation: 'session', id: 3, operation: 'setVfo', args: ['VFOB'] }).success).toBe(true);
+  });
+
   it('does not expose private runtime methods through IPC', () => {
     expect(HamlibCommandSchema.safeParse({ type: 'call', generation: 'session', id: 1, operation: 'cleanup', args: [] }).success).toBe(false);
     expect(HamlibCommandSchema.safeParse({ type: 'call', generation: 'session', id: 1, operation: 'convertError', args: [] }).success).toBe(false);

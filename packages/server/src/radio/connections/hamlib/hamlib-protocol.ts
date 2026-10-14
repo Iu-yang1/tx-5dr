@@ -63,7 +63,7 @@ export const HAMLIB_OPERATIONS = {
   getModeBandwidth: { args: empty, result: z.union([z.string(), number]) },
   setModeBandwidth: { args: z.tuple([bandwidth]), result: z.void() },
   getSupportedModeBandwidths: { args: empty, result: z.array(z.union([z.string(), number])) },
-  applyOperatingState: { args: z.tuple([z.object({ frequency: number.optional(), mode: z.string().optional(), bandwidth: bandwidth.optional(), options: modeOptions.optional(), tolerateModeFailure: z.boolean().optional() })]), result: z.object({ frequencyApplied: z.boolean(), modeApplied: z.boolean(), frequencyConfirmed: z.boolean().optional(), observedFrequency: number.optional(), modeConfirmed: z.boolean().optional(), operationId: z.string().optional(), modeError: HamlibErrorSchema.optional() }) },
+  applyOperatingState: { args: z.tuple([z.object({ frequency: number.optional(), mode: z.string().optional(), bandwidth: bandwidth.optional(), options: modeOptions.optional(), tolerateModeFailure: z.boolean().optional() })]), result: z.object({ frequencyApplied: z.boolean(), modeApplied: z.boolean(), targetVfo: z.string().optional(), frequencyConfirmed: z.boolean().optional(), observedFrequency: number.optional(), observedMode: z.string().optional(), modeConfirmed: z.boolean().optional(), operationId: z.string().optional(), modeError: HamlibErrorSchema.optional() }) },
   getSpectrumSupportSummary: { args: empty, result: summary },
   getCurrentSpectrumSpan: { args: empty, result: number.nullable() },
   getSplitFrequency: { args: empty, result: number.nullable() },
