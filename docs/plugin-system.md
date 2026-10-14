@@ -705,6 +705,12 @@ onLoad(ctx) {
 `voice-right-top`、`cw-left-top`、`cw-right-top`、`radio-control-toolbar`。
 运行期 panel 使用 `setPanelContributions()` / `clearPanelContributions()` 管理。
 
+工具栏按钮 (`radio-control-toolbar`) 支持通过 `ctx.ui.setPanelMeta()` 动态设置 `tone` 状态色：
+`default`、`primary`、`secondary`、`success`、`warning`、`danger`。
+例如：`ctx.ui.setPanelMeta('my-button', { tone: 'danger' })` 表示告警；恢复默认色
+可调用 `ctx.ui.setPanelMeta('my-button', { tone: 'default' })`。
+其他 panel 宿主可忽略这一可选属性。
+
 ### 7.4 iframe 页面
 
 ```ts
