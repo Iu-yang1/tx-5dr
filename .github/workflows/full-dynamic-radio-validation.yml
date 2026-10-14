@@ -41,6 +41,9 @@ jobs:
       - name: Run complete backend unit, virtual-radio, decoder and logbook performance tests
         run: |
           /usr/bin/time -v yarn workspace @tx5dr/server test
+      - name: Measure isolated Hamlib IPC control and spectrum overhead
+        run: |
+          yarn workspace @tx5dr/server exec vitest run src/radio/connections/hamlib/__tests__/ProcessHamlibTransport.performance.test.ts --maxWorkers=1 --minWorkers=1
 
   other-workspaces:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.number == 10
