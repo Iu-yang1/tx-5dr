@@ -1,0 +1,90 @@
+name: Focused Radio Regression Tests
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ 'integration/**' ]
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.1'
+      - name: Enable Yarn
+        run: |
+          corepack enable
+          corepack prepare yarn@4.9.1 --activate
+      - name: System dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libasound2-dev libpulse-dev libhamlib-dev libhamlib4 libopus-dev build-essential python3-dev pkg-config
+      - name: Install dependencies
+        run: yarn install --immutable
+      - name: Build
+        run: yarn build
+      - name: Focused Web tests
+        run: |
+          set -euo pipefail
+          cd packages/web
+          TESTS=(
+            src/audio/__tests__/softwareSquelchPreference.test.ts
+            src/components/common/__tests__/QrzCallsignLink.test.ts
+            src/components/radio/control/__tests__/RadioControlPluginToolbar.test.ts
+            src/components/radio/profile/__tests__/audioDeviceDisplay.test.ts
+          )
+          EXISTING=()
+          for f in "${TESTS[@]}"; do if test -f "$f"; then EXISTING+=("$f"); fi; done
+          if test ${#EXISTING[@]} -eq 0; then exit 1; fi
+          yarn exec vitest run "${EXISTING[@]}" --maxWorkers=2 --minWorkers=1
+
+  backend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.1'
+      - name: Enable Yarn
+        run: |
+          corepack enable
+          corepack prepare yarn@4.9.1 --activate
+      - name: System dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libasound2-dev libpulse-dev libhamlib-dev libhamlib4 libopus-dev build-essential python3-dev pkg-config
+      - name: Install dependencies
+        run: yarn install --immutable
+      - name: Build
+        run: yarn build
+      - name: Focused Backend tests
+        run: |
+          set -euo pipefail
+          cd packages/server
+          TESTS=(
+            src/utils/__tests__/frequencyMHz.test.ts
+            src/audio/__tests__/AudioHotplugRecovery.test.ts
+            src/config/__tests__/ConfigManager.audioIdentity.test.ts
+            src/radio/connections/__tests__/NullConnection.standalonePtt.test.ts
+            src/radio/__tests__/HamlibConnection.test.ts
+            src/radio/__tests__/PhysicalRadioManager.test.ts
+            src/operator/__tests__/RadioOperatorManager.test.ts
+            src/subsystems/__tests__/RadioBridge.test.ts
+            src/__tests__/DigitalRadioEngine.mode-switch.test.ts
+            src/radio/connections/hamlib/__tests__/HamlibNativeMonitor.test.ts
+            src/radio/connections/hamlib/__tests__/LocalHamlibTransport.test.ts
+            src/radio/connections/hamlib/__tests__/ProcessHamlibTransport.test.ts
+            src/radio/connections/hamlib/__tests__/hamlib-protocol.test.ts
+          )
+          EXISTING=()
+          for f in "${TESTS[@]}"; do if test -f "$f"; then EXISTING+=("$f"); fi; done
+          if test ${#EXISTING[@]} -eq 0; then exit 1; fi
+          yarn exec vitest run "${EXISTING[@]}" --maxWorkers=2 --minWorkers=1
