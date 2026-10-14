@@ -746,10 +746,28 @@ export const RadioDeviceSettings = forwardRef<RadioDeviceSettingsRef, RadioDevic
     }
   };
 
-    // 渲染 PTT 配置区块（仅 serial / network 模式）
+    const renderHamlibExecutionMode = () => (
+      <Select
+        label={t('radio.hamlibExecutionMode')}
+        isDisabled={isTestingConnection || isTestingPTT || isTestingCW}
+        selectedKeys={[config.hamlibExecutionMode ?? 'process']}
+        onSelectionChange={keys => {
+          const mode = Array.from(keys)[0];
+          if (mode === 'process' || mode === 'in-process') updateConfig({ hamlibExecutionMode: mode });
+        }}
+        size="sm"
+        variant="flat"
+      >
+        <SelectItem key="process">{t('radio.hamlibExecutionProcess')}</SelectItem>
+        <SelectItem key="in-process">{t('radio.hamlibExecutionInProcess')}</SelectItem>
+      </Select>
+    );
+
+    // 渲染 PTT 配置区块
     const renderPttConfig = () => {
-      const currentMethod = config.pttMethod || 'cat';
+      const currentMethod = config.pttMethod || (config.type === 'none' ? 'none' : 'cat');
       const isNetwork = config.type === 'network';
+      const isNoRadio = config.type === 'none';
 
       return (
         <div className="space-y-3">
@@ -760,7 +778,7 @@ export const RadioDeviceSettings = forwardRef<RadioDeviceSettingsRef, RadioDevic
             selectedKeys={[currentMethod]}
             onSelectionChange={keys => {
               const method = Array.from(keys)[0] as PttMethod;
-              if (method === 'cat' || method === 'vox') {
+              if (method === 'none' || method === 'cat' || method === 'vox') {
                 updateConfig({ pttMethod: method, pttPort: undefined });
               } else {
                 updateConfig({ pttMethod: method });
@@ -768,7 +786,8 @@ export const RadioDeviceSettings = forwardRef<RadioDeviceSettingsRef, RadioDevic
             }}
             variant="flat"
           >
-            <SelectItem key="cat" textValue={t('radio.pttCat')}>{t('radio.pttCat')}</SelectItem>
+            <SelectItem key="none" textValue={t('radio.pttNone')}>{t('radio.pttNone')}</SelectItem>
+            {!isNoRadio && <SelectItem key="cat" textValue={t('radio.pttCat')}>{t('radio.pttCat')}</SelectItem>}
             <SelectItem key="vox" textValue={t('radio.pttVox')}>{t('radio.pttVox')}</SelectItem>
             {isNetwork ? (
               <SelectItem key="dtr" textValue={t('radio.pttDtrDisabled')} isDisabled>{t('radio.pttDtrDisabled')}</SelectItem>
@@ -813,7 +832,8 @@ export const RadioDeviceSettings = forwardRef<RadioDeviceSettingsRef, RadioDevic
 
           <div className="text-xs text-default-400 space-y-1 bg-default-50 p-3 rounded-lg">
             <p className="font-medium">{t('radio.pttMethodNote')}</p>
-            <p>• <strong>CAT</strong>：{t('radio.pttCatDesc')}</p>
+            <p>• <strong>{t('radio.pttNone')}</strong>：{t('radio.pttNoneDesc')}</p>
+            {!isNoRadio && <p>• <strong>CAT</strong>：{t('radio.pttCatDesc')}</p>}
             <p>• <strong>VOX</strong>：{t('radio.pttVoxDesc')}</p>
             <p>• <strong>DTR/RTS</strong>：{t('radio.pttDtrRtsDesc')}</p>
           </div>
@@ -821,7 +841,7 @@ export const RadioDeviceSettings = forwardRef<RadioDeviceSettingsRef, RadioDevic
       );
     };
 
-    // 渲染 CW 键控端口配置区块（仅 serial / network 模式）
+    // 渲染 CW 键控端口配置区块（串口、网络及无电台独立键控模式）
     const renderCWKeyerPortConfig = () => {
       const cwKeyMethod = config.cwKeyMethod || 'dtr';
       const cwKeyActiveLevel: CWKeyActiveLevel = config.cwKeyActiveLevel || 'high';
@@ -927,6 +947,7 @@ export const RadioDeviceSettings = forwardRef<RadioDeviceSettingsRef, RadioDevic
           return (
             <Card shadow="none" radius="lg" classNames={{ base: "border border-divider bg-content1" }}>
               <CardBody className="space-y-4 p-4">
+                {renderHamlibExecutionMode()}
                 <h4 className="font-semibold text-default-900">{t('radio.networkTitle')}</h4>
                 <p className="text-sm text-default-600">{t('radio.networkDesc')}</p>
                 <Divider />
@@ -981,9 +1002,7 @@ export const RadioDeviceSettings = forwardRef<RadioDeviceSettingsRef, RadioDevic
                     </Chip>
                   )}
 
-                  <Divider />
-
-                  <div className="space-y-3">
+                <div className="space-y-3">
                     <h5 className="text-sm font-medium text-default-700">
                       ⏱️ {t('radio.txCompensation')}
                     </h5>
@@ -1064,6 +1083,7 @@ export const RadioDeviceSettings = forwardRef<RadioDeviceSettingsRef, RadioDevic
           return (
             <Card shadow="none" radius="lg" classNames={{ base: "border border-divider bg-content1" }}>
               <CardBody className="space-y-4 p-4">
+                {renderHamlibExecutionMode()}
                 <div className="flex items-center justify-between">
                   <h4 className="font-semibold text-default-900">{t('radio.serialTitle')}</h4>
                   {usesSerialPortEndpoint && (
@@ -1853,6 +1873,12 @@ export const RadioDeviceSettings = forwardRef<RadioDeviceSettingsRef, RadioDevic
               <CardBody className="space-y-4 p-4">
                 <h4 className="font-semibold text-default-900">{t('radio.noneTitle')}</h4>
                 <p className="text-sm text-default-600">{t('radio.noneDesc')}</p>
+
+                <Divider />
+                {renderPttConfig()}
+
+                <Divider />
+                {renderCWKeyerPortConfig()}
 
                 <Divider />
 

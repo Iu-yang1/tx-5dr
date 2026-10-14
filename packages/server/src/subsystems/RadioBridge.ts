@@ -66,6 +66,7 @@ export class RadioBridge {
   private restoreStartInProgress = false;
   private frequencyEventTail: Promise<void> = Promise.resolve();
   private latestFrequencyRevision = 0;
+  private recoveryStop: Promise<void> = Promise.resolve();
 
   constructor(private deps: RadioBridgeDeps) {}
 
@@ -75,6 +76,7 @@ export class RadioBridge {
 
   set wasRunningBeforeDisconnect(val: boolean) {
     this._wasRunningBeforeDisconnect = val;
+    if (!val) this.deps.operatorManager.cancelRadioRecovery?.();
   }
 
   /**
@@ -102,6 +104,8 @@ export class RadioBridge {
    */
   setupListeners(): void {
     const { engineEmitter, radioManager, frequencyManager, slotPackManager } = this.deps;
+    this.lm.listen(engineEmitter, 'profileChanged', () => this.deps.operatorManager.cancelRadioRecovery?.());
+    this.lm.listen(engineEmitter, 'modeChanged', () => this.deps.operatorManager.cancelRadioRecovery?.());
 
     // 监听电台连接中
     this.lm.listen(radioManager, 'connecting', () => {
@@ -120,7 +124,7 @@ export class RadioBridge {
       const attempt = args[0] as number;
       const maxAttempts = args[1] as number;
       const delayMs = args[2] as number | undefined;
-      void this.handleRadioReconnecting(attempt, maxAttempts, delayMs).catch((error) => {
+      this.recoveryStop = this.handleRadioReconnecting(attempt, maxAttempts, delayMs).catch((error) => {
         logger.error('Failed to handle radio reconnecting event:', error);
       });
     });
@@ -252,6 +256,7 @@ export class RadioBridge {
 
   private async handleRadioConnected(): Promise<void> {
     logger.info('Radio connected');
+    await this.recoveryStop;
 
     const { engineEmitter, radioManager } = this.deps;
     // A disconnect can happen after the old CAT session has already gone
@@ -286,12 +291,13 @@ export class RadioBridge {
     // but do not restart the engine while the coordinator is still unknown;
     // otherwise it can keep producing deferred TX requests against a radio
     // whose physical lease is not safe to use.
-    if (recoverySnapshot?.phase === 'unknown') {
+    if (recoverySnapshot && recoverySnapshot.phase !== 'idle') {
       logger.warn('Radio connected but physical TX recovery is still unknown; keeping automation stopped');
       return;
     }
 
     await this.restoreRunningStateIfNeeded();
+    if (this.deps.getEngineLifecycle().getIsRunning()) this.deps.operatorManager.confirmRadioRecovery?.();
   }
 
   private resolveFrequencyInfo(
@@ -477,7 +483,7 @@ export class RadioBridge {
       if (lifecycle.getIsRunning()) {
         this._wasRunningBeforeDisconnect = true;
       }
-      operatorManager.stopAllOperators();
+      operatorManager.stopAllOperators(true);
       const pipeline = this.deps.getTransmissionPipeline();
       if (pipeline.getIsPTTActive()) {
         await pipeline.forceStopPTT();
@@ -571,6 +577,10 @@ export class RadioBridge {
 
   private handleRadioError(error: Error): void {
     logger.error(`Radio error: ${error.message}`);
+    if (error instanceof RadioError && error.context?.hamlibHostFatal && this.deps.getEngineMode() === 'digital'
+      && this.deps.getEngineLifecycle().getIsRunning()) {
+      this.deps.operatorManager.beginRadioRecovery?.();
+    }
 
     const configManager = ConfigManager.getInstance();
     const activeProfile = configManager.getActiveProfile();

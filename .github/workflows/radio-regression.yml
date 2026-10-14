@@ -73,8 +73,12 @@ jobs:
             src/utils/__tests__/frequencyMHz.test.ts
             src/audio/__tests__/AudioHotplugRecovery.test.ts
             src/config/__tests__/ConfigManager.audioIdentity.test.ts
+            src/radio/connections/__tests__/NullConnection.standalonePtt.test.ts
+            src/radio/connections/__tests__/NullConnection.standalonePtt.test.ts
             src/radio/__tests__/HamlibConnection.test.ts
             src/radio/__tests__/PhysicalRadioManager.test.ts
+            src/operator/__tests__/RadioOperatorManager.test.ts
+            src/subsystems/__tests__/RadioBridge.test.ts
             src/__tests__/DigitalRadioEngine.mode-switch.test.ts
             src/radio/connections/hamlib/__tests__/HamlibNativeMonitor.test.ts
             src/radio/connections/hamlib/__tests__/LocalHamlibTransport.test.ts

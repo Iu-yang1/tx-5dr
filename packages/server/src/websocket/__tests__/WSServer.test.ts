@@ -158,7 +158,7 @@ describe('WSServer initial frequency snapshot', () => {
       radioConnected: true,
       source: 'radio',
     });
-    expect(result.description).toBe('14.123 MHz 20m');
+    expect(result.description).toBe('14.123456 MHz 20m');
   });
 
   it('falls back to the saved voice frequency when no live radio frequency is known yet', () => {
