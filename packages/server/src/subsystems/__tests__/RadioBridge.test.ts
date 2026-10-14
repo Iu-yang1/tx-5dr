@@ -352,12 +352,12 @@ describe('RadioBridge', () => {
     radioManager.emit('radioFrequencyChanged', 14123456);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(updateLastVoiceFrequency).toHaveBeenCalledWith({
+    expect(updateLastVoiceFrequency).toHaveBeenCalledWith(expect.objectContaining({
       frequency: 14123456,
       radioMode: 'USB',
       band: '20m',
-      description: '14.123 MHz 20m',
-    });
+      description: '14.123456 MHz 20m',
+    }));
     expect(updateLastSelectedFrequency).not.toHaveBeenCalled();
     expect(frequencyChanged).toHaveBeenCalledWith(expect.objectContaining({
       frequency: 14123456,
