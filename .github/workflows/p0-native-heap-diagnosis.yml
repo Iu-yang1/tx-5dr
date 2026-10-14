@@ -1,8 +1,6 @@
 name: P0 Native Heap Baseline and Backtrace
 
 on:
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
