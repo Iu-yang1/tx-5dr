@@ -1,0 +1,127 @@
+name: P0 Native Heap Baseline and Backtrace
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p0-native-heap-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compare-unsharded:
+    name: "Unsharded native heap: ${{ matrix.revision }}"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - revision: before-integration
+            sha: 6a63addfa9029a282fe22b51319a030a5ce5512f
+          - revision: merged-integration
+            sha: 0c99f80326dc7081e507506d55edc44abf1363b1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Enable exact repo Yarn
+        run: |
+          corepack enable
+          corepack prepare yarn@4.9.1 --activate
+      - name: Native debug packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y gdb libc6-dbg libasound2-dev libpulse-dev libhamlib-dev libhamlib4 libopus-dev build-essential python3-dev pkg-config
+      - name: Install dependencies
+        run: yarn install --immutable
+      - name: Build all workspaces
+        run: yarn build
+      - name: Run original single-process full suite without sharding
+        shell: bash
+        run: |
+          mkdir -p p0-logs
+          echo "revision=${{ matrix.revision }} sha=${{ matrix.sha }}" | tee p0-logs/metadata.txt
+          uname -a | tee -a p0-logs/metadata.txt
+          node --version | tee -a p0-logs/metadata.txt
+          cat /proc/sys/kernel/core_pattern | tee -a p0-logs/metadata.txt
+          ulimit -c unlimited || true
+          set +e
+          timeout --signal=TERM 11m yarn workspace @tx5dr/server exec vitest run --maxWorkers=1 --minWorkers=1 --exclude 'src/**/*.performance.test.ts' >p0-logs/unsharded.log 2>&1
+          status=$?
+          set -e
+          echo "unsharded_exit=$status" | tee -a p0-logs/metadata.txt
+          tail -n 90 p0-logs/unsharded.log
+          echo "unsharded_exit=$status" >> "$GITHUB_STEP_SUMMARY"
+      - name: Recover the actual crashed Vitest worker core from systemd-coredump
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p p0-logs
+          echo "core_pattern=$(cat /proc/sys/kernel/core_pattern)" > p0-logs/coredump-status.txt
+          command -v coredumpctl >> p0-logs/coredump-status.txt 2>&1 || true
+          sudo coredumpctl --no-pager list >> p0-logs/coredump-status.txt 2>&1 || true
+          sudo coredumpctl --no-pager info > p0-logs/coredump-info.txt 2>&1 || true
+          if sudo coredumpctl --no-pager dump --output="$PWD/p0-logs/native.core" >> p0-logs/coredump-status.txt 2>&1; then
+            echo 'Core retrieved; collecting all native thread backtraces' | tee -a p0-logs/coredump-status.txt
+            sudo gdb -q -nx -batch -ex 'set pagination off' -ex 'info sharedlibrary' -ex 'thread apply all bt 45' "$(command -v node)" p0-logs/native.core > p0-logs/core-native-backtrace.txt 2>&1 || true
+            rm -f p0-logs/native.core
+            grep -E -i '^#|^Thread|hamlib|audify|onnx|wsjtx|rtaudio|napi|__libc_free|malloc_printerr|abort|SIGABRT|SIGSEGV' p0-logs/core-native-backtrace.txt | head -140 || true
+          else
+            echo 'No recoverable systemd core. gdb replay will be attempted next.' | tee -a p0-logs/coredump-status.txt
+          fi
+      - name: Capture native callstack with gdb after reproducible failure
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p p0-logs
+          if ! grep -q 'unsharded_exit=' p0-logs/metadata.txt; then
+            echo 'original test did not complete; skipping gdb' > p0-logs/native-gdb.log
+            exit 0
+          fi
+          if grep -q 'unsharded_exit=0' p0-logs/metadata.txt; then
+            echo 'No failure in unsharded test; skipping repeat under gdb' > p0-logs/native-gdb.log
+            exit 0
+          fi
+          echo 'Repeating under gdb (crash or timeout may not reproduce)' 
+          set +e
+          cd packages/server
+          timeout --signal=TERM 12m gdb -q -nx -batch \
+            -ex 'set pagination off' \
+            -ex 'set print thread-events off' \
+            -ex 'set logging file ../../p0-logs/native-backtrace.txt' \
+            -ex 'set logging enabled on' \
+            -ex 'handle SIGPIPE nostop noprint pass' \
+            -ex 'run' \
+            -ex 'info threads' \
+            -ex 'thread apply all bt 40' \
+            --args node ../../node_modules/vitest/vitest.mjs run --maxWorkers=1 --minWorkers=1 --exclude 'src/**/*.performance.test.ts' \
+            >../../p0-logs/native-gdb.log 2>&1
+          status=$?
+          cd ../..
+          echo "gdb_exit=$status" >> p0-logs/metadata.txt
+          tail -n 100 p0-logs/native-gdb.log
+          set -e
+      - name: Print compact diagnostics
+        if: always()
+        shell: bash
+        run: |
+          grep -E -i 'free\\(\\)|corrupted size|malloc|SIGABRT|SIGSEGV|invalid next size|heap corruption|test files|[[:space:]]tests[[:space:]]' p0-logs/unsharded.log | tail -35 || true
+          if [ -f p0-logs/native-backtrace.txt ]; then
+            grep -E -i '^Thread |^#|SIGABRT|SIGSEGV|malloc_printerr|__libc_free|abort|v8::|node::|napi|hamlib|audify|onnx' p0-logs/native-backtrace.txt | tail -120 || true
+          fi
+          find . -maxdepth 3 -type f -name 'core*' -printf '%p %s bytes\\n' | head -10 || true
+          cat p0-logs/metadata.txt
+      - name: Upload native crash diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p0-native-heap-${{ matrix.revision }}
+          path: p0-logs/
+          retention-days: 14

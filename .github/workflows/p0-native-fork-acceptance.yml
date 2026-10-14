@@ -1,0 +1,68 @@
+name: P0 Native Addon Fork Isolation Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unsharded-fork-pool:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Enable Yarn
+        run: |
+          corepack enable
+          corepack prepare yarn@4.9.1 --activate
+      - name: Install native dependencies and symbol tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y gdb libc6-dbg libasound2-dev libpulse-dev libhamlib-dev libhamlib4 libopus-dev build-essential python3-dev pkg-config
+      - name: Install all packages
+        run: yarn install --immutable
+      - name: Build all packages
+        run: yarn build
+      - name: Run full unsharded native module suite twice using forked processes
+        shell: bash
+        env:
+          MALLOC_CHECK_: '3'
+        run: |
+          ulimit -c unlimited || true
+          mkdir -p p0-fork-results
+          failures=0
+          for attempt in 1 2; do
+            echo "::group::Full unsharded native suite — fork attempt ${attempt}"
+            echo "attempt=${attempt} node=$(node --version)" | tee -a p0-fork-results/metadata.txt
+            /usr/bin/time -v yarn workspace @tx5dr/server test:unit > "p0-fork-results/attempt-${attempt}.log" 2>&1 || failures=$((failures+1))
+            grep -E 'Test Files|Tests |Maximum resident set size|Elapsed \(wall clock\)|free\(\):|corrupted size|invalid pointer|exit status' "p0-fork-results/attempt-${attempt}.log" | tail -30 || true
+            echo "::endgroup::"
+          done
+          echo "failed_attempts=$failures" | tee -a p0-fork-results/metadata.txt
+          if ((failures > 0)); then exit 1; fi
+      - name: Extract native core stack if a fork still aborts
+        if: failure()
+        shell: bash
+        run: |
+          sudo coredumpctl --no-pager list > p0-fork-results/coredump-list.txt 2>&1 || true
+          sudo coredumpctl --no-pager info > p0-fork-results/coredump-info.txt 2>&1 || true
+          if sudo coredumpctl --no-pager dump --output="$PWD/p0-fork-results/native.core" >p0-fork-results/coredump-dump.txt 2>&1; then
+            sudo gdb -q -nx -batch -ex 'thread apply all bt 40' "$(command -v node)" p0-fork-results/native.core >p0-fork-results/coredump-backtrace.txt 2>&1 || true
+            rm -f p0-fork-results/native.core
+          fi
+      - name: Upload forked acceptance results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p0-fork-isolation-acceptance
+          path: p0-fork-results/
+          retention-days: 14
