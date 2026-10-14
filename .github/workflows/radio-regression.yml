@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   frontend:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -46,7 +46,7 @@ jobs:
           yarn exec vitest run "${EXISTING[@]}" --maxWorkers=2 --minWorkers=1
 
   backend:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
