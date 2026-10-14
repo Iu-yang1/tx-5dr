@@ -11,7 +11,7 @@ const logger = createLogger('HamlibProcessTransport');
 let hostSequence = 0;
 let rebuildPending = false;
 let rebuildCount = 0;
-const CRITICAL_REQUESTS = new Set<HamlibOperation>(['setPTT', 'setFrequency', 'setMode', 'applyOperatingState', 'setPowerState', 'sendCWMessage', 'stopCWMessage', 'setSplitFreqMode']);
+const CRITICAL_REQUESTS = new Set<HamlibOperation>(['setPTT', 'setFrequency', 'setVfo', 'setMode', 'applyOperatingState', 'setPowerState', 'sendCWMessage', 'stopCWMessage', 'setSplitFreqMode']);
 
 export function resolveHamlibWorkerEntry(): { path: string; execArgv: string[] } {
   const source = import.meta.url.endsWith('.ts');
@@ -63,7 +63,7 @@ export class ProcessHamlibTransport extends HamlibTransport {
     if (this.stopped || this.failure) throw this.failure ?? new Error('Hamlib transport is closed');
     const entry = this.options.entry ?? resolveHamlibWorkerEntry();
     const child = fork(entry.path, [], { execArgv: entry.execArgv, serialization: 'advanced', silent: true,
-      env: { ...process.env, TX5DR_HAMLIB_GENERATION: this.generation } });
+      env: { ...process.env, ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {}), TX5DR_HAMLIB_GENERATION: this.generation } });
     this.child = child;
     let confirmExit!: () => void;
     this.exit = new Promise(resolve => { confirmExit = resolve; });

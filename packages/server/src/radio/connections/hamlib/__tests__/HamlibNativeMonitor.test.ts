@@ -32,6 +32,21 @@ describe('HamlibNativeMonitor', () => {
     expect(() => monitor.assertUsable()).not.toThrow();
   });
 
+  it('watches explicit VFO A/B reads and writes after FT-DX10 rebase', async () => {
+    const monitor = new HamlibNativeMonitor(() => undefined, vi.fn(), vi.fn());
+    let release!: () => void;
+    const rig = monitor.instrument({
+      getVfo: vi.fn(async () => 'VFOA'),
+      setVfo: vi.fn(() => new Promise<void>(resolve => { release = resolve; })),
+    } as any);
+    expect(await rig.getVfo()).toBe('VFOA');
+    const pending = rig.setVfo('VFOB');
+    await vi.waitFor(() => expect(monitor.activities.some(item => item.operation === 'setVfo')).toBe(true));
+    release();
+    await pending;
+    expect(monitor.activities).toHaveLength(0);
+  });
+
   it('honors backend retry budgets and longer power operations', () => {
     expect(nativeOperationBudget('getFrequency', [])).toBe(5000);
     expect(nativeOperationBudget('getFrequency', [], undefined, { timeout: 3000, retry: 3 })).toBe(13000);
