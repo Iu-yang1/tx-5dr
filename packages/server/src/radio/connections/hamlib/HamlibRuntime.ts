@@ -781,6 +781,7 @@ export class HamlibRuntime
       this.pttMethod = effectiveConfig.pttMethod || 'cat';
       const pttTypeMap: Record<string, PttType> = {
         'cat': 'RIG',
+        'none': 'NONE',
         'vox': 'NONE',
         'dtr': 'DTR',
         'rts': 'RTS',
@@ -3395,7 +3396,7 @@ export class HamlibRuntime
   private async performPTTWrite(enabled: boolean): Promise<void> {
     this.checkConnected();
 
-    if (this.pttMethod === 'vox') {
+    if (this.pttMethod === 'none' || this.pttMethod === 'vox') {
       return;
     }
 
