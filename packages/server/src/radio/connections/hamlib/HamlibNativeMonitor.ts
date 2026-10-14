@@ -9,7 +9,7 @@ type PortDefaults = { timeout?: number; retry?: number; writeDelay?: number; pos
 // Instrument only the declared native I/O surface, including the spectrum controller's calls.
 const NATIVE_IO_METHODS = [
   'close', 'getAgcLevels', 'getAttenuatorValues', 'getAvailableCtcssTones', 'getAvailableDcsCodes',
-  'getConf', 'getCtcssTone', 'getDcd', 'getDcsCode', 'getFilterList', 'getFrequency', 'getFrequencyRanges', 'getVfo',
+  'getConf', 'getCtcssTone', 'getDcd', 'getDcsCode', 'getFilterList', 'getFrequency', 'getFrequencyRanges', 'getVfo', 'getVfoInfo',
   'getFunction', 'getLevel', 'getLockMode', 'getMaxRit', 'getMaxXit', 'getMode', 'getSupportedModes', 'getRfPowerStepTable', 'getPassbandNarrow',
   'getPassbandNormal', 'getPassbandWide', 'getPowerstat', 'getPreampValues', 'getPtt', 'getRepeaterOffset',
   'getRepeaterShift', 'getRit', 'getSplit', 'getSplitFreq', 'getSupportedFunctions', 'getSupportedLevels',
