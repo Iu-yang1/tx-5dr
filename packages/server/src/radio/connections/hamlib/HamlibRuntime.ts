@@ -52,6 +52,7 @@ import {
   type SetRadioModeOptions,
 } from '../IRadioConnection.js';
 import type { RadioWriteResult } from '../IRadioConnection.js';
+import { formatFrequencyMHz } from '../../../utils/frequencyMHz.js';
 
 const logger = createLogger('HamlibConnection');
 const OPERATING_STATE_FREQUENCY_TOLERANCE_HZ = 10;
@@ -3288,7 +3289,7 @@ export class HamlibRuntime
 
       this.lastSuccessfulOperation = Date.now();
       this.currentFrequencyHz = frequency;
-      logger.debug(`Frequency set: ${(frequency / 1000000).toFixed(3)} MHz`);
+      logger.debug(`Frequency set: ${formatFrequencyMHz(frequency)} MHz`);
     } catch (error) {
       throw this.convertError(error, 'setFrequency');
     }
@@ -3603,7 +3604,7 @@ export class HamlibRuntime
         try {
           await this.writeSplitFrequencyForVfo(txFrequency, txVfo);
           this.lastSuccessfulOperation = Date.now();
-          logger.debug(`Split TX frequency set: ${(txFrequency / 1000000).toFixed(3)} MHz`);
+          logger.debug(`Split TX frequency set: ${formatFrequencyMHz(txFrequency)} MHz`);
           return;
         } catch (error) {
           lastError = error;
@@ -3625,7 +3626,7 @@ export class HamlibRuntime
       await this.rig!.setSplitFreqMode(txFrequency, txMode as any, txWidth);
 
       this.lastSuccessfulOperation = Date.now();
-      logger.debug(`Split TX freq/mode set: ${(txFrequency / 1000000).toFixed(3)} MHz ${txMode} ${txWidth}Hz`);
+      logger.debug(`Split TX freq/mode set: ${formatFrequencyMHz(txFrequency)} MHz ${txMode} ${txWidth}Hz`);
     } catch (error) {
       throw this.convertError(error, 'setSplitFreqMode');
     }
