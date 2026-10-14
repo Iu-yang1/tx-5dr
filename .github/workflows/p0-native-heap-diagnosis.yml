@@ -61,6 +61,23 @@ jobs:
           echo "unsharded_exit=$status" | tee -a p0-logs/metadata.txt
           tail -n 90 p0-logs/unsharded.log
           echo "unsharded_exit=$status" >> "$GITHUB_STEP_SUMMARY"
+      - name: Recover the actual crashed Vitest worker core from systemd-coredump
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p p0-logs
+          echo "core_pattern=$(cat /proc/sys/kernel/core_pattern)" > p0-logs/coredump-status.txt
+          command -v coredumpctl >> p0-logs/coredump-status.txt 2>&1 || true
+          sudo coredumpctl --no-pager list >> p0-logs/coredump-status.txt 2>&1 || true
+          sudo coredumpctl --no-pager info > p0-logs/coredump-info.txt 2>&1 || true
+          if sudo coredumpctl --no-pager dump --output="$PWD/p0-logs/native.core" >> p0-logs/coredump-status.txt 2>&1; then
+            echo 'Core retrieved; collecting all native thread backtraces' | tee -a p0-logs/coredump-status.txt
+            sudo gdb -q -nx -batch -ex 'set pagination off' -ex 'info sharedlibrary' -ex 'thread apply all bt 45' "$(command -v node)" p0-logs/native.core > p0-logs/core-native-backtrace.txt 2>&1 || true
+            rm -f p0-logs/native.core
+            grep -E -i '^#|^Thread|hamlib|audify|onnx|wsjtx|rtaudio|napi|__libc_free|malloc_printerr|abort|SIGABRT|SIGSEGV' p0-logs/core-native-backtrace.txt | head -140 || true
+          else
+            echo 'No recoverable systemd core. gdb replay will be attempted next.' | tee -a p0-logs/coredump-status.txt
+          fi
       - name: Capture native callstack with gdb after reproducible failure
         if: always()
         shell: bash
