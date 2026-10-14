@@ -38,18 +38,30 @@ jobs:
         run: yarn install --immutable
       - name: Build all packages
         run: yarn build
-      - name: Run complete backend unit suite with one worker to isolate native heap crash
+      - name: Measure isolated Hamlib IPC control and spectrum overhead
         run: |
-          /usr/bin/time -v yarn workspace @tx5dr/server exec vitest run --maxWorkers=1 --minWorkers=1 --exclude 'src/**/*.performance.test.ts'
+          /usr/bin/time -v yarn workspace @tx5dr/server exec vitest run src/radio/connections/hamlib/__tests__/ProcessHamlibTransport.performance.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Run full backend unit suite in fresh Vitest shard processes
+        run: |
+          set -o pipefail
+          failures=0
+          for shard in $(seq 1 8); do
+            echo "::group::Backend unit shard ${shard}/8"
+            /usr/bin/time -v yarn workspace @tx5dr/server exec vitest run --shard="${shard}/8" --maxWorkers=1 --minWorkers=1 --exclude 'src/**/*.performance.test.ts' || failures=$((failures+1))
+            echo "::endgroup::"
+          done
+          if [ "${failures}" -ne 0 ]; then
+            echo "::error::${failures} backend unit shard(s) failed"
+            exit 1
+          fi
       - name: Run real-codec virtual radio and decoder integration
+        if: always()
         run: |
           /usr/bin/time -v yarn workspace @tx5dr/server test:virtual-radio-integration
       - name: Run logbook 70K-record performance regression
+        if: always()
         run: |
           /usr/bin/time -v yarn workspace @tx5dr/server test:logbook-performance
-      - name: Measure isolated Hamlib IPC control and spectrum overhead
-        run: |
-          yarn workspace @tx5dr/server exec vitest run src/radio/connections/hamlib/__tests__/ProcessHamlibTransport.performance.test.ts --maxWorkers=1 --minWorkers=1
 
   other-workspaces:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.number == 10
