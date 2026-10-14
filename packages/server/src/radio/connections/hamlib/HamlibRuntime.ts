@@ -1228,10 +1228,8 @@ export class HamlibRuntime
       let readback: VfoInfo | undefined;
       if (targetVfo !== undefined && (frequencyApplied || modeApplied)) {
         try {
-          readback = await this.withHamlibOperationTimeout(
-            'applyOperatingState.getVfoInfo',
-            this.rig!.getVfoInfo(targetVfo),
-          );
+          // Instrumented getVfoInfo already has the native watchdog and host poisoning.
+          readback = await this.rig!.getVfoInfo(targetVfo);
           this.lastSuccessfulOperation = Date.now();
         } catch (error) {
           logger.warn('Operating-state target VFO readback failed', {
@@ -3221,7 +3219,8 @@ export class HamlibRuntime
     this.checkConnected();
 
     try {
-      const vfo = await this.withHamlibOperationTimeout('getVfo', this.rig!.getVfo());
+      // getVfo is monitored by HamlibNativeMonitor; never race the critical queue.
+      const vfo = await this.rig!.getVfo();
       this.lastSuccessfulOperation = Date.now();
       return vfo;
     } catch (error) {
