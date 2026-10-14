@@ -74,6 +74,7 @@ jobs:
             src/audio/__tests__/AudioHotplugRecovery.test.ts
             src/config/__tests__/ConfigManager.audioIdentity.test.ts
             src/radio/connections/__tests__/NullConnection.standalonePtt.test.ts
+            src/radio/connections/__tests__/NullConnection.standalonePtt.test.ts
             src/radio/__tests__/HamlibConnection.test.ts
             src/radio/__tests__/PhysicalRadioManager.test.ts
             src/operator/__tests__/RadioOperatorManager.test.ts
