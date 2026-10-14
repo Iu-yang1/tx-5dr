@@ -59,7 +59,6 @@ const OPERATING_STATE_FREQUENCY_TOLERANCE_HZ = 10;
 // operations are not sufficient evidence of addressable A/B selection: for
 // example, some Yaesu backends expose TOGGLE while leaving set_vfo unavailable.
 const YAESU_EXPLICIT_AB_VFO_OPERATIONS = new Set(['CPY', 'XCHG']);
-// RigMetadata is imported from meter/types.ts
 const { SerialPort } = serialport;
 
 // RigMetadata is imported from meter/types.ts
@@ -3332,8 +3331,6 @@ export class HamlibRuntime
             });
           }
         }
-          vfo === undefined || useCurrentVfoWorkaround
-            ? this.rig!.setMode(resolvedMode, bandwidth as any)
         if (vfo === undefined || useCurrentVfoWorkaround) {
           await this.rig!.setMode(resolvedMode, bandwidth as any);
         } else {
