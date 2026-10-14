@@ -1,0 +1,72 @@
+name: Full Dynamic Radio and Performance Validation
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full-radio-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-full:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.number == 10
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact PR HEAD
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Enable Yarn
+        run: |
+          corepack enable
+          corepack prepare yarn@4.9.1 --activate
+      - name: Install native test dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libasound2-dev libpulse-dev libhamlib-dev libhamlib4 libopus-dev build-essential python3-dev pkg-config
+      - name: Install dependencies
+        run: yarn install --immutable
+      - name: Build all packages
+        run: yarn build
+      - name: Run complete backend unit, virtual-radio, decoder and logbook performance tests
+        run: |
+          /usr/bin/time -v yarn workspace @tx5dr/server test
+
+  other-workspaces:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.number == 10
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact PR HEAD
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Enable Yarn
+        run: |
+          corepack enable
+          corepack prepare yarn@4.9.1 --activate
+      - name: Install native test dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libasound2-dev libpulse-dev libhamlib-dev libhamlib4 libopus-dev build-essential python3-dev pkg-config
+      - name: Install dependencies
+        run: yarn install --immutable
+      - name: Build all packages
+        run: yarn build
+      - name: Run remaining workspace test suites
+        run: |
+          /usr/bin/time -v yarn turbo run test --filter='!@tx5dr/server' --concurrency=2
