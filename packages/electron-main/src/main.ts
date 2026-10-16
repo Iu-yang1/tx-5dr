@@ -2739,7 +2739,7 @@ async function createMainWindowOnly(options: CreateMainWindowOptions = {}): Prom
 
   // Keep renderer warnings (especially Opus backpressure) in packaged
   // electron-main.log; normal console chatter remains debug-only.
-  mainWindow.webContents.on('console-message', (_event, detailsOrLevel, legacyMessage) => {
+  mainWindow.webContents.on('console-message', (_event, detailsOrLevel, legacyMessage?: unknown) => {
     // Electron 35+ supplies one details object; older versions use
     // (level, message, line, sourceId). Accept both without writing secrets.
     const details = detailsOrLevel && typeof detailsOrLevel === 'object'
