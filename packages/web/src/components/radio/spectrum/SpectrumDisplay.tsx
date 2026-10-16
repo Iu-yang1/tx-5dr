@@ -1096,6 +1096,15 @@ export const SpectrumDisplay: React.FC<SpectrumDisplayProps> = ({
     canWriteFrequency && canExecuteRadioFrequency(ability, frequency)
   ), [ability, canWriteFrequency]);
   const { capabilities, selectedKind, subscribedKind, sessionState, setSelectedKind, setSubscribedKind } = useSpectrum();
+  // Renderer windows can stay minimized for hours under remote control.
+  // Suspend only the expensive spectrum stream while hidden; CAT/PTT,
+  // audio and the rest of the backend remain connected.
+  const [pageHidden, setPageHidden] = useState(() => typeof document !== 'undefined' && document.hidden);
+  useEffect(() => {
+    const onVisibility = () => setPageHidden(document.hidden);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, []);
   const controllerRef = useRef<SpectrumStreamController | null>(null);
   if (!controllerRef.current) {
     controllerRef.current = new SpectrumStreamController(SPECTRUM_HISTORY_LIMITS);
@@ -1284,7 +1293,7 @@ export const SpectrumDisplay: React.FC<SpectrumDisplayProps> = ({
     ?? null;
   baseRadioSdrFrequencyRef.current = baseRadioSdrFrequency;
   radioServiceRef.current = connection.state.radioService;
-  hasActiveSpectrumSubscriptionRef.current = connection.state.isConnected && !isCollapsed && Boolean(subscribedKind);
+  hasActiveSpectrumSubscriptionRef.current = connection.state.isConnected && !isCollapsed && !pageHidden && Boolean(subscribedKind);
   const effectiveRadioSdrFrequency = isRadioSdrSelected && !isFixedSpectrumMode
     ? resolveRadioSdrOptimisticDisplayFrequencyHz(radioSdrOptimisticDisplayState, baseRadioSdrFrequency)
     : baseRadioSdrFrequency;
@@ -2051,12 +2060,14 @@ export const SpectrumDisplay: React.FC<SpectrumDisplayProps> = ({
   }, [connection.state.radioService, isCollapsed, setSubscribedKind, streamController]);
 
   useEffect(() => {
-    if (isCollapsed || !connection.state.isConnected || !subscribedKind) {
+    if (!connection.state.isConnected || !subscribedKind || isCollapsed) return;
+    if (pageHidden) {
+      connection.state.radioService?.subscribeSpectrum(null);
+      streamController.reset();
       return;
     }
-
     connection.state.radioService?.subscribeSpectrum(subscribedKind);
-  }, [connection.state.isConnected, connection.state.radioService, isCollapsed, subscribedKind]);
+  }, [connection.state.isConnected, connection.state.radioService, isCollapsed, pageHidden, subscribedKind, streamController]);
 
   useEffect(() => {
     const radioService = connection.state.radioService;
@@ -2067,7 +2078,7 @@ export const SpectrumDisplay: React.FC<SpectrumDisplayProps> = ({
 
     const wsClient = radioService.wsClientInstance;
     const handleSpectrumFrame = (data: unknown) => {
-      if (isCollapsed) {
+      if (isCollapsed || pageHidden) {
         return;
       }
       const frame = data as SpectrumFrame;
@@ -2119,14 +2130,14 @@ export const SpectrumDisplay: React.FC<SpectrumDisplayProps> = ({
     return () => {
       wsClient.offWSEvent('spectrumFrame', handleSpectrumFrame);
     };
-  }, [activeProfileId, activeSpectrumKind, connection.state.radioService, isCollapsed, isRadioSdrServerFrequencySyncHeld, spectrumRenderConfig, streamController, updateRadioSdrOptimisticDisplayState, updateSpectrumRecoveryState]);
+  }, [activeProfileId, activeSpectrumKind, connection.state.radioService, isCollapsed, pageHidden, isRadioSdrServerFrequencySyncHeld, spectrumRenderConfig, streamController, updateRadioSdrOptimisticDisplayState, updateSpectrumRecoveryState]);
 
   useEffect(() => {
     lastAcceptedSpectrumFrameAtRef.current = Date.now();
     spectrumNoFrameRetryCountRef.current = 0;
     resetSpectrumRecoveryState();
 
-    if (isCollapsed || pauseNoFrameRecovery || !connection.state.isReady || !connection.state.radioService || !subscribedKind) {
+    if (isCollapsed || pageHidden || pauseNoFrameRecovery || !connection.state.isReady || !connection.state.radioService || !subscribedKind) {
       return;
     }
 
@@ -2159,7 +2170,7 @@ export const SpectrumDisplay: React.FC<SpectrumDisplayProps> = ({
     return () => {
       clearInterval(timer);
     };
-  }, [connection.state.isReady, connection.state.radioService, isCollapsed, pauseNoFrameRecovery, resetSpectrumRecoveryState, subscribedKind, updateSpectrumRecoveryState]);
+  }, [connection.state.isReady, connection.state.radioService, isCollapsed, pageHidden, pauseNoFrameRecovery, resetSpectrumRecoveryState, subscribedKind, updateSpectrumRecoveryState]);
 
   useLayoutEffect(() => {
     const axisTransition = spectrumViewportTransitionRef.current ? 'animate' as const : 'immediate' as const;
