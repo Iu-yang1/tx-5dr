@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { encodeRealtimeEncodedAudioFrame } from '@tx5dr/core';
-import { BrowserOpusDecoder, OPUS_MAX_PENDING_FRAMES } from '../realtimeAudioCodec';
+import { BrowserOpusDecoder, OPUS_MAX_PENDING_FRAMES, OPUS_MAX_NATIVE_DECODE_QUEUE } from '../realtimeAudioCodec';
 
 const originalAudioDecoder = (globalThis as unknown as { AudioDecoder?: unknown }).AudioDecoder;
 const originalEncodedAudioChunk = (globalThis as unknown as { EncodedAudioChunk?: unknown }).EncodedAudioChunk;
@@ -28,6 +28,8 @@ class FakeAudioDecoder {
   static instances: FakeAudioDecoder[] = [];
 
   readonly chunks: unknown[] = [];
+  decodeQueueSize = 0;
+  throwOnDecode = false;
 
   constructor(private readonly init: { output: (output: unknown) => void; error: (error: Error) => void }) {
     FakeAudioDecoder.instances.push(this);
@@ -36,6 +38,7 @@ class FakeAudioDecoder {
   configure(): void {}
 
   decode(chunk: unknown): void {
+    if (this.throwOnDecode) throw new Error('simulated synchronous codec exception');
     this.chunks.push(chunk);
   }
 
@@ -148,5 +151,38 @@ describe('BrowserOpusDecoder', () => {
     failed.emit();
     current.emit();
     expect(output).toEqual([2]);
+  });
+  it('resets metadata and the native decoder together at the WebCodecs queue cap', () => {
+    (globalThis as unknown as { AudioDecoder?: unknown }).AudioDecoder = FakeAudioDecoder;
+    (globalThis as unknown as { EncodedAudioChunk?: unknown }).EncodedAudioChunk = FakeEncodedAudioChunk;
+    const result: number[] = [];
+    const decoder = new BrowserOpusDecoder(frame => result.push(frame.sequence));
+
+    decoder.decode(makeOpusPayload(1, 1000), 1010);
+    const saturated = FakeAudioDecoder.instances[0]!;
+    saturated.decodeQueueSize = OPUS_MAX_NATIVE_DECODE_QUEUE;
+    decoder.decode(makeOpusPayload(2, 1020), 1030);
+    expect(FakeAudioDecoder.instances).toHaveLength(2);
+    expect(decoder.getDiagnostics()).toMatchObject({ pendingFrames: 1, overloadResets: 1 });
+    saturated.emit();
+    expect(result).toEqual([]);
+    FakeAudioDecoder.instances[1]!.emit();
+    expect(result).toEqual([2]);
+  });
+
+  it('recovers from a synchronous native decode exception without leaking pending metadata', () => {
+    (globalThis as unknown as { AudioDecoder?: unknown }).AudioDecoder = FakeAudioDecoder;
+    (globalThis as unknown as { EncodedAudioChunk?: unknown }).EncodedAudioChunk = FakeEncodedAudioChunk;
+    const result: number[] = [];
+    const decoder = new BrowserOpusDecoder(frame => result.push(frame.sequence));
+
+    decoder.decode(makeOpusPayload(1, 1000), 1010);
+    FakeAudioDecoder.instances[0]!.throwOnDecode = true;
+    decoder.decode(makeOpusPayload(2, 1020), 1030);
+    expect(decoder.getDiagnostics().pendingFrames).toBe(0);
+    decoder.decode(makeOpusPayload(3, 1040), 1050);
+    expect(FakeAudioDecoder.instances).toHaveLength(2);
+    FakeAudioDecoder.instances[1]!.emit();
+    expect(result).toEqual([3]);
   });
 });
