@@ -25,7 +25,8 @@ describe('trace GPU lifecycle', () => {
       program: null, buffer, previousBuffer: null, fillBuffer: null,
       fillPreviousBuffer: null, supplementBuffer: null, supplementPreviousBuffer: null,
     });
-    expect(deleteBuffer).toHaveBeenCalledExactlyOnceWith(buffer);
+    expect(deleteBuffer).toHaveBeenCalledTimes(1);
+    expect(deleteBuffer).toHaveBeenCalledWith(buffer);
     expect(deleteProgram).not.toHaveBeenCalled();
   });
 });
