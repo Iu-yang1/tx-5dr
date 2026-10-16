@@ -490,6 +490,27 @@ export class SpectrumStreamController {
     this.historyLimits = normalizeHistoryLimits(historyLimits);
   }
 
+  /** Shrink retained frame history immediately when an 8GiB Electron host
+   * reports memory pressure; do not wait for another 1024 incoming frames.
+   */
+  setHistoryLimits(limits: SpectrumHistoryLimits): void {
+    const requested = normalizeHistoryLimits(limits);
+    let changed = false;
+    for (const kind of SPECTRUM_KINDS) {
+      const next = Number.isFinite(requested[kind]) ? Math.max(1, Math.floor(requested[kind])) : DEFAULT_HISTORY;
+      if (this.historyLimits[kind] === next) continue;
+      this.historyLimits[kind] = next;
+      this.histories[kind].length = Math.min(this.histories[kind].length, next);
+      this.pendingByKind[kind].length = Math.min(this.pendingByKind[kind].length, next);
+      changed = true;
+    }
+    if (changed && this.context.selectedKind) {
+      this.latestRenderSnapshot = null;
+      this.latestRenderSnapshotKey = null;
+      this.scheduleReplaceBatch('immediate');
+    }
+  }
+
   subscribeFrameTick = (listener: () => void): (() => void) => {
     this.frameListeners.add(listener);
     return () => {
