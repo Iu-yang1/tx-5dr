@@ -2739,9 +2739,16 @@ async function createMainWindowOnly(options: CreateMainWindowOptions = {}): Prom
 
   // Keep renderer warnings (especially Opus backpressure) in packaged
   // electron-main.log; normal console chatter remains debug-only.
-  mainWindow.webContents.on('console-message', (_event, level, message) => {
-    const safeMessage = redactSensitiveText(String(message));
-    if (Number(level) >= 2) logger.warn(`renderer console [${level}]: ${safeMessage}`);
+  mainWindow.webContents.on('console-message', (_event, detailsOrLevel, legacyMessage) => {
+    // Electron 35+ supplies one details object; older versions use
+    // (level, message, line, sourceId). Accept both without writing secrets.
+    const details = detailsOrLevel && typeof detailsOrLevel === 'object'
+      ? detailsOrLevel as { level?: string | number; message?: string }
+      : { level: detailsOrLevel as number, message: String(legacyMessage ?? '') };
+    const level = details.level;
+    const safeMessage = redactSensitiveText(String(details.message ?? ''));
+    const warning = level === 'warning' || level === 'error' || Number(level) >= 2;
+    if (warning) logger.warn(`renderer console [${level}]: ${safeMessage}`);
     else logger.debug(`renderer console [${level}]: ${safeMessage}`);
   });
 
