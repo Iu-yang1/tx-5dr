@@ -56,7 +56,7 @@ import {
   detectWindowsVCRuntime,
 } from './vcRuntime.js';
 import { copyRendererFileBytes, sanitizeRendererSaveFileName } from './rendererFileSave.js';
-import { RendererRecoveryBudget } from './rendererRecovery.js';
+import { RendererRecoveryBudget, shouldRecoverRendererExit } from './rendererRecovery.js';
 import { classifyPhysicalMemoryPressure, MemorySnapshotHistory } from './memoryPressure.js';
 
 // 获取当前模块的目录(ESM中的__dirname替代方案)
@@ -96,6 +96,7 @@ let mainWindowRendererGone = false;
 let rendererRecoveryTimer: NodeJS.Timeout | null = null;
 let rendererRecoveryPromise: Promise<BrowserWindow | null> | null = null;
 const rendererRecoveryBudget = new RendererRecoveryBudget();
+const intentionallyDestroyedMainWindows = new WeakSet<BrowserWindow>();
 let trayInstance: Tray | null = null; // 系统托盘实例（Windows/Linux）
 let aboutWindow: BrowserWindow | null = null; // “关于”窗口实例（单例）
 let isQuitting: boolean = false; // 主动退出标志，防止子进程被杀时弹崩溃错误
@@ -2497,6 +2498,7 @@ async function loadMainAppInWindow(windowInstance: BrowserWindow): Promise<void>
 
 function closeMainWindowToBackground(windowInstance: BrowserWindow, reason: string): void {
   logger.info(`destroying main window renderer for background mode (${reason})`);
+  intentionallyDestroyedMainWindows.add(windowInstance);
   windowInstance.destroy();
   logDevProcessMemory(`main-window-destroy:${reason}`);
 }
@@ -2525,6 +2527,7 @@ async function rebuildFailedMainWindow(failed: BrowserWindow, manual = false): P
         bounds = failed.getBounds();
         maximized = failed.isMaximized();
         visible = failed.isVisible() && !failed.isMinimized();
+        intentionallyDestroyedMainWindows.add(failed);
         failed.destroy(); // Bypasses closeBehavior prompts; does not stop the backend.
       }
       if (isQuitting || isCleaningUp) return null;
@@ -2732,7 +2735,10 @@ async function createMainWindowOnly(options: CreateMainWindowOptions = {}): Prom
 
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     logger.error('renderer process gone', details);
-    if (details.reason !== 'clean-exit') {
+    if (shouldRecoverRendererExit(details.reason, {
+      intentionalClose: intentionallyDestroyedMainWindows.has(mainWindow),
+      quitting: isQuitting || isCleaningUp,
+    })) {
       scheduleFailedRendererRecovery(mainWindow, details.reason);
     }
   });
