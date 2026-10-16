@@ -2092,7 +2092,9 @@ export const SpectrumDisplay: React.FC<SpectrumDisplayProps> = ({
     if (pageHidden) {
       // Subscription ACK may set subscribedKind=null while the page is hidden.
       // Preserve the last desired kind instead of making resume depend on ACK.
-      suspendedSpectrumKindRef.current ??= subscribedKind ?? selectedKind ?? capabilities?.defaultKind ?? AUDIO_SOURCE;
+      // Do not synthesize a new subscription when the user deliberately
+      // left the spectrum unsubscribed before the page was hidden.
+      suspendedSpectrumKindRef.current ??= subscribedKind;
       connection.state.radioService?.subscribeSpectrum(null);
       streamController.reset();
       return;
