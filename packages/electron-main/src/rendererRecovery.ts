@@ -5,6 +5,13 @@ export const RENDERER_RECOVERY_WINDOW_MS = 10 * 60_000;
 export const RENDERER_RECOVERY_MAX_ATTEMPTS = 5;
 export const RENDERER_RECOVERY_DELAY_MS = 1_000;
 
+export function shouldRecoverRendererExit(
+  reason: string,
+  options: { intentionalClose: boolean; quitting: boolean },
+): boolean {
+  return reason !== 'clean-exit' && !options.intentionalClose && !options.quitting;
+}
+
 export class RendererRecoveryBudget {
   private attempts: number[] = [];
 
