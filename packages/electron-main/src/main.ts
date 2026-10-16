@@ -2972,44 +2972,6 @@ async function openInBrowser() {
   await shell.openExternal(url);
 }
 
-function redactSensitiveUrl(value: string): string {
-  return redactSensitiveText(value);
-}
-
-function formatMetricMemory(value: number | undefined): string | null {
-  if (typeof value !== 'number') {
-    return null;
-  }
-  return `${(value / 1024).toFixed(1)}MB`;
-}
-
-function getWindowMetadataByPid(): Map<number, Array<Record<string, unknown>>> {
-  const windowsByPid = new Map<number, Array<Record<string, unknown>>>();
-
-  for (const windowInstance of BrowserWindow.getAllWindows()) {
-    try {
-      if (windowInstance.isDestroyed()) {
-        continue;
-      }
-
-      const pid = windowInstance.webContents.getOSProcessId();
-      const windows = windowsByPid.get(pid) ?? [];
-      windows.push({
-        id: windowInstance.id,
-        title: windowInstance.getTitle(),
-        visible: windowInstance.isVisible(),
-        minimized: windowInstance.isMinimized(),
-        url: redactSensitiveUrl(windowInstance.webContents.getURL()),
-      });
-      windowsByPid.set(pid, windows);
-    } catch (error) {
-      logger.warn('failed to collect window metadata for process memory log', error);
-    }
-  }
-
-  return windowsByPid;
-}
-
 function logDevProcessMemory(reason: string): void {
   if (!shouldLogDevProcessMemory()) return;
 
