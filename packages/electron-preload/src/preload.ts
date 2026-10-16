@@ -247,6 +247,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 环境信息
   getApiBase: () => API_BASE,
   isEmbedded: () => process.env.EMBEDDED === 'true',
+  memory: {
+    getPressure: (): Promise<{ level: 'normal' | 'warning' | 'critical'; totalMiB: number; freeMiB: number; constrainedDevice: boolean }> =>
+      ipcRenderer.invoke('system:memoryPressure'),
+  },
   
   // 文件系统操作
   fs: {
@@ -523,6 +527,9 @@ declare global {
     electronAPI: {
       getApiBase(): string;
       isEmbedded(): boolean;
+      memory: {
+        getPressure(): Promise<{ level: 'normal' | 'warning' | 'critical'; totalMiB: number; freeMiB: number; constrainedDevice: boolean }>;
+      };
       fs: {
         selectFile(options?: {
           title?: string;
