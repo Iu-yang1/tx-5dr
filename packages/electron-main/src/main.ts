@@ -56,6 +56,7 @@ import {
   detectWindowsVCRuntime,
 } from './vcRuntime.js';
 import { copyRendererFileBytes, sanitizeRendererSaveFileName } from './rendererFileSave.js';
+import { RendererRecoveryBudget } from './rendererRecovery.js';
 
 // 获取当前模块的目录(ESM中的__dirname替代方案)
 // const __filename = fileURLToPath(import.meta.url);
@@ -88,6 +89,10 @@ let errorType: string = ''; // 错误类型，空字符串表示无错误
 let hasStartupError: boolean = false; // 是否发生启动错误
 let crashedProcessName: string = ''; // 崩溃的子进程名
 let mainWindowInstance: BrowserWindow | null = null; // 主窗口实例
+let mainWindowRendererGone = false;
+let rendererRecoveryTimer: NodeJS.Timeout | null = null;
+let rendererRecoveryPromise: Promise<BrowserWindow | null> | null = null;
+const rendererRecoveryBudget = new RendererRecoveryBudget();
 let trayInstance: Tray | null = null; // 系统托盘实例（Windows/Linux）
 let aboutWindow: BrowserWindow | null = null; // “关于”窗口实例（单例）
 let isQuitting: boolean = false; // 主动退出标志，防止子进程被杀时弹崩溃错误
@@ -267,6 +272,10 @@ interface FsSaveFileOptions {
 
 interface CreateMainWindowOptions {
   startHealthCheck?: boolean;
+  show?: boolean;
+  focus?: boolean;
+  bounds?: Electron.Rectangle;
+  maximized?: boolean;
 }
 
 interface StartupLogFileState {
@@ -2488,13 +2497,93 @@ function closeMainWindowToBackground(windowInstance: BrowserWindow, reason: stri
 }
 
 /**
+ * Destroy only the failed BrowserWindow/renderer. The embedded web/server
+ * processes, radio connection and all other operator sessions remain alive.
+ * Never call cleanupAndQuit() from a renderer crash.
+ */
+async function rebuildFailedMainWindow(failed: BrowserWindow, manual = false): Promise<BrowserWindow | null> {
+  if (rendererRecoveryPromise) return rendererRecoveryPromise;
+  if (isQuitting || isCleaningUp || failed !== mainWindowInstance) return null;
+
+  if (rendererRecoveryTimer) {
+    clearTimeout(rendererRecoveryTimer);
+    rendererRecoveryTimer = null;
+  }
+  if (manual) rendererRecoveryBudget.reset();
+
+  rendererRecoveryPromise = (async () => {
+    let bounds: Electron.Rectangle | undefined;
+    let maximized = false;
+    let visible = true;
+    try {
+      if (!failed.isDestroyed()) {
+        bounds = failed.getBounds();
+        maximized = failed.isMaximized();
+        visible = failed.isVisible() && !failed.isMinimized();
+        failed.destroy(); // Bypasses closeBehavior prompts; does not stop the backend.
+      }
+      if (isQuitting || isCleaningUp) return null;
+
+      const replacement = await createMainWindowOnly({
+        startHealthCheck: true,
+        show: manual || visible,
+        focus: manual,
+        bounds,
+        maximized,
+      });
+      if (mainAppReadyForWindow && !replacement.isDestroyed()) {
+        try {
+          await loadMainAppInWindow(replacement);
+        } catch (error) {
+          logger.error('failed to reload main renderer after crash', error);
+        }
+      }
+      logger.info('renderer recovery created new main window', { manual, visible });
+      return replacement;
+    } catch (error) {
+      logger.error('renderer recovery failed; tray and browser remain available', error);
+      return null;
+    }
+  })();
+  try {
+    return await rendererRecoveryPromise;
+  } finally {
+    rendererRecoveryPromise = null;
+  }
+}
+
+function scheduleFailedRendererRecovery(failed: BrowserWindow, reason: string): void {
+  if (isQuitting || isCleaningUp || failed !== mainWindowInstance || rendererRecoveryTimer) return;
+  mainWindowRendererGone = true;
+  const decision = rendererRecoveryBudget.recordCrash(Date.now());
+  logger.error('main renderer terminated', { reason, attempt: decision.attempts, autoRecovery: decision.allowed });
+  logDevProcessMemory('renderer-gone');
+  // A held keyboard state cannot be trusted once its renderer disappears.
+  voicePttShortcutCapture.keyDownActive = false;
+  voicePttShortcutCapture.lastKeyDownAt = null;
+
+  if (!decision.allowed) {
+    logger.error('renderer recovery circuit breaker open; use tray/Dock to retry', {
+      retryAfterMs: decision.retryAfterMs,
+    });
+    return;
+  }
+  rendererRecoveryTimer = setTimeout(() => {
+    rendererRecoveryTimer = null;
+    if (!isQuitting && !isCleaningUp && failed === mainWindowInstance) {
+      void rebuildFailedMainWindow(failed);
+    }
+  }, decision.retryAfterMs);
+}
+
+/**
  * 仅创建主窗口（不启动子进程），用于托盘/Dock恢复窗口
  */
 async function createMainWindowOnly(options: CreateMainWindowOptions = {}): Promise<BrowserWindow> {
   configureNotificationPermissionHandlers();
 
   // 检查主窗口是否已存在且有效
-  if (mainWindowInstance && !mainWindowInstance.isDestroyed()) {
+  if (mainWindowInstance && !mainWindowInstance.isDestroyed() && !mainWindowRendererGone) {
     mainWindowInstance.show();
     mainWindowInstance.focus();
     return mainWindowInstance;
@@ -2508,9 +2597,10 @@ async function createMainWindowOnly(options: CreateMainWindowOptions = {}): Prom
   const isDevelopment = isDevelopmentRuntime();
 
   const mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
-    show: true,
+    width: options.bounds?.width ?? 1200,
+    height: options.bounds?.height ?? 800,
+    ...(options.bounds ? { x: options.bounds.x, y: options.bounds.y } : {}),
+    show: false,
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#000000' : '#ffffff',
     titleBarStyle: 'hiddenInset',
     titleBarOverlay: process.platform === 'win32' ? {
@@ -2532,6 +2622,8 @@ async function createMainWindowOnly(options: CreateMainWindowOptions = {}): Prom
 
   logger.info('main window created');
   mainWindowInstance = mainWindow;
+  mainWindowRendererGone = false;
+  if (options.maximized) mainWindow.maximize();
 
   // Windows/Linux: 关闭窗口时询问用户行为；后台模式销毁 renderer，避免隐藏窗口继续占用内存。
   if (process.platform !== 'darwin') {
@@ -2584,7 +2676,10 @@ async function createMainWindowOnly(options: CreateMainWindowOptions = {}): Prom
 
   mainWindow.on('closed', () => {
     logger.info('main window closed');
+    // An old crashed window may close after its replacement was constructed.
+    if (mainWindowInstance !== mainWindow) return;
     mainWindowInstance = null;
+    mainWindowRendererGone = false;
     voicePttShortcutCapture.enabled = false;
     voicePttShortcutCapture.webContentsId = null;
     voicePttShortcutCapture.keyDownActive = false;
@@ -2611,7 +2706,14 @@ async function createMainWindowOnly(options: CreateMainWindowOptions = {}): Prom
         return;
       }
 
-      logger.error(`page load failed: ${errorCode} - ${errorDescription} (${validatedURL})`);
+      if (errorCode === -3 || isQuitting || isCleaningUp || mainWindowRendererGone) return; // ERR_ABORTED navigation / teardown.
+      logger.error(`page load failed: ${errorCode} - ${errorDescription} (${redactSensitiveText(validatedURL)})`);
+      // The app's backend can be briefly unreachable after a renderer rebuild.
+      // Keep its BrowserWindow/tray alive rather than closing via closeBehavior.
+      if (mainAppReadyForWindow) {
+        void mainWindow.loadFile(getLoadingPagePath()).catch(error => logger.warn('failed to show offline loading page', error));
+        return;
+      }
       errorType = 'UNKNOWN';
       hasStartupError = true;
       mainWindow.close();
@@ -2623,9 +2725,11 @@ async function createMainWindowOnly(options: CreateMainWindowOptions = {}): Prom
     },
   );
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  mainWindow.webContents.on('render-process-gone', (_event: any, details: any) => {
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
     logger.error('renderer process gone', details);
+    if (details.reason !== 'clean-exit') {
+      scheduleFailedRendererRecovery(mainWindow, details.reason);
+    }
   });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -2689,12 +2793,17 @@ async function createMainWindowOnly(options: CreateMainWindowOptions = {}): Prom
   // 先加载本地 loading 页面，避免白屏；主前端在服务就绪后单独切换。
   await mainWindow.loadFile(getLoadingPagePath());
 
-  // 显示窗口（此时展示 loading 动画）
-  mainWindow.show();
-  mainWindow.focus();
-  mainWindow.moveTop();
+  // Automatic crash recovery must not focus-steal a remote session.
+  if (options.show !== false) {
+    if (options.focus === false) mainWindow.showInactive();
+    else {
+      mainWindow.show();
+      mainWindow.focus();
+      mainWindow.moveTop();
+    }
+  }
 
-  if (process.platform === 'darwin') {
+  if (options.focus !== false && options.show !== false && process.platform === 'darwin') {
     app.focus({ steal: true });
     if (app.dock) {
       app.dock.bounce('critical');
@@ -2708,6 +2817,10 @@ async function createMainWindowOnly(options: CreateMainWindowOptions = {}): Prom
  * 确保主窗口存在并可见，若已销毁则重新创建（不重启子进程）
  */
 async function ensureMainWindowVisible(): Promise<BrowserWindow> {
+  if (rendererRecoveryPromise) await rendererRecoveryPromise;
+  if (mainWindowInstance && !mainWindowInstance.isDestroyed() && mainWindowRendererGone) {
+    await rebuildFailedMainWindow(mainWindowInstance, true);
+  }
   let windowInstance = mainWindowInstance && !mainWindowInstance.isDestroyed()
     ? mainWindowInstance
     : null;
@@ -2989,6 +3102,7 @@ async function prepareEmbeddedServerShutdown(reason: string): Promise<boolean> {
 
 function closeFrontendWindowsImmediately(): number {
   const startedAt = Date.now();
+  if (rendererRecoveryTimer) { clearTimeout(rendererRecoveryTimer); rendererRecoveryTimer = null; }
 
   if (serverCheckInterval) {
     clearInterval(serverCheckInterval);
