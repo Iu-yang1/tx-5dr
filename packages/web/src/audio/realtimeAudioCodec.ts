@@ -104,14 +104,15 @@ export class BrowserOpusDecoder {
     if (!this.decoder) return;
 
     const nativeQueue = this.decoder.decodeQueueSize ?? 0;
-    if (this.pendingFrames.length >= OPUS_MAX_PENDING_FRAMES || nativeQueue >= OPUS_MAX_NATIVE_DECODE_QUEUE) {
+    const queuedMetadata = this.pendingFrames.length;
+    if (queuedMetadata >= OPUS_MAX_PENDING_FRAMES || nativeQueue >= OPUS_MAX_NATIVE_DECODE_QUEUE) {
       // Dropping only the JS queue would misalign it with the native decoder's
       // asynchronous output. Recreate *both* queues as one transaction.
       this.close();
       this.overloadResets += 1;
       if (this.overloadResets === 1 || this.overloadResets % 100 === 0) {
         logger.warn('Opus decode backlog exceeded safe bound; resetting decoder', {
-          pendingFrames: this.pendingFrames.length,
+          pendingFrames: queuedMetadata,
           nativeQueue,
           resets: this.overloadResets,
         });
