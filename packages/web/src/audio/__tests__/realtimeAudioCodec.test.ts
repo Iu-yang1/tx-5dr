@@ -123,7 +123,7 @@ describe('BrowserOpusDecoder', () => {
 
     // A late callback from an obsolete codec must not consume current metadata.
     const previous = FakeAudioDecoder.instances[0]!;
-    const last = FakeAudioDecoder.instances.at(-1)!;
+    const last = FakeAudioDecoder.instances[FakeAudioDecoder.instances.length - 1]!;
     const before = decoder.getDiagnostics().pendingFrames;
     previous.emit();
     expect(decoded).toEqual([]);
@@ -144,7 +144,7 @@ describe('BrowserOpusDecoder', () => {
     expect(decoder.getDiagnostics().pendingFrames).toBe(0);
 
     decoder.decode(makeOpusPayload(2, 1_020), 1_120);
-    const current = FakeAudioDecoder.instances.at(-1)!;
+    const current = FakeAudioDecoder.instances[FakeAudioDecoder.instances.length - 1]!;
     failed.emit();
     current.emit();
     expect(output).toEqual([2]);
