@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, shell, Tray, Menu, dialog, nativeTheme, powerSaveBlocker, session, globalShortcut, type WebContents } from 'electron';
 import log from 'electron-log/main';
-import { homedir, hostname as getHostname, networkInterfaces } from 'node:os';
+import { homedir, hostname as getHostname, networkInterfaces, totalmem, freemem } from 'node:os';
 import net from 'node:net';
 import { join } from 'path';
 import http from 'http';
@@ -57,6 +57,7 @@ import {
 } from './vcRuntime.js';
 import { copyRendererFileBytes, sanitizeRendererSaveFileName } from './rendererFileSave.js';
 import { RendererRecoveryBudget } from './rendererRecovery.js';
+import { classifyPhysicalMemoryPressure, MemorySnapshotHistory } from './memoryPressure.js';
 
 // 获取当前模块的目录(ESM中的__dirname替代方案)
 // const __filename = fileURLToPath(import.meta.url);
@@ -73,6 +74,8 @@ const BACKEND_HEALTH_FAILURE_RETRY_MS = 2_000;
 const DEV_FRONTEND_READY_TIMEOUT_MS = 60_000;
 const DEV_BACKEND_READY_TIMEOUT_MS = 60_000;
 const DEV_PROCESS_MEMORY_LOG_INTERVAL_MS = 30_000;
+const PROD_PROCESS_MEMORY_LOG_INTERVAL_MS = 60_000;
+const recentMemorySnapshots = new MemorySnapshotHistory(30);
 const FORCE_STARTUP_ERROR_CARD_TEST = false;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -939,7 +942,9 @@ function shouldOpenDevTools(): boolean {
 }
 
 function shouldLogDevProcessMemory(): boolean {
-  return isDevelopmentRuntime() && !isEnvFlagDisabled('TX5DR_ELECTRON_MEMORY_LOG');
+  // Keep production logging available to diagnose overnight renderer OOM.
+  // TX5DR_ELECTRON_MEMORY_LOG=0 provides an opt-out on managed systems.
+  return !isEnvFlagDisabled('TX5DR_ELECTRON_MEMORY_LOG');
 }
 
 function getLanIpv4Addresses(): string[] {
@@ -2990,38 +2995,51 @@ function getWindowMetadataByPid(): Map<number, Array<Record<string, unknown>>> {
 }
 
 function logDevProcessMemory(reason: string): void {
-  if (!shouldLogDevProcessMemory()) {
-    return;
-  }
+  if (!shouldLogDevProcessMemory()) return;
 
   try {
-    const windowsByPid = getWindowMetadataByPid();
-    const processes = app.getAppMetrics()
-      .map((metric) => ({
-        pid: metric.pid,
-        type: metric.type,
-        name: metric.name ?? null,
-        serviceName: metric.serviceName ?? null,
-        workingSet: formatMetricMemory(metric.memory.workingSetSize),
-        peakWorkingSet: formatMetricMemory(metric.memory.peakWorkingSetSize),
-        privateBytes: formatMetricMemory(metric.memory.privateBytes),
-        cpuPercent: Number(metric.cpu.percentCPUUsage.toFixed(1)),
-        windows: windowsByPid.get(metric.pid) ?? [],
-      }))
-      .sort((left, right) => {
-        const rightMemory = right.workingSet ? Number.parseFloat(right.workingSet) : 0;
-        const leftMemory = left.workingSet ? Number.parseFloat(left.workingSet) : 0;
-        return rightMemory - leftMemory;
-      });
+    const physical = classifyPhysicalMemoryPressure(totalmem(), freemem());
+    const metrics = app.getAppMetrics();
+    const samples = metrics.map(metric => ({
+      pid: metric.pid,
+      type: String(metric.type),
+      privateKiB: metric.memory.privateBytes ?? 0,
+      workingSetKiB: metric.memory.workingSetSize ?? 0,
+    }));
+    recentMemorySnapshots.record({
+      at: Date.now(),
+      reason,
+      system: physical,
+      processes: samples,
+    });
+    const topProcesses = samples
+      .sort((left, right) => right.privateKiB - left.privateKiB)
+      .slice(0, 6)
+      .map(sample => ({
+        pid: sample.pid,
+        type: sample.type,
+        privateMiB: Math.round(sample.privateKiB / 1024),
+        rssMiB: Math.round(sample.workingSetKiB / 1024),
+      }));
 
-    const topProcesses = processes.slice(0, 3).map((process) => (
-      `${process.pid}:${process.type}:${process.name ?? 'unknown'}:${process.workingSet}`
-    )).join(', ');
-    logger.info(
-      `dev electron process memory reason=${reason} webPid=${webProcess?.pid ?? 'none'} serverPid=${serverProcess?.pid ?? 'none'} processCount=${processes.length} top=${topProcesses || 'none'}`,
-    );
+    // Fixed-rate, bounded, non-sensitive diagnostics; available in Nightly.
+    logger.info('electron memory diagnostics', {
+      reason,
+      system: physical,
+      topProcesses,
+      webPid: webProcess?.pid ?? null,
+      serverPid: serverProcess?.pid ?? null,
+      processCount: samples.length,
+    });
+    if (physical.level !== 'normal') {
+      logger.warn('system memory pressure detected; hide unused spectrum windows', physical);
+    }
+    if (reason === 'renderer-gone') {
+      // Last five samples are useful even after the crashed PID disappears.
+      logger.error('pre-crash process memory history', recentMemorySnapshots.snapshot().slice(-5));
+    }
   } catch (error) {
-    logger.warn('failed to collect dev electron process memory', error);
+    logger.warn('failed to collect electron process memory', error);
   }
 }
 
@@ -3033,7 +3051,7 @@ function startDevProcessMemoryLogger(): void {
   logDevProcessMemory('startup');
   devProcessMemoryLogInterval = setInterval(() => {
     logDevProcessMemory('interval');
-  }, DEV_PROCESS_MEMORY_LOG_INTERVAL_MS);
+  }, isDevelopmentRuntime() ? DEV_PROCESS_MEMORY_LOG_INTERVAL_MS : PROD_PROCESS_MEMORY_LOG_INTERVAL_MS);
 }
 
 function stopDevProcessMemoryLogger(): void {
