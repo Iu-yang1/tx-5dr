@@ -4167,6 +4167,7 @@ function setupIpcHandlers() {
     return { canceled: false, filePath: result.filePath };
   });
 
+  ipcMain.handle('system:memoryPressure', () => classifyPhysicalMemoryPressure(totalmem(), freemem()));
   ipcMain.handle('app:getVersion', () => BUILD_INFO.version);
   ipcMain.handle('app:getBuildInfo', () => BUILD_INFO);
   ipcMain.handle('app:quit', async () => {
