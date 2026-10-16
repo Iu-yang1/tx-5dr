@@ -2059,15 +2059,30 @@ export const SpectrumDisplay: React.FC<SpectrumDisplayProps> = ({
     connection.state.radioService?.subscribeSpectrum(null);
   }, [connection.state.radioService, isCollapsed, setSubscribedKind, streamController]);
 
+  const suspendedSpectrumKindRef = useRef<SpectrumKind | null>(null);
   useEffect(() => {
-    if (!connection.state.isConnected || !subscribedKind || isCollapsed) return;
+    if (isCollapsed) {
+      suspendedSpectrumKindRef.current = null;
+      return;
+    }
     if (pageHidden) {
+      // Subscription ACK may set subscribedKind=null while the page is hidden.
+      // Preserve the last desired kind instead of making resume depend on ACK.
+      suspendedSpectrumKindRef.current ??= subscribedKind ?? selectedKind ?? capabilities?.defaultKind ?? AUDIO_SOURCE;
       connection.state.radioService?.subscribeSpectrum(null);
       streamController.reset();
       return;
     }
-    connection.state.radioService?.subscribeSpectrum(subscribedKind);
-  }, [connection.state.isConnected, connection.state.radioService, isCollapsed, pageHidden, subscribedKind, streamController]);
+    if (!connection.state.isConnected) return;
+    const resumeKind = suspendedSpectrumKindRef.current;
+    if (resumeKind) {
+      suspendedSpectrumKindRef.current = null;
+      setSubscribedKind(resumeKind);
+      connection.state.radioService?.subscribeSpectrum(resumeKind);
+      return;
+    }
+    if (subscribedKind) connection.state.radioService?.subscribeSpectrum(subscribedKind);
+  }, [capabilities?.defaultKind, connection.state.isConnected, connection.state.radioService, isCollapsed, pageHidden, selectedKind, setSubscribedKind, subscribedKind, streamController]);
 
   useEffect(() => {
     const radioService = connection.state.radioService;
