@@ -52,6 +52,8 @@ import {
 } from '../../../utils/strategyFrequencyPick';
 import { formatFrequencyMHz } from '../../../utils/frequencyMHz';
 
+import { resolveSpectrumMemoryHistoryLimits, resolveSpectrumMemoryTier, type SpectrumMemoryTier } from '../../../spectrum/spectrumMemoryBudget';
+
 const logger = createLogger('SpectrumDisplay');
 const SPECTRUM_NO_FRAME_STALE_MS = 10_000;
 const SPECTRUM_NO_FRAME_CHECK_MS = 1_000;
@@ -66,6 +68,9 @@ type ElectronWindowHelper = Window & {
   electronAPI?: {
     window: {
       openSpectrumWindow: () => Promise<void>;
+    };
+    memory?: {
+      getPressure: () => Promise<{ level: 'normal' | 'warning' | 'critical'; constrainedDevice: boolean; freeMiB: number }>;
     };
   };
 };
@@ -1105,11 +1110,29 @@ export const SpectrumDisplay: React.FC<SpectrumDisplayProps> = ({
     document.addEventListener('visibilitychange', onVisibility);
     return () => document.removeEventListener('visibilitychange', onVisibility);
   }, []);
+
+  const [memoryTier, setMemoryTier] = useState<SpectrumMemoryTier>('normal');
+  useEffect(() => {
+    const memoryAPI = (window as ElectronWindowHelper).electronAPI?.memory;
+    if (!memoryAPI) return;
+    let disposed = false;
+    const pollPressure = () => {
+      void memoryAPI.getPressure().then((info) => {
+        if (!disposed) setMemoryTier(resolveSpectrumMemoryTier(info));
+      }).catch((error) => logger.debug('memory pressure polling unavailable', error));
+    };
+    pollPressure();
+    const timer = window.setInterval(pollPressure, 60_000);
+    return () => { disposed = true; window.clearInterval(timer); };
+  }, []);
   const controllerRef = useRef<SpectrumStreamController | null>(null);
   if (!controllerRef.current) {
     controllerRef.current = new SpectrumStreamController(SPECTRUM_HISTORY_LIMITS);
   }
   const streamController = controllerRef.current;
+  useEffect(() => {
+    streamController.setHistoryLimits(resolveSpectrumMemoryHistoryLimits(memoryTier));
+  }, [memoryTier, streamController]);
   const spectrumRenderConfig = capabilities?.renderConfig ?? null;
   const [customSpectrumDraft, setCustomSpectrumDraft] = useState<SpectrumCustomSettings>(() => deriveSpectrumCustomSettings(spectrumRenderConfig));
   const [customSpectrumEditing, setCustomSpectrumEditing] = useState(false);
@@ -1209,7 +1232,8 @@ export const SpectrumDisplay: React.FC<SpectrumDisplayProps> = ({
   }, []);
   const effectiveSelectedKind = selectedKind ?? capabilities?.defaultKind ?? AUDIO_SOURCE;
   const activeSpectrumKind = subscribedKind ?? effectiveSelectedKind;
-  const renderHistoryRows = resolveSpectrumHistoryRows(effectiveSelectedKind, height);
+  const memoryHistoryLimit = resolveSpectrumMemoryHistoryLimits(memoryTier)[effectiveSelectedKind];
+  const renderHistoryRows = Math.min(resolveSpectrumHistoryRows(effectiveSelectedKind, height), memoryHistoryLimit);
   const isAudioSpectrumSelected = effectiveSelectedKind === AUDIO_SOURCE;
   const isRadioSdrSelected = effectiveSelectedKind === RADIO_SDR_SOURCE;
   const isTciRadioSdr = isRadioSdrSelected && radioConnection.radioConfig?.type === 'tci';
