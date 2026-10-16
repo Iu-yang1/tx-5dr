@@ -10,6 +10,10 @@ const logger = createLogger('RealtimeAudioCodec');
 const STORAGE_KEY = 'tx5dr.realtimeAudio.codecPreference';
 const DEFAULT_CODEC_PREFERENCE: RealtimeAudioCodecPreference = 'auto';
 const WEB_OPUS_SAMPLE_RATES = [48_000, 24_000, 16_000, 12_000] as const;
+// 20ms Opus frames: allow a little over one second of pending decode metadata.
+// Once exceeded, reset decoder and resume from the newest packet.
+export const OPUS_MAX_PENDING_FRAMES = 64;
+export const OPUS_MAX_NATIVE_DECODE_QUEUE = 48;
 let capabilityProbePromise: Promise<RealtimeAudioCodecCapabilities> | null = null;
 
 type AudioDecoderConstructor = new (init: {
@@ -19,6 +23,7 @@ type AudioDecoderConstructor = new (init: {
   configure(config: Record<string, unknown>): void;
   decode(chunk: unknown): void;
   close(): void;
+  readonly decodeQueueSize?: number;
 };
 
 type AudioEncoderConstructor = {
@@ -69,8 +74,14 @@ export function isOpusPolicy(policy?: ResolvedRealtimeAudioCodecPolicy | null): 
 export class BrowserOpusDecoder {
   private decoder: InstanceType<AudioDecoderConstructor> | null = null;
   private decoderKey: string | null = null;
+  private decoderGeneration = 0;
+  private overloadResets = 0;
   private readonly pendingFrames: Array<{
-    frame: RealtimeEncodedAudioFrame;
+    codecSampleRate: number;
+    timestampMs: number;
+    serverSentAtMs?: number;
+    sequence: number;
+    frameDurationMs: number;
     receivedAtClientMs: number;
     generation?: number;
   }> = [];
@@ -90,33 +101,72 @@ export class BrowserOpusDecoder {
   decode(payload: ArrayBuffer, receivedAtClientMs: number, generation?: number): void {
     const frame = decodeRealtimeEncodedAudioFrame(payload);
     this.ensureDecoder(frame);
-    if (!this.decoder) {
-      return;
+    if (!this.decoder) return;
+
+    const nativeQueue = this.decoder.decodeQueueSize ?? 0;
+    if (this.pendingFrames.length >= OPUS_MAX_PENDING_FRAMES || nativeQueue >= OPUS_MAX_NATIVE_DECODE_QUEUE) {
+      // Dropping only the JS queue would misalign it with the native decoder's
+      // asynchronous output. Recreate *both* queues as one transaction.
+      this.close();
+      this.overloadResets += 1;
+      if (this.overloadResets === 1 || this.overloadResets % 100 === 0) {
+        logger.warn('Opus decode backlog exceeded safe bound; resetting decoder', {
+          pendingFrames: this.pendingFrames.length,
+          nativeQueue,
+          resets: this.overloadResets,
+        });
+      }
+      this.ensureDecoder(frame);
     }
+    if (!this.decoder) return;
 
     const EncodedAudioChunkCtor = (globalThis as unknown as { EncodedAudioChunk?: new (init: Record<string, unknown>) => unknown }).EncodedAudioChunk;
-    if (!EncodedAudioChunkCtor) {
-      throw new Error('EncodedAudioChunk is unavailable');
-    }
+    if (!EncodedAudioChunkCtor) throw new Error('EncodedAudioChunk is unavailable');
     const chunk = new EncodedAudioChunkCtor({
       type: 'key',
       timestamp: frame.timestampMs * 1000,
       duration: frame.frameDurationMs * 1000,
       data: frame.payload,
     });
-    this.pendingFrames.push({ frame, receivedAtClientMs, generation });
-    this.decoder.decode(chunk);
+
+    // Store metadata only, not an entire encoded packet and its backing buffer.
+    this.pendingFrames.push({
+      codecSampleRate: frame.codecSampleRate,
+      timestampMs: frame.timestampMs,
+      serverSentAtMs: frame.serverSentAtMs,
+      sequence: frame.sequence,
+      frameDurationMs: frame.frameDurationMs,
+      receivedAtClientMs,
+      generation,
+    });
+    try {
+      this.decoder.decode(chunk);
+    } catch (error) {
+      logger.warn('Opus decode rejected packet; clearing failed session', error);
+      this.close();
+    }
+  }
+
+  getDiagnostics(): { pendingFrames: number; nativeDecodeQueue: number; overloadResets: number } {
+    return {
+      pendingFrames: this.pendingFrames.length,
+      nativeDecodeQueue: this.decoder?.decodeQueueSize ?? 0,
+      overloadResets: this.overloadResets,
+    };
   }
 
   close(): void {
-    try {
-      this.decoder?.close();
-    } catch {
-      // ignore
-    }
+    // Invalidate async callbacks *before* closing the codec.
+    this.decoderGeneration += 1;
+    const oldDecoder = this.decoder;
     this.decoder = null;
     this.decoderKey = null;
     this.pendingFrames.length = 0;
+    try {
+      oldDecoder?.close();
+    } catch {
+      // ignore
+    }
   }
 
   private ensureDecoder(frame: RealtimeEncodedAudioFrame): void {
@@ -129,21 +179,24 @@ export class BrowserOpusDecoder {
     if (!AudioDecoderCtor) {
       throw new Error('AudioDecoder is unavailable');
     }
+    const decoderGeneration = ++this.decoderGeneration;
     this.decoder = new AudioDecoderCtor({
       output: (audioData) => {
-        const current = this.pendingFrames.shift();
         try {
+          if (decoderGeneration !== this.decoderGeneration) return;
+          const current = this.pendingFrames.shift();
+          if (!current) return; // Late or unsolicited output: never misattribute metadata.
           const samples = copyAudioDataToFloat32(audioData);
           this.onDecoded({
             samples,
-            sampleRate: Number((audioData as { sampleRate?: number }).sampleRate ?? current?.frame.codecSampleRate ?? frame.codecSampleRate),
-            sourceTimestampMs: current?.frame.timestampMs ?? frame.timestampMs,
-            serverSentAtMs: current?.frame.serverSentAtMs,
-            receivedAtClientMs: current?.receivedAtClientMs ?? Date.now(),
-            inputSampleRate: current?.frame.codecSampleRate ?? frame.codecSampleRate,
-            sequence: current?.frame.sequence ?? frame.sequence,
-            frameDurationMs: current?.frame.frameDurationMs ?? frame.frameDurationMs,
-            generation: current?.generation,
+            sampleRate: Number((audioData as { sampleRate?: number }).sampleRate ?? current.codecSampleRate),
+            sourceTimestampMs: current.timestampMs,
+            serverSentAtMs: current.serverSentAtMs,
+            receivedAtClientMs: current.receivedAtClientMs,
+            inputSampleRate: current.codecSampleRate,
+            sequence: current.sequence,
+            frameDurationMs: current.frameDurationMs,
+            generation: current.generation,
           });
         } finally {
           try {
@@ -154,7 +207,9 @@ export class BrowserOpusDecoder {
         }
       },
       error: (error) => {
-        logger.warn('Opus decoder error', error);
+        if (decoderGeneration !== this.decoderGeneration) return;
+        logger.warn('Opus decoder error; abandoning session to prevent backlog', error);
+        this.close();
       },
     });
     this.decoder.configure({
