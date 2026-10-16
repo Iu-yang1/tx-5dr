@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { encodeRealtimeEncodedAudioFrame } from '@tx5dr/core';
-import { BrowserOpusDecoder } from '../realtimeAudioCodec';
+import { BrowserOpusDecoder, OPUS_MAX_PENDING_FRAMES } from '../realtimeAudioCodec';
 
 const originalAudioDecoder = (globalThis as unknown as { AudioDecoder?: unknown }).AudioDecoder;
 const originalEncodedAudioChunk = (globalThis as unknown as { EncodedAudioChunk?: unknown }).EncodedAudioChunk;
@@ -29,7 +29,7 @@ class FakeAudioDecoder {
 
   readonly chunks: unknown[] = [];
 
-  constructor(private readonly init: { output: (output: unknown) => void }) {
+  constructor(private readonly init: { output: (output: unknown) => void; error: (error: Error) => void }) {
     FakeAudioDecoder.instances.push(this);
   }
 
@@ -43,7 +43,13 @@ class FakeAudioDecoder {
     this.init.output(new FakeDecodedAudioData(sampleRate));
   }
 
-  close(): void {}
+  emitError(): void {
+    this.init.error(new Error('simulated native decoder failure'));
+  }
+
+  close(): void {
+    this.chunks.length = 0;
+  }
 }
 
 class FakeEncodedAudioChunk {
@@ -100,5 +106,47 @@ describe('BrowserOpusDecoder', () => {
       { sourceTimestampMs: 1000, receivedAtClientMs: 2000, serverSentAtMs: undefined },
       { sourceTimestampMs: 1020, receivedAtClientMs: 2020, serverSentAtMs: undefined },
     ]);
+  });
+
+  it('caps metadata even if input continues forever and WebCodecs never produces output', () => {
+    (globalThis as unknown as { AudioDecoder?: unknown }).AudioDecoder = FakeAudioDecoder;
+    (globalThis as unknown as { EncodedAudioChunk?: unknown }).EncodedAudioChunk = FakeEncodedAudioChunk;
+
+    const decoded: number[] = [];
+    const decoder = new BrowserOpusDecoder((frame) => decoded.push(frame.sequence));
+    for (let i = 0; i < OPUS_MAX_PENDING_FRAMES * 5; i += 1) {
+      decoder.decode(makeOpusPayload(i, i * 20), i * 20 + 3);
+      expect(decoder.getDiagnostics().pendingFrames).toBeLessThanOrEqual(OPUS_MAX_PENDING_FRAMES);
+    }
+    expect(FakeAudioDecoder.instances.length).toBeGreaterThan(1);
+    expect(decoder.getDiagnostics().overloadResets).toBeGreaterThan(0);
+
+    // A late callback from an obsolete codec must not consume current metadata.
+    const previous = FakeAudioDecoder.instances[0]!;
+    const last = FakeAudioDecoder.instances.at(-1)!;
+    const before = decoder.getDiagnostics().pendingFrames;
+    previous.emit();
+    expect(decoded).toEqual([]);
+    expect(decoder.getDiagnostics().pendingFrames).toBe(before);
+    last.emit();
+    expect(decoded).toHaveLength(1);
+  });
+
+  it('abandons a failed decode session and automatically recreates it on the next frame', () => {
+    (globalThis as unknown as { AudioDecoder?: unknown }).AudioDecoder = FakeAudioDecoder;
+    (globalThis as unknown as { EncodedAudioChunk?: unknown }).EncodedAudioChunk = FakeEncodedAudioChunk;
+    const output: number[] = [];
+    const decoder = new BrowserOpusDecoder((frame) => output.push(frame.sequence));
+
+    decoder.decode(makeOpusPayload(1, 1_000), 1_100);
+    const failed = FakeAudioDecoder.instances[0]!;
+    failed.emitError();
+    expect(decoder.getDiagnostics().pendingFrames).toBe(0);
+
+    decoder.decode(makeOpusPayload(2, 1_020), 1_120);
+    const current = FakeAudioDecoder.instances.at(-1)!;
+    failed.emit();
+    current.emit();
+    expect(output).toEqual([2]);
   });
 });
