@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import { releaseSpectrumTraceGpuResources } from './traceGpuResources';
 import { createLogger } from '../../../utils/logger';
 import {
   classifyWaterfallViewportWheelAxis,
@@ -956,6 +957,7 @@ export const WebGLSpectrumTrace: React.FC<WebGLSpectrumTraceProps> = ({
     const supplementBuffer = gl.createBuffer();
     const supplementPreviousBuffer = gl.createBuffer();
     if (!program || !buffer || !previousBuffer || !fillBuffer || !fillPreviousBuffer || !supplementBuffer || !supplementPreviousBuffer) {
+      releaseSpectrumTraceGpuResources(gl, { program, buffer, previousBuffer, fillBuffer, fillPreviousBuffer, supplementBuffer, supplementPreviousBuffer });
       logger.warn('Failed to initialize WebGL trace resources');
       return;
     }
@@ -990,8 +992,6 @@ export const WebGLSpectrumTrace: React.FC<WebGLSpectrumTraceProps> = ({
         logger.warn('Failed to restore WebGL trace program');
         return;
       }
-      const previousProgram = programRef.current;
-      if (previousProgram) gl.deleteProgram(previousProgram);
       const restoredBuffer = gl.createBuffer();
       const restoredPreviousBuffer = gl.createBuffer();
       const restoredFillBuffer = gl.createBuffer();
@@ -999,10 +999,19 @@ export const WebGLSpectrumTrace: React.FC<WebGLSpectrumTraceProps> = ({
       const restoredSupplementBuffer = gl.createBuffer();
       const restoredSupplementPreviousBuffer = gl.createBuffer();
       if (!restoredBuffer || !restoredPreviousBuffer || !restoredFillBuffer || !restoredFillPreviousBuffer || !restoredSupplementBuffer || !restoredSupplementPreviousBuffer) {
-        gl.deleteProgram(restoredProgram);
+        releaseSpectrumTraceGpuResources(gl, {
+          program: restoredProgram, buffer: restoredBuffer, previousBuffer: restoredPreviousBuffer,
+          fillBuffer: restoredFillBuffer, fillPreviousBuffer: restoredFillPreviousBuffer,
+          supplementBuffer: restoredSupplementBuffer, supplementPreviousBuffer: restoredSupplementPreviousBuffer,
+        });
         logger.warn('Failed to restore WebGL trace buffers');
         return;
       }
+      releaseSpectrumTraceGpuResources(gl, {
+        program: programRef.current, buffer: bufferRef.current, previousBuffer: previousBufferRef.current,
+        fillBuffer: fillBufferRef.current, fillPreviousBuffer: fillPreviousBufferRef.current,
+        supplementBuffer: supplementBufferRef.current, supplementPreviousBuffer: supplementPreviousBufferRef.current,
+      });
       programRef.current = restoredProgram;
       bufferRef.current = restoredBuffer;
       previousBufferRef.current = restoredPreviousBuffer;
@@ -1038,11 +1047,13 @@ export const WebGLSpectrumTrace: React.FC<WebGLSpectrumTraceProps> = ({
       canvas.removeEventListener('webglcontextlost', handleContextLost);
       canvas.removeEventListener('webglcontextrestored', handleContextRestored);
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
-      gl.deleteBuffer(buffer);
-      gl.deleteBuffer(previousBuffer);
-      gl.deleteBuffer(fillBuffer);
-      gl.deleteBuffer(fillPreviousBuffer);
-      gl.deleteProgram(program);
+      // These refs may point to a *restored* context generation, not the
+      // initial closure's buffers. Include both supplemental GPU buffers.
+      releaseSpectrumTraceGpuResources(gl, {
+        program: programRef.current, buffer: bufferRef.current, previousBuffer: previousBufferRef.current,
+        fillBuffer: fillBufferRef.current, fillPreviousBuffer: fillPreviousBufferRef.current,
+        supplementBuffer: supplementBufferRef.current, supplementPreviousBuffer: supplementPreviousBufferRef.current,
+      });
       glRef.current = null;
       programRef.current = null;
       bufferRef.current = null;
