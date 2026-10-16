@@ -2737,9 +2737,12 @@ async function createMainWindowOnly(options: CreateMainWindowOptions = {}): Prom
     }
   });
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  mainWindow.webContents.on('console-message', (_event: any, level: any, message: any, _line: any, _sourceId: any) => {
-    logger.debug(`console [${level}]: ${message}`);
+  // Keep renderer warnings (especially Opus backpressure) in packaged
+  // electron-main.log; normal console chatter remains debug-only.
+  mainWindow.webContents.on('console-message', (_event, level, message) => {
+    const safeMessage = redactSensitiveText(String(message));
+    if (Number(level) >= 2) logger.warn(`renderer console [${level}]: ${safeMessage}`);
+    else logger.debug(`renderer console [${level}]: ${safeMessage}`);
   });
 
   mainWindow.webContents.on('before-input-event', (event, input) => {
