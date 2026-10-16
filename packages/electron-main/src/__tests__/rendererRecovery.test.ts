@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RendererRecoveryBudget, RENDERER_RECOVERY_DELAY_MS, RENDERER_RECOVERY_WINDOW_MS } from '../rendererRecovery.js';
+import { RendererRecoveryBudget, RENDERER_RECOVERY_DELAY_MS, RENDERER_RECOVERY_WINDOW_MS, shouldRecoverRendererExit } from '../rendererRecovery.js';
 
 describe('RendererRecoveryBudget', () => {
   it('allows five crashes in ten minutes, then blocks an automatic crash loop', () => {
@@ -31,4 +31,12 @@ describe('RendererRecoveryBudget', () => {
     const state = budget.recordCrash(0);
     expect(state.attempts).toBe(1);
   });
+  it('does not reopen intentionally backgrounded or quitting windows after renderer exit', () => {
+    expect(shouldRecoverRendererExit('killed', { intentionalClose: true, quitting: false })).toBe(false);
+    expect(shouldRecoverRendererExit('oom', { intentionalClose: false, quitting: true })).toBe(false);
+    expect(shouldRecoverRendererExit('clean-exit', { intentionalClose: false, quitting: false })).toBe(false);
+    expect(shouldRecoverRendererExit('oom', { intentionalClose: false, quitting: false })).toBe(true);
+    expect(shouldRecoverRendererExit('crashed', { intentionalClose: false, quitting: false })).toBe(true);
+  });
+
 });
