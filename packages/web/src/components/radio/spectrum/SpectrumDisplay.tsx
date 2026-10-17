@@ -52,6 +52,8 @@ import {
 } from '../../../utils/strategyFrequencyPick';
 import { formatFrequencyMHz } from '../../../utils/frequencyMHz';
 
+import { resolveSpectrumMemoryHistoryLimits, resolveSpectrumMemoryTier, type SpectrumMemoryTier } from '../../../spectrum/spectrumMemoryBudget';
+
 const logger = createLogger('SpectrumDisplay');
 const SPECTRUM_NO_FRAME_STALE_MS = 10_000;
 const SPECTRUM_NO_FRAME_CHECK_MS = 1_000;
@@ -66,6 +68,9 @@ type ElectronWindowHelper = Window & {
   electronAPI?: {
     window: {
       openSpectrumWindow: () => Promise<void>;
+    };
+    memory?: {
+      getPressure: () => Promise<{ level: 'normal' | 'warning' | 'critical'; constrainedDevice: boolean; freeMiB: number }>;
     };
   };
 };
@@ -1096,11 +1101,38 @@ export const SpectrumDisplay: React.FC<SpectrumDisplayProps> = ({
     canWriteFrequency && canExecuteRadioFrequency(ability, frequency)
   ), [ability, canWriteFrequency]);
   const { capabilities, selectedKind, subscribedKind, sessionState, setSelectedKind, setSubscribedKind } = useSpectrum();
+  // Renderer windows can stay minimized for hours under remote control.
+  // Suspend only the expensive spectrum stream while hidden; CAT/PTT,
+  // audio and the rest of the backend remain connected.
+  const [pageHidden, setPageHidden] = useState(() => typeof document !== 'undefined' && document.hidden);
+  useEffect(() => {
+    const onVisibility = () => setPageHidden(document.hidden);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, []);
+
+  const [memoryTier, setMemoryTier] = useState<SpectrumMemoryTier>('normal');
+  useEffect(() => {
+    const memoryAPI = (window as ElectronWindowHelper).electronAPI?.memory;
+    if (!memoryAPI) return;
+    let disposed = false;
+    const pollPressure = () => {
+      void memoryAPI.getPressure().then((info) => {
+        if (!disposed) setMemoryTier(resolveSpectrumMemoryTier(info));
+      }).catch((error) => logger.debug('memory pressure polling unavailable', error));
+    };
+    pollPressure();
+    const timer = window.setInterval(pollPressure, 60_000);
+    return () => { disposed = true; window.clearInterval(timer); };
+  }, []);
   const controllerRef = useRef<SpectrumStreamController | null>(null);
   if (!controllerRef.current) {
     controllerRef.current = new SpectrumStreamController(SPECTRUM_HISTORY_LIMITS);
   }
   const streamController = controllerRef.current;
+  useEffect(() => {
+    streamController.setHistoryLimits(resolveSpectrumMemoryHistoryLimits(memoryTier));
+  }, [memoryTier, streamController]);
   const spectrumRenderConfig = capabilities?.renderConfig ?? null;
   const [customSpectrumDraft, setCustomSpectrumDraft] = useState<SpectrumCustomSettings>(() => deriveSpectrumCustomSettings(spectrumRenderConfig));
   const [customSpectrumEditing, setCustomSpectrumEditing] = useState(false);
@@ -1200,7 +1232,8 @@ export const SpectrumDisplay: React.FC<SpectrumDisplayProps> = ({
   }, []);
   const effectiveSelectedKind = selectedKind ?? capabilities?.defaultKind ?? AUDIO_SOURCE;
   const activeSpectrumKind = subscribedKind ?? effectiveSelectedKind;
-  const renderHistoryRows = resolveSpectrumHistoryRows(effectiveSelectedKind, height);
+  const memoryHistoryLimit = resolveSpectrumMemoryHistoryLimits(memoryTier)[effectiveSelectedKind];
+  const renderHistoryRows = Math.min(resolveSpectrumHistoryRows(effectiveSelectedKind, height), memoryHistoryLimit);
   const isAudioSpectrumSelected = effectiveSelectedKind === AUDIO_SOURCE;
   const isRadioSdrSelected = effectiveSelectedKind === RADIO_SDR_SOURCE;
   const isTciRadioSdr = isRadioSdrSelected && radioConnection.radioConfig?.type === 'tci';
@@ -1284,7 +1317,7 @@ export const SpectrumDisplay: React.FC<SpectrumDisplayProps> = ({
     ?? null;
   baseRadioSdrFrequencyRef.current = baseRadioSdrFrequency;
   radioServiceRef.current = connection.state.radioService;
-  hasActiveSpectrumSubscriptionRef.current = connection.state.isConnected && !isCollapsed && Boolean(subscribedKind);
+  hasActiveSpectrumSubscriptionRef.current = connection.state.isConnected && !isCollapsed && !pageHidden && Boolean(subscribedKind);
   const effectiveRadioSdrFrequency = isRadioSdrSelected && !isFixedSpectrumMode
     ? resolveRadioSdrOptimisticDisplayFrequencyHz(radioSdrOptimisticDisplayState, baseRadioSdrFrequency)
     : baseRadioSdrFrequency;
@@ -2050,13 +2083,32 @@ export const SpectrumDisplay: React.FC<SpectrumDisplayProps> = ({
     connection.state.radioService?.subscribeSpectrum(null);
   }, [connection.state.radioService, isCollapsed, setSubscribedKind, streamController]);
 
+  const suspendedSpectrumKindRef = useRef<SpectrumKind | null>(null);
   useEffect(() => {
-    if (isCollapsed || !connection.state.isConnected || !subscribedKind) {
+    if (isCollapsed) {
+      suspendedSpectrumKindRef.current = null;
       return;
     }
-
-    connection.state.radioService?.subscribeSpectrum(subscribedKind);
-  }, [connection.state.isConnected, connection.state.radioService, isCollapsed, subscribedKind]);
+    if (pageHidden) {
+      // Subscription ACK may set subscribedKind=null while the page is hidden.
+      // Preserve the last desired kind instead of making resume depend on ACK.
+      // Do not synthesize a new subscription when the user deliberately
+      // left the spectrum unsubscribed before the page was hidden.
+      suspendedSpectrumKindRef.current ??= subscribedKind;
+      connection.state.radioService?.subscribeSpectrum(null);
+      streamController.reset();
+      return;
+    }
+    if (!connection.state.isConnected) return;
+    const resumeKind = suspendedSpectrumKindRef.current;
+    if (resumeKind) {
+      suspendedSpectrumKindRef.current = null;
+      setSubscribedKind(resumeKind);
+      connection.state.radioService?.subscribeSpectrum(resumeKind);
+      return;
+    }
+    if (subscribedKind) connection.state.radioService?.subscribeSpectrum(subscribedKind);
+  }, [capabilities?.defaultKind, connection.state.isConnected, connection.state.radioService, isCollapsed, pageHidden, selectedKind, setSubscribedKind, subscribedKind, streamController]);
 
   useEffect(() => {
     const radioService = connection.state.radioService;
@@ -2067,7 +2119,7 @@ export const SpectrumDisplay: React.FC<SpectrumDisplayProps> = ({
 
     const wsClient = radioService.wsClientInstance;
     const handleSpectrumFrame = (data: unknown) => {
-      if (isCollapsed) {
+      if (isCollapsed || pageHidden) {
         return;
       }
       const frame = data as SpectrumFrame;
@@ -2119,14 +2171,14 @@ export const SpectrumDisplay: React.FC<SpectrumDisplayProps> = ({
     return () => {
       wsClient.offWSEvent('spectrumFrame', handleSpectrumFrame);
     };
-  }, [activeProfileId, activeSpectrumKind, connection.state.radioService, isCollapsed, isRadioSdrServerFrequencySyncHeld, spectrumRenderConfig, streamController, updateRadioSdrOptimisticDisplayState, updateSpectrumRecoveryState]);
+  }, [activeProfileId, activeSpectrumKind, connection.state.radioService, isCollapsed, pageHidden, isRadioSdrServerFrequencySyncHeld, spectrumRenderConfig, streamController, updateRadioSdrOptimisticDisplayState, updateSpectrumRecoveryState]);
 
   useEffect(() => {
     lastAcceptedSpectrumFrameAtRef.current = Date.now();
     spectrumNoFrameRetryCountRef.current = 0;
     resetSpectrumRecoveryState();
 
-    if (isCollapsed || pauseNoFrameRecovery || !connection.state.isReady || !connection.state.radioService || !subscribedKind) {
+    if (isCollapsed || pageHidden || pauseNoFrameRecovery || !connection.state.isReady || !connection.state.radioService || !subscribedKind) {
       return;
     }
 
@@ -2159,7 +2211,7 @@ export const SpectrumDisplay: React.FC<SpectrumDisplayProps> = ({
     return () => {
       clearInterval(timer);
     };
-  }, [connection.state.isReady, connection.state.radioService, isCollapsed, pauseNoFrameRecovery, resetSpectrumRecoveryState, subscribedKind, updateSpectrumRecoveryState]);
+  }, [connection.state.isReady, connection.state.radioService, isCollapsed, pageHidden, pauseNoFrameRecovery, resetSpectrumRecoveryState, subscribedKind, updateSpectrumRecoveryState]);
 
   useLayoutEffect(() => {
     const axisTransition = spectrumViewportTransitionRef.current ? 'animate' as const : 'immediate' as const;

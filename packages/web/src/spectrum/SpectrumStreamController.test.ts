@@ -106,6 +106,20 @@ describe('SpectrumStreamController memory behavior', () => {
     callback(now);
   }
 
+  it('immediately drops retained data when a low-memory policy shrinks the history limit', () => {
+    const controller = new SpectrumStreamController({ audio: 12, 'radio-sdr': 12, 'openwebrx-sdr': 12 });
+    for (let i = 0; i < 12; i += 1) {
+      controller.pushFrame(makeFrame('audio', i + 1, [i, i + 1]));
+    }
+    expect(getInternals(controller).histories.audio).toHaveLength(12);
+    controller.setHistoryLimits({ audio: 3, 'radio-sdr': 3, 'openwebrx-sdr': 3 });
+    expect(getInternals(controller).histories.audio).toHaveLength(3);
+    expect(getInternals(controller).histories.audio.map(entry => entry.frame.timestamp)).toEqual([12, 11, 10]);
+    controller.pushFrame(makeFrame('audio', 13, [13, 14]));
+    expect(getInternals(controller).histories.audio).toHaveLength(3);
+    controller.destroy();
+  });
+
   it('does not retain raw base64 payloads in history', () => {
     const controller = new SpectrumStreamController(3);
     const sourceFrame = makeFrame('audio', 1, Array.from({ length: 1024 }, (_, index) => index % 100));

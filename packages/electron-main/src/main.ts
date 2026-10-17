@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, shell, Tray, Menu, dialog, nativeTheme, powerSaveBlocker, session, globalShortcut, type WebContents } from 'electron';
 import log from 'electron-log/main';
-import { homedir, hostname as getHostname, networkInterfaces } from 'node:os';
+import { homedir, hostname as getHostname, networkInterfaces, totalmem, freemem } from 'node:os';
 import net from 'node:net';
 import { join } from 'path';
 import http from 'http';
@@ -56,6 +56,8 @@ import {
   detectWindowsVCRuntime,
 } from './vcRuntime.js';
 import { copyRendererFileBytes, sanitizeRendererSaveFileName } from './rendererFileSave.js';
+import { RendererRecoveryBudget, shouldRecoverRendererExit } from './rendererRecovery.js';
+import { classifyPhysicalMemoryPressure, MemorySnapshotHistory } from './memoryPressure.js';
 
 // 获取当前模块的目录(ESM中的__dirname替代方案)
 // const __filename = fileURLToPath(import.meta.url);
@@ -72,6 +74,8 @@ const BACKEND_HEALTH_FAILURE_RETRY_MS = 2_000;
 const DEV_FRONTEND_READY_TIMEOUT_MS = 60_000;
 const DEV_BACKEND_READY_TIMEOUT_MS = 60_000;
 const DEV_PROCESS_MEMORY_LOG_INTERVAL_MS = 30_000;
+const PROD_PROCESS_MEMORY_LOG_INTERVAL_MS = 60_000;
+const recentMemorySnapshots = new MemorySnapshotHistory(30);
 const FORCE_STARTUP_ERROR_CARD_TEST = false;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -88,6 +92,11 @@ let errorType: string = ''; // 错误类型，空字符串表示无错误
 let hasStartupError: boolean = false; // 是否发生启动错误
 let crashedProcessName: string = ''; // 崩溃的子进程名
 let mainWindowInstance: BrowserWindow | null = null; // 主窗口实例
+let mainWindowRendererGone = false;
+let rendererRecoveryTimer: NodeJS.Timeout | null = null;
+let rendererRecoveryPromise: Promise<BrowserWindow | null> | null = null;
+const rendererRecoveryBudget = new RendererRecoveryBudget();
+const intentionallyDestroyedMainWindows = new WeakSet<BrowserWindow>();
 let trayInstance: Tray | null = null; // 系统托盘实例（Windows/Linux）
 let aboutWindow: BrowserWindow | null = null; // “关于”窗口实例（单例）
 let isQuitting: boolean = false; // 主动退出标志，防止子进程被杀时弹崩溃错误
@@ -267,6 +276,10 @@ interface FsSaveFileOptions {
 
 interface CreateMainWindowOptions {
   startHealthCheck?: boolean;
+  show?: boolean;
+  focus?: boolean;
+  bounds?: Electron.Rectangle;
+  maximized?: boolean;
 }
 
 interface StartupLogFileState {
@@ -930,7 +943,9 @@ function shouldOpenDevTools(): boolean {
 }
 
 function shouldLogDevProcessMemory(): boolean {
-  return isDevelopmentRuntime() && !isEnvFlagDisabled('TX5DR_ELECTRON_MEMORY_LOG');
+  // Keep production logging available to diagnose overnight renderer OOM.
+  // TX5DR_ELECTRON_MEMORY_LOG=0 provides an opt-out on managed systems.
+  return !isEnvFlagDisabled('TX5DR_ELECTRON_MEMORY_LOG');
 }
 
 function getLanIpv4Addresses(): string[] {
@@ -2483,8 +2498,90 @@ async function loadMainAppInWindow(windowInstance: BrowserWindow): Promise<void>
 
 function closeMainWindowToBackground(windowInstance: BrowserWindow, reason: string): void {
   logger.info(`destroying main window renderer for background mode (${reason})`);
+  intentionallyDestroyedMainWindows.add(windowInstance);
   windowInstance.destroy();
   logDevProcessMemory(`main-window-destroy:${reason}`);
+}
+
+/**
+ * Destroy only the failed BrowserWindow/renderer. The embedded web/server
+ * processes, radio connection and all other operator sessions remain alive.
+ * Never call cleanupAndQuit() from a renderer crash.
+ */
+async function rebuildFailedMainWindow(failed: BrowserWindow, manual = false): Promise<BrowserWindow | null> {
+  if (rendererRecoveryPromise) return rendererRecoveryPromise;
+  if (isQuitting || isCleaningUp || failed !== mainWindowInstance) return null;
+
+  if (rendererRecoveryTimer) {
+    clearTimeout(rendererRecoveryTimer);
+    rendererRecoveryTimer = null;
+  }
+  if (manual) rendererRecoveryBudget.reset();
+
+  rendererRecoveryPromise = (async () => {
+    let bounds: Electron.Rectangle | undefined;
+    let maximized = false;
+    let visible = true;
+    try {
+      if (!failed.isDestroyed()) {
+        bounds = failed.getBounds();
+        maximized = failed.isMaximized();
+        visible = failed.isVisible() && !failed.isMinimized();
+        intentionallyDestroyedMainWindows.add(failed);
+        failed.destroy(); // Bypasses closeBehavior prompts; does not stop the backend.
+      }
+      if (isQuitting || isCleaningUp) return null;
+
+      const replacement = await createMainWindowOnly({
+        startHealthCheck: true,
+        show: manual || visible,
+        focus: manual,
+        bounds,
+        maximized,
+      });
+      if (mainAppReadyForWindow && !replacement.isDestroyed()) {
+        try {
+          await loadMainAppInWindow(replacement);
+        } catch (error) {
+          logger.error('failed to reload main renderer after crash', error);
+        }
+      }
+      logger.info('renderer recovery created new main window', { manual, visible });
+      return replacement;
+    } catch (error) {
+      logger.error('renderer recovery failed; tray and browser remain available', error);
+      return null;
+    }
+  })();
+  try {
+    return await rendererRecoveryPromise;
+  } finally {
+    rendererRecoveryPromise = null;
+  }
+}
+
+function scheduleFailedRendererRecovery(failed: BrowserWindow, reason: string): void {
+  if (isQuitting || isCleaningUp || failed !== mainWindowInstance || rendererRecoveryTimer) return;
+  mainWindowRendererGone = true;
+  const decision = rendererRecoveryBudget.recordCrash(Date.now());
+  logger.error('main renderer terminated', { reason, attempt: decision.attempts, autoRecovery: decision.allowed });
+  logDevProcessMemory('renderer-gone');
+  // A held keyboard state cannot be trusted once its renderer disappears.
+  voicePttShortcutCapture.keyDownActive = false;
+  voicePttShortcutCapture.lastKeyDownAt = null;
+
+  if (!decision.allowed) {
+    logger.error('renderer recovery circuit breaker open; use tray/Dock to retry', {
+      retryAfterMs: decision.retryAfterMs,
+    });
+    return;
+  }
+  rendererRecoveryTimer = setTimeout(() => {
+    rendererRecoveryTimer = null;
+    if (!isQuitting && !isCleaningUp && failed === mainWindowInstance) {
+      void rebuildFailedMainWindow(failed);
+    }
+  }, decision.retryAfterMs);
 }
 
 /**
@@ -2494,7 +2591,7 @@ async function createMainWindowOnly(options: CreateMainWindowOptions = {}): Prom
   configureNotificationPermissionHandlers();
 
   // 检查主窗口是否已存在且有效
-  if (mainWindowInstance && !mainWindowInstance.isDestroyed()) {
+  if (mainWindowInstance && !mainWindowInstance.isDestroyed() && !mainWindowRendererGone) {
     mainWindowInstance.show();
     mainWindowInstance.focus();
     return mainWindowInstance;
@@ -2508,9 +2605,10 @@ async function createMainWindowOnly(options: CreateMainWindowOptions = {}): Prom
   const isDevelopment = isDevelopmentRuntime();
 
   const mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
-    show: true,
+    width: options.bounds?.width ?? 1200,
+    height: options.bounds?.height ?? 800,
+    ...(options.bounds ? { x: options.bounds.x, y: options.bounds.y } : {}),
+    show: false,
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#000000' : '#ffffff',
     titleBarStyle: 'hiddenInset',
     titleBarOverlay: process.platform === 'win32' ? {
@@ -2532,6 +2630,8 @@ async function createMainWindowOnly(options: CreateMainWindowOptions = {}): Prom
 
   logger.info('main window created');
   mainWindowInstance = mainWindow;
+  mainWindowRendererGone = false;
+  if (options.maximized) mainWindow.maximize();
 
   // Windows/Linux: 关闭窗口时询问用户行为；后台模式销毁 renderer，避免隐藏窗口继续占用内存。
   if (process.platform !== 'darwin') {
@@ -2584,7 +2684,10 @@ async function createMainWindowOnly(options: CreateMainWindowOptions = {}): Prom
 
   mainWindow.on('closed', () => {
     logger.info('main window closed');
+    // An old crashed window may close after its replacement was constructed.
+    if (mainWindowInstance !== mainWindow) return;
     mainWindowInstance = null;
+    mainWindowRendererGone = false;
     voicePttShortcutCapture.enabled = false;
     voicePttShortcutCapture.webContentsId = null;
     voicePttShortcutCapture.keyDownActive = false;
@@ -2611,7 +2714,14 @@ async function createMainWindowOnly(options: CreateMainWindowOptions = {}): Prom
         return;
       }
 
-      logger.error(`page load failed: ${errorCode} - ${errorDescription} (${validatedURL})`);
+      if (errorCode === -3 || isQuitting || isCleaningUp || mainWindowRendererGone) return; // ERR_ABORTED navigation / teardown.
+      logger.error(`page load failed: ${errorCode} - ${errorDescription} (${redactSensitiveText(validatedURL)})`);
+      // The app's backend can be briefly unreachable after a renderer rebuild.
+      // Keep its BrowserWindow/tray alive rather than closing via closeBehavior.
+      if (mainAppReadyForWindow) {
+        void mainWindow.loadFile(getLoadingPagePath()).catch(error => logger.warn('failed to show offline loading page', error));
+        return;
+      }
       errorType = 'UNKNOWN';
       hasStartupError = true;
       mainWindow.close();
@@ -2623,14 +2733,29 @@ async function createMainWindowOnly(options: CreateMainWindowOptions = {}): Prom
     },
   );
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  mainWindow.webContents.on('render-process-gone', (_event: any, details: any) => {
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
     logger.error('renderer process gone', details);
+    if (shouldRecoverRendererExit(details.reason, {
+      intentionalClose: intentionallyDestroyedMainWindows.has(mainWindow),
+      quitting: isQuitting || isCleaningUp,
+    })) {
+      scheduleFailedRendererRecovery(mainWindow, details.reason);
+    }
   });
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  mainWindow.webContents.on('console-message', (_event: any, level: any, message: any, _line: any, _sourceId: any) => {
-    logger.debug(`console [${level}]: ${message}`);
+  // Keep renderer warnings (especially Opus backpressure) in packaged
+  // electron-main.log; normal console chatter remains debug-only.
+  mainWindow.webContents.on('console-message', (_event, detailsOrLevel, legacyMessage?: unknown) => {
+    // Electron 35+ supplies one details object; older versions use
+    // (level, message, line, sourceId). Accept both without writing secrets.
+    const details = detailsOrLevel && typeof detailsOrLevel === 'object'
+      ? detailsOrLevel as { level?: string | number; message?: string }
+      : { level: detailsOrLevel as number, message: String(legacyMessage ?? '') };
+    const level = details.level;
+    const safeMessage = redactSensitiveText(String(details.message ?? ''));
+    const warning = level === 'warning' || level === 'error' || Number(level) >= 2;
+    if (warning) logger.warn(`renderer console [${level}]: ${safeMessage}`);
+    else logger.debug(`renderer console [${level}]: ${safeMessage}`);
   });
 
   mainWindow.webContents.on('before-input-event', (event, input) => {
@@ -2689,12 +2814,17 @@ async function createMainWindowOnly(options: CreateMainWindowOptions = {}): Prom
   // 先加载本地 loading 页面，避免白屏；主前端在服务就绪后单独切换。
   await mainWindow.loadFile(getLoadingPagePath());
 
-  // 显示窗口（此时展示 loading 动画）
-  mainWindow.show();
-  mainWindow.focus();
-  mainWindow.moveTop();
+  // Automatic crash recovery must not focus-steal a remote session.
+  if (options.show !== false) {
+    if (options.focus === false) mainWindow.showInactive();
+    else {
+      mainWindow.show();
+      mainWindow.focus();
+      mainWindow.moveTop();
+    }
+  }
 
-  if (process.platform === 'darwin') {
+  if (options.focus !== false && options.show !== false && process.platform === 'darwin') {
     app.focus({ steal: true });
     if (app.dock) {
       app.dock.bounce('critical');
@@ -2708,6 +2838,10 @@ async function createMainWindowOnly(options: CreateMainWindowOptions = {}): Prom
  * 确保主窗口存在并可见，若已销毁则重新创建（不重启子进程）
  */
 async function ensureMainWindowVisible(): Promise<BrowserWindow> {
+  if (rendererRecoveryPromise) await rendererRecoveryPromise;
+  if (mainWindowInstance && !mainWindowInstance.isDestroyed() && mainWindowRendererGone) {
+    await rebuildFailedMainWindow(mainWindowInstance, true);
+  }
   let windowInstance = mainWindowInstance && !mainWindowInstance.isDestroyed()
     ? mainWindowInstance
     : null;
@@ -2838,77 +2972,52 @@ async function openInBrowser() {
   await shell.openExternal(url);
 }
 
-function redactSensitiveUrl(value: string): string {
-  return redactSensitiveText(value);
-}
-
-function formatMetricMemory(value: number | undefined): string | null {
-  if (typeof value !== 'number') {
-    return null;
-  }
-  return `${(value / 1024).toFixed(1)}MB`;
-}
-
-function getWindowMetadataByPid(): Map<number, Array<Record<string, unknown>>> {
-  const windowsByPid = new Map<number, Array<Record<string, unknown>>>();
-
-  for (const windowInstance of BrowserWindow.getAllWindows()) {
-    try {
-      if (windowInstance.isDestroyed()) {
-        continue;
-      }
-
-      const pid = windowInstance.webContents.getOSProcessId();
-      const windows = windowsByPid.get(pid) ?? [];
-      windows.push({
-        id: windowInstance.id,
-        title: windowInstance.getTitle(),
-        visible: windowInstance.isVisible(),
-        minimized: windowInstance.isMinimized(),
-        url: redactSensitiveUrl(windowInstance.webContents.getURL()),
-      });
-      windowsByPid.set(pid, windows);
-    } catch (error) {
-      logger.warn('failed to collect window metadata for process memory log', error);
-    }
-  }
-
-  return windowsByPid;
-}
-
 function logDevProcessMemory(reason: string): void {
-  if (!shouldLogDevProcessMemory()) {
-    return;
-  }
+  if (!shouldLogDevProcessMemory()) return;
 
   try {
-    const windowsByPid = getWindowMetadataByPid();
-    const processes = app.getAppMetrics()
-      .map((metric) => ({
-        pid: metric.pid,
-        type: metric.type,
-        name: metric.name ?? null,
-        serviceName: metric.serviceName ?? null,
-        workingSet: formatMetricMemory(metric.memory.workingSetSize),
-        peakWorkingSet: formatMetricMemory(metric.memory.peakWorkingSetSize),
-        privateBytes: formatMetricMemory(metric.memory.privateBytes),
-        cpuPercent: Number(metric.cpu.percentCPUUsage.toFixed(1)),
-        windows: windowsByPid.get(metric.pid) ?? [],
-      }))
-      .sort((left, right) => {
-        const rightMemory = right.workingSet ? Number.parseFloat(right.workingSet) : 0;
-        const leftMemory = left.workingSet ? Number.parseFloat(left.workingSet) : 0;
-        return rightMemory - leftMemory;
-      });
+    const physical = classifyPhysicalMemoryPressure(totalmem(), freemem());
+    const metrics = app.getAppMetrics();
+    const samples = metrics.map(metric => ({
+      pid: metric.pid,
+      type: String(metric.type),
+      privateKiB: metric.memory.privateBytes ?? 0,
+      workingSetKiB: metric.memory.workingSetSize ?? 0,
+    }));
+    recentMemorySnapshots.record({
+      at: Date.now(),
+      reason,
+      system: physical,
+      processes: samples,
+    });
+    const topProcesses = samples
+      .sort((left, right) => right.privateKiB - left.privateKiB)
+      .slice(0, 6)
+      .map(sample => ({
+        pid: sample.pid,
+        type: sample.type,
+        privateMiB: Math.round(sample.privateKiB / 1024),
+        rssMiB: Math.round(sample.workingSetKiB / 1024),
+      }));
 
-    const topProcesses = processes.slice(0, 3).map((process) => (
-      `${process.pid}:${process.type}:${process.name ?? 'unknown'}:${process.workingSet}`
-    )).join(', ');
-    logger.info(
-      `dev electron process memory reason=${reason} webPid=${webProcess?.pid ?? 'none'} serverPid=${serverProcess?.pid ?? 'none'} processCount=${processes.length} top=${topProcesses || 'none'}`,
-    );
+    // Fixed-rate, bounded, non-sensitive diagnostics; available in Nightly.
+    logger.info('electron memory diagnostics', {
+      reason,
+      system: physical,
+      topProcesses,
+      webPid: webProcess?.pid ?? null,
+      serverPid: serverProcess?.pid ?? null,
+      processCount: samples.length,
+    });
+    if (physical.level !== 'normal') {
+      logger.warn('system memory pressure detected; hide unused spectrum windows', physical);
+    }
+    if (reason === 'renderer-gone') {
+      // Last five samples are useful even after the crashed PID disappears.
+      logger.error('pre-crash process memory history', recentMemorySnapshots.snapshot().slice(-5));
+    }
   } catch (error) {
-    logger.warn('failed to collect dev electron process memory', error);
+    logger.warn('failed to collect electron process memory', error);
   }
 }
 
@@ -2920,7 +3029,7 @@ function startDevProcessMemoryLogger(): void {
   logDevProcessMemory('startup');
   devProcessMemoryLogInterval = setInterval(() => {
     logDevProcessMemory('interval');
-  }, DEV_PROCESS_MEMORY_LOG_INTERVAL_MS);
+  }, isDevelopmentRuntime() ? DEV_PROCESS_MEMORY_LOG_INTERVAL_MS : PROD_PROCESS_MEMORY_LOG_INTERVAL_MS);
 }
 
 function stopDevProcessMemoryLogger(): void {
@@ -2989,6 +3098,7 @@ async function prepareEmbeddedServerShutdown(reason: string): Promise<boolean> {
 
 function closeFrontendWindowsImmediately(): number {
   const startedAt = Date.now();
+  if (rendererRecoveryTimer) { clearTimeout(rendererRecoveryTimer); rendererRecoveryTimer = null; }
 
   if (serverCheckInterval) {
     clearInterval(serverCheckInterval);
@@ -4035,6 +4145,7 @@ function setupIpcHandlers() {
     return { canceled: false, filePath: result.filePath };
   });
 
+  ipcMain.handle('system:memoryPressure', () => classifyPhysicalMemoryPressure(totalmem(), freemem()));
   ipcMain.handle('app:getVersion', () => BUILD_INFO.version);
   ipcMain.handle('app:getBuildInfo', () => BUILD_INFO);
   ipcMain.handle('app:quit', async () => {
