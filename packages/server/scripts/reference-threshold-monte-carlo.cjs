@@ -13,7 +13,8 @@ const MODE=process.env.MFSK_MODE||'FT8',TRIALS=Number(process.env.MFSK_TRIALS||'
 const Fs=12000,B=2500;
 assert(['FT8','FT4'].includes(MODE),'mode must be FT8 or FT4');
 assert(Number.isInteger(TRIALS)&&TRIALS>=1&&TRIALS<=200);
-const SNR=[-30,-28,-26,-24,-22,-20,-18,-16,-14,-12];
+// One-dB grid: a 2-dB sweep cannot resolve a 0.5-dB P9 target.
+const SNR=Array.from({length:19},(_,i)=>-30+i);
 function generator(seed) {
  let state=seed>>>0;
  return ()=>{state^=state<<13;state^=state>>>17;state^=state<<5;return ((state>>>0)+0.5)/4294967296};
@@ -54,6 +55,41 @@ function makeChannel(tx,snrDb,trial){
  return out;
 }
 function normalize(s){return String(s??'').trim().toUpperCase().replace(/\s+/g,' ');}
+/**
+ * Paired nonparametric bootstrap over independent channel realizations at
+ * every SNR. A single trial index contributes BOTH decoder decisions so the
+ * strong correlation from identical noise and waveform is preserved.
+ * Thresholds without a 50% crossing are explicitly inconclusive.
+ */
+function pairedThresholdBootstrap(samplesBySnr,replicates=500){
+ const rnd=generator(0x65a22ef7);
+ const delta=[];
+ let missing=0;
+ for(let replicate=0;replicate<replicates;replicate++){
+  const stats=samplesBySnr.map((pairs,i)=>{
+   let rust=0,ref=0;
+   for(let k=0;k<pairs.length;k++){
+    const sample=pairs[Math.floor(rnd()*pairs.length)];
+    rust+=sample[0];ref+=sample[1];
+   }
+   return {snrDb:SNR[i],rustRate:rust/pairs.length,
+    referenceRate:ref/pairs.length};
+  });
+  const rust50=threshold(stats,'rustRate');
+  const wsjt50=threshold(stats,'referenceRate');
+  if(!rust50||!wsjt50){missing++;continue;}
+  delta.push(rust50.interpolatedDb-wsjt50.interpolatedDb);
+ }
+ if(!delta.length)return {replicates,valid:0,missing,lower95:null,upper95:null,median:null};
+ delta.sort((a,b)=>a-b);
+ const quantile=q=>{
+  const position=q*(delta.length-1),lo=Math.floor(position),hi=Math.ceil(position);
+  return delta[lo]+(delta[hi]-delta[lo])*(position-lo);
+ };
+ return {replicates,valid:delta.length,missing,lower95:quantile(.025),
+  median:quantile(.5),upper95:quantile(.975)};
+}
+
 async function main(){
  const {WSJTXLib,WSJTXMode}=await import('wsjtx-lib');
  const lib=new WSJTXLib({maxThreads:1});
@@ -66,22 +102,27 @@ async function main(){
   ?legacyTx.audioData:new Float32Array(legacyTx.audioData);
  assert(tx.length>Fs);
  const rows=[];
+ const pairedOutcomes=[];
  for(const snrDb of SNR){
   let rustHits=0,referenceHits=0,unexpectedRust=0,unexpectedReference=0;
+  const paired=[];
   for(let trial=0;trial<TRIALS;trial++){
    const shared=makeChannel(tx,snrDb,trial);
    const asBuffer=Buffer.from(shared.buffer,shared.byteOffset,shared.byteLength);
    const nr=native.decodeSlotted(MODE,asBuffer);
    const nativeMessages=nr.map(x=>normalize(x.text));
-   if(nativeMessages.includes(message))rustHits++;
+   const nativeHit=nativeMessages.includes(message);
+   if(nativeHit)rustHits++;
    if(nativeMessages.some(x=>x!==message))unexpectedRust++;
    const int16=await lib.convertAudioFormat(shared,'int16');
    const result=await lib.decode(mode,int16,{
      frequency:0,txFrequency:0,threads:1,apDecode:false,decodeDepth:3,qsoProgress:0,
    });
    const referenceMessages=(result.messages??[]).map(x=>normalize(x.text));
-   if(referenceMessages.includes(message))referenceHits++;
+   const referenceHit=referenceMessages.includes(message);
+   if(referenceHit)referenceHits++;
    if(referenceMessages.some(x=>x!==message))unexpectedReference++;
+   paired.push([Number(nativeHit),Number(referenceHit)]);
   }
   const row={
    snrDb,trialCount:TRIALS,
@@ -90,26 +131,34 @@ async function main(){
    wsjt:{hits:referenceHits,rate:referenceHits/TRIALS,wilson95:wilson(referenceHits,TRIALS),
      unexpectedFrames:unexpectedReference},
   };
-  rows.push(row);console.log(JSON.stringify(row));
+  rows.push(row);pairedOutcomes.push(paired);console.log(JSON.stringify(row));
  }
  const reduced=rows.map(r=>({...r,rustRate:r.rust.rate,referenceRate:r.wsjt.rate}));
  const rust50=threshold(reduced,'rustRate'),reference50=threshold(reduced,'referenceRate');
  const deltaDb=rust50&&reference50?rust50.interpolatedDb-reference50.interpolatedDb:null;
+ const pairedDelta95=pairedThresholdBootstrap(pairedOutcomes);
  const result={protocol:MODE,source:'Independent wsjtx-lib@2.2.0 transmit samples',
    codec:native.codecVersion(),reference:'wsjtx-lib@2.2.0',
    noiseReferenceBandwidthHz:B,sampleRateHz:Fs,TRIALS,
    randomizedBy:'seeded xorshift + Box-Muller; same waveform and noise to both decoders',
-   rows,rust50,reference50,rustDegradationDb:deltaDb,
-   underHalfDbTarget:deltaDb===null?null:deltaDb<=0.5,
+   rows,rust50,reference50,rustDegradationDb:deltaDb,pairedDelta95,
+   underHalfDbTarget:deltaDb===null||pairedDelta95.upper95===null?null:
+     (deltaDb<=0.5&&pairedDelta95.upper95<=0.5&&pairedDelta95.valid>=.95*pairedDelta95.replicates),
    caveats:['50% crossing is linearly interpolated, not an MLE or a fitted psychometric curve',
-     'Confidence intervals are per-SNR Wilson intervals, not a confidence interval for the threshold difference',
+     'Per-SNR Wilson intervals and a paired nonparametric bootstrap interval for the 50% threshold difference are reported',
+     'The 1 dB threshold interpolation grid is an approximation; refinement should use sub-dB measurements',
      'AWGN only; Watterson, drifting Doppler and strong QRM require independent tests'],
  };
  const output=path.join(__dirname,'reference-threshold-'+MODE.toLowerCase()+'.json');
  fs.writeFileSync(output,JSON.stringify(result,null,2)+'\n');
  console.log(JSON.stringify({output,rust50,reference50,deltaDb}));
  if(process.env.MFSK_ENFORCE_THRESHOLD==='1'){
+  assert(TRIALS>=60,'P9 0.5 dB acceptance needs at least 60 paired trials per SNR');
   assert(deltaDb!==null,'Cannot claim P9 sensitivity: 50% threshold not bracketed');
+  assert(pairedDelta95.valid>=.95*pairedDelta95.replicates,
+    'P9 sensitivity inconclusive: too many bootstrap samples lack a 50% crossing');
+  assert(pairedDelta95.upper95!==null&&pairedDelta95.upper95<=0.5,
+    'P9 sensitivity not accepted: upper 95% paired-bootstrap degradation >0.5 dB');
   assert(deltaDb<=0.5,'mfsk-core 50% decode threshold is >0.5 dB worse than reference');
  }
 }

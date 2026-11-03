@@ -43,12 +43,14 @@ jobs:
       - name: FT8 independent codec threshold comparison
         env:
           MFSK_MODE: FT8
-          MFSK_TRIALS: '20'
+          MFSK_TRIALS: '80'
+          MFSK_ENFORCE_THRESHOLD: '1'
         run: node packages/server/scripts/reference-threshold-monte-carlo.cjs
       - name: FT4 independent codec threshold comparison
         env:
           MFSK_MODE: FT4
-          MFSK_TRIALS: '20'
+          MFSK_TRIALS: '80'
+          MFSK_ENFORCE_THRESHOLD: '1'
         run: node packages/server/scripts/reference-threshold-monte-carlo.cjs
       - uses: actions/upload-artifact@v4
         if: always()
