@@ -83,6 +83,39 @@ describe('native six-mode transmit protocol and physical lease boundaries',()=>{
       .rejects.toThrow(/active running/);
     expect(c.sent).not.toHaveBeenCalled();
   });
+  it('releases a pending UTC wait immediately when the user disarms RF',async()=>{
+    const c=context();
+    let entering!:()=>void;
+    const entered=new Promise<void>(resolve=>{entering=resolve;});
+    const service=new MfskNativeTxService({...c.deps,
+      sleep:async()=>{entering();await new Promise<void>(()=>{});},
+    });
+    const pending=service.send({mode:'Q65',text:'CQ K1ABC FN42',
+      operatorId:'op1',audioHz:1500,q65Submode:'Q65-60B'});
+    await entered;
+    expect(service.isBusy()).toBe(true);
+    service.cancel();
+    await expect(pending).rejects.toThrow(/cancelled/);
+    expect(service.isBusy()).toBe(false);
+    expect(c.sent).not.toHaveBeenCalled();
+  });
+
+  it('cancels a hung encoder without keeping the radio TX queue busy',async()=>{
+    const c=context();
+    let entering!:()=>void;
+    const entered=new Promise<void>(resolve=>{entering=resolve;});
+    const service=new MfskNativeTxService({...c.deps,
+      encode:async()=>{entering();return new Promise<never>(()=>{});},
+    });
+    const pending=service.send({mode:'Q65',text:'CQ K1ABC FN42',
+      operatorId:'op1',audioHz:1500});
+    await entered;
+    service.cancel();
+    await expect(pending).rejects.toThrow(/cancelled/);
+    expect(service.isBusy()).toBe(false);
+    expect(c.sent).not.toHaveBeenCalled();
+  });
+
   it('blocks TX that was cancelled during encoding or was canonicalized',async()=>{
     const c=context();
     const svc=new MfskNativeTxService({...c.deps,encode:async()=> {

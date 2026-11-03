@@ -411,6 +411,21 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
       // native mode and RX generation can enable a guarded manual TX.
       rfAllowed:()=>this.mfskRfArmGate.allowed(),
     });
+    // A native worker crash or a receiver restart is an RF boundary, not
+    // merely a decode warning. Cancel an uncommitted UTC send immediately
+    // and release any native PTT lease that is already playing.
+    this.mfskLiveRxService.on('status',(state)=>{
+      if(state.ready)return;
+      this.mfskRfArmGate.revoke();
+      if(!this.mfskNativeTxService.isBusy())return;
+      this.mfskNativeTxService.cancel();
+      const snapshot=this.physicalTxCoordinator.getSnapshot();
+      if(snapshot.phase!=='idle' && snapshot.source==='digital'
+        && snapshot.reason?.startsWith('native ')){
+        void this.physicalTxCoordinator.forceInterrupt('native RX unavailable')
+          .catch(error=>logger.error('Failed to interrupt native digital TX after RX loss',error));
+      }
+    });
 
     this.frequencyManager = new FrequencyManager(ConfigManager.getInstance().getCustomFrequencyPresets());
     this.transmissionTracker = new TransmissionTracker();

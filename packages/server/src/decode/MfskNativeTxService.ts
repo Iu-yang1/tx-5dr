@@ -1,5 +1,6 @@
 import { fork, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { setTimeout as waitMs } from 'node:timers/promises';
 import {
   type DigitalCodecMode, type Q65Submode,
   MfskCodecSimulationRequestSchema,
@@ -66,9 +67,23 @@ export function isMfskPhysicalTxConfirmed(outcome:MfskTxOutcome):boolean {
 export class MfskNativeTxService {
   private epoch=0;
   private busy=false;
+  private inflight:AbortController|null=null;
   constructor(private readonly deps:MfskTxAdmission) {}
 
-  cancel():void {this.epoch++;}
+  /** Cancel encoding and any pending UTC start without waiting for a slot. */
+  cancel():void {this.epoch++;this.inflight?.abort();}
+  private async cancellable<T>(work:Promise<T>,signal:AbortSignal):Promise<T>{
+    if(signal.aborted)throw new Error('Native TX cancelled');
+    let detach=()=>{};
+    const aborted=new Promise<never>((_resolve,reject)=>{
+      const handler=()=>reject(new Error('Native TX cancelled'));
+      signal.addEventListener('abort',handler,{once:true});
+      detach=()=>signal.removeEventListener('abort',handler);
+      if(signal.aborted)handler();
+    });
+    try{return await Promise.race([work,aborted]);}
+    finally{detach();}
+  }
   isBusy():boolean {return this.busy;}
   isRfEnabled():boolean {return this.deps.rfAllowed();}
 
@@ -78,9 +93,12 @@ export class MfskNativeTxService {
     if(!this.deps.rfAllowed())throw new Error('Native RF TX requires explicit operator authorization');
     this.assertPreconditions(request);
     const epoch=this.epoch;
+    const controller=new AbortController();
+    this.inflight=controller;
     this.busy=true;
     try{
-      const encoded=await (this.deps.encode??encodeMfskInChild)(request);
+      const job=this.deps.encode?this.deps.encode(request):encodeMfskInChild(request,controller.signal);
+      const encoded=await this.cancellable(job,controller.signal);
       this.assertPreconditions(request,epoch);
       const count=encoded.audioData.length;
       if(encoded.sampleRate!==12_000 || !Number.isSafeInteger(count)||count<=0
@@ -133,7 +151,10 @@ export class MfskNativeTxService {
         if(delay>((isMsk||request.mode==='Q65')?2*periodMs+2000:periodMs+2000)){
           throw new Error('Unreasonable UTC TX wait');
         }
-        await (this.deps.sleep??(ms=>new Promise<void>(resolve=>setTimeout(resolve,ms))))(delay);
+        const sleep=this.deps.sleep
+          ? this.deps.sleep(delay)
+          : waitMs(delay,undefined,{signal:controller.signal}).then(()=>undefined);
+        await this.cancellable(sleep,controller.signal);
         this.assertPreconditions(request,epoch);
         if(this.deps.now()>latestAllowedStartMs){
           throw new Error('TX preparation deadline missed: insufficient slot budget');
@@ -154,6 +175,7 @@ export class MfskNativeTxService {
       });
       return {mode:request.mode,scheduledStartMs:startMs,durationMs,result:outcome};
     }finally{
+      if(this.inflight===controller)this.inflight=null;
       this.busy=false;
     }
   }
@@ -203,7 +225,7 @@ export class MfskNativeTxService {
 }
 
 /** Child-process encoder: does not execute Rust DSP on the Fastify thread. */
-export function encodeMfskInChild(request:MfskTxRequest):Promise<MfskTxWaveform> {
+export function encodeMfskInChild(request:MfskTxRequest,signal?:AbortSignal):Promise<MfskTxWaveform> {
   return new Promise((resolve,reject)=>{
     const entry=fileURLToPath(new URL('./mfsk-tx-worker.js',import.meta.url));
     const child=fork(entry,[],{
@@ -211,10 +233,15 @@ export function encodeMfskInChild(request:MfskTxRequest):Promise<MfskTxWaveform>
     });
     let complete=false;
     const fail=(e:unknown)=>{
-      if(complete)return;complete=true;clearTimeout(timeout);child.kill();
+      if(complete)return;complete=true;clearTimeout(timeout);
+      signal?.removeEventListener('abort',onAbort);
+      child.kill();
       reject(e instanceof Error?e:new Error(String(e)));
     };
     const timeout=setTimeout(()=>fail(new Error('Native TX encoder timed out')),90_000);
+    const onAbort=()=>fail(new Error('Native TX cancelled during encoding'));
+    if(signal?.aborted){onAbort();return;}
+    signal?.addEventListener('abort',onAbort,{once:true});
     child.on('error',fail);
     child.on('exit',(code)=>{if(!complete)fail(new Error(`Native TX encoder exited ${code}`));});
     child.on('message',(payload:unknown)=>{
@@ -230,7 +257,9 @@ export function encodeMfskInChild(request:MfskTxRequest):Promise<MfskTxWaveform>
       }
       const samples=new Float32Array(data.length/4);
       for(let i=0;i<samples.length;i++)samples[i]=data.readFloatLE(i*4);
-      complete=true;clearTimeout(timeout);child.kill();
+      complete=true;clearTimeout(timeout);
+      signal?.removeEventListener('abort',onAbort);
+      child.kill();
       resolve({audioData:samples,sampleRate:12000,canonicalText:reply.canonicalText});
     });
     child.send({mode:request.mode,text:request.text,operatorId:request.operatorId,
