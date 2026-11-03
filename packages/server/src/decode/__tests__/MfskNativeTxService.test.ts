@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { MfskNativeTxService, type MfskTxAdmission } from '../MfskNativeTxService.js';
+import type { PhysicalAudioTransmissionRequest } from '../../transmission/PhysicalTxCoordinator.js';
 
 function context(mode='Q65'){
   let now=1_800_000_000_000;
-  const sent=vi.fn(async()=>({
+  const sent=vi.fn(async(_request:PhysicalAudioTransmissionRequest)=>({
     leaseId:'test-lease',source:'digital' as const,
     operatorIds:['op1'],success:true,reason:'done',physicalConfirmed:true,
   }));
