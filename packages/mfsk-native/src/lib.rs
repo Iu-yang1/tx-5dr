@@ -151,6 +151,7 @@ pub fn decode_jtty_recording(pcm_f32_le: Buffer, audio_hz: f64) -> Result<Vec<Na
             UpdateKind::Complete => "complete",
             UpdateKind::Expired => "expired",
             UpdateKind::ReceptionEnded => "reception-ended",
+            _ => "reception-ended", // v0.15 UpdateKind is non-exhaustive
         };
         updates.push(NativeJttyUpdate {
             id: u.id.to_string(), text: u.text, state: state.to_owned(),
