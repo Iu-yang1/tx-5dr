@@ -92,4 +92,31 @@ describe('live receiver protects the real AF ingestion and native session bounda
     expect(s.live.status().ready).toBe(false);
     s.live.stop();
   });
+  it('fails the isolated RX session on malformed native events without throwing into Fastify',()=>{
+    const s=setup();
+    const cfg=s.live.start({mode:'MSK144'});
+    const child=s.workers[0];
+    child.emit('message',{type:'started',generation:cfg.generation});
+    expect(()=>child.emit('message',{
+      type:'events',generation:cfg.generation,events:[{kind:'burst-decode',mode:'Q65'}],
+    })).not.toThrow();
+    expect(s.live.status().running).toBe(false);
+    expect(s.live.status().workerFaults).toBe(1);
+  });
+
+  it('starts checking the first complete UTC period after startup rather than skipping a full period',()=>{
+    const s=setup();
+    s.at(1_800_000_000_000);
+    const status=s.live.start({mode:'FT8'});
+    s.workers[0].emit('message',{type:'started',generation:status.generation});
+    // Slot-completion calculation must select the current slot after
+    // 15s+650ms; previous code incorrectly marked it as already handled.
+    s.at(1_800_000_015_750);
+    (s.live as unknown as {pollSlot(generation:number, period:number):void})
+      .pollSlot(status.generation,15000);
+    // No audio was supplied: correctly rejected for insufficient fill.
+    expect(s.live.status().rejectedSlots).toBe(1);
+    s.live.stop();
+  });
+
 });

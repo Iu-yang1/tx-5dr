@@ -115,8 +115,10 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
     this.generation++;
     const generation=this.generation;
     this.config={...config};
+    // The first complete slot after startup is the slot containing now.
+    // Do not mark it decoded before any PCM has arrived.
     this.lastDecodedSlot=definition.slotMs===null?-1:
-      Math.floor(this.now()/definition.slotMs)*definition.slotMs;
+      Math.floor(this.now()/definition.slotMs)*definition.slotMs-definition.slotMs;
     this.nextSample=0;this.pending=0;this.history.length=0;this.received=0;
     this.lastError=undefined;this.ready=false;this.droppedAudioChunks=0;
     this.rejectedSlots=0;this.workerFaults=0;
@@ -178,7 +180,13 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
     if(m.type==='ack')this.pending=Math.max(0,this.pending-1);
     if(m.type==='fault') {this.fail(generation,m.error??'Unknown native decoder failure');return;}
     if(m.type==='events'&&Array.isArray(m.events)){
-      const events=m.events.map(e=>DigitalRxEventSchema.parse(e));
+      let events:DigitalRxEvent[];
+      try {
+        events=m.events.map(e=>DigitalRxEventSchema.parse(e));
+      } catch (error) {
+        this.fail(generation,`Native decoder returned invalid event: ${error instanceof Error?error.message:String(error)}`);
+        return;
+      }
       this.history.push(...events);this.received+=events.length;
       if(this.history.length>200)this.history.splice(0,this.history.length-200);
       this.emit('events',events);
@@ -234,7 +242,8 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
   private pollSlot(generation:number,periodMs:number):void {
     if(this.generation!==generation||!this.ready||!this.ring||!this.child)return;
     const now=this.now();
-    const completed=Math.floor((now-250)/periodMs)*periodMs-periodMs;
+    // Allow the AF callback and resampler to deliver the final audio tail.
+    const completed=Math.floor((now-650)/periodMs)*periodMs-periodMs;
     if(completed<=this.lastDecodedSlot)return;
     this.lastDecodedSlot=completed;
     const reading=this.ring.readByWallClock(completed,periodMs);
