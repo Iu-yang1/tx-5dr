@@ -7,6 +7,9 @@ import {
   DropdownItem,
   DropdownMenu,
   DropdownTrigger,
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
 } from '@heroui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
@@ -17,6 +20,7 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { faGithub } from '@fortawesome/free-brands-svg-icons';
 import { SpectrumDisplay } from '../components/radio/spectrum/SpectrumDisplay';
+import { MfskLiveReceiverPanel } from '../pages/about/MfskLiveReceiverPanel';
 import { SlotPacksMessageDisplay } from '../components/radio/digital/SlotPacksMessageDisplay';
 import { RadioMetersPanel } from '../components/radio/control/RadioMetersPanel';
 import { RemoteAccessPopover } from '../components/system/RemoteAccessPopover';
@@ -191,6 +195,21 @@ export const LeftLayout: React.FC = React.memo(() => {
               </DropdownItem>
             </DropdownMenu>
           </Dropdown>
+          {/* Native MFSK receiver is a dedicated AF monitor, not a PTT mode.
+              Keep the original FT8/FT4 layout unaltered until P9 migration. */}
+          {isAdmin && (
+            <Popover placement="bottom-end">
+              <PopoverTrigger>
+                <Button size="sm" variant="flat" title="Six-mode AF receive console"
+                  className="min-w-0 px-2 text-xs" aria-label="MFSK receive console">
+                  MFSK RX
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[min(92vw,620px)] max-h-[76vh] overflow-auto p-2">
+                <MfskLiveReceiverPanel />
+              </PopoverContent>
+            </Popover>
+          )}
           {/* 网络访问入口（Admin 可点击查看远程访问信息） */}
           {isAdmin && (
             <RemoteAccessPopover clientCount={clientCount} />
