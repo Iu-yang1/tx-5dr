@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   actions: write
   issues: write
   pull-requests: write
@@ -64,53 +64,73 @@ jobs:
               });
               return data.workflow_runs.filter(r=>r.head_sha===sha);
             };
+            // Only a versioned release request, not nightly/macOS, advances P9.
             const dispatch=async (sha)=>{
-              const workflows=[
-                ['electron-release.yml',{version:''}],
-                ['server-release.yml',{version:''}],
-                ['docker-release.yml',{tag:''}],
-                ['android-runtime-release.yml',{version:''}],
-              ];
-              const existing=await findRuns('workflow_dispatch','main',sha);
-              const triggered=[];
-              for(const [file,inputs] of workflows){
-                const wf=await github.rest.actions.getWorkflow({owner,repo,workflow_id:file});
-                if(existing.some(r=>r.workflow_id===wf.data.id)){
-                  triggered.push(file+' (already queued)');continue;
-                }
-                await github.rest.actions.createWorkflowDispatch({
-                  owner,repo,workflow_id:file,ref:'main',inputs,
-                });
-                triggered.push(file+' (dispatched)');
+              const branch=await github.rest.git.getRef({owner,repo,ref:'heads/main'});
+              if(branch.data.object.sha!==sha){
+                return ['main advanced: refuse to release a stale merge commit'];
               }
-              return triggered;
+              const {data}=await github.rest.actions.listWorkflowRunsForRepo({
+                owner,repo,branch:'main',per_page:100,
+              });
+              const prior=data.workflow_runs.find(r=>r.head_sha===sha &&
+                r.name==='Dispatch validated official TX-5DR platform releases');
+              if(prior)return ['RC dispatch already exists: '+prior.html_url];
+              await github.rest.actions.createWorkflowDispatch({
+                owner,repo,workflow_id:'official-release-dispatch.yml',ref:'main',
+              });
+              return ['Triggered validated Windows/Linux RC release controller'];
             };
             if(pr.merged){
               const sha=pr.merge_commit_sha;
               if(!sha){core.warning('Merged PR has no merge SHA');return;}
-              const jobs=await dispatch(sha);
-              const rows=await findRuns('workflow_dispatch','main',sha);
-              const done=['Build and Release Electron App',
+              const started=await dispatch(sha);
+              const releases=(await github.rest.actions.listWorkflowRunsForRepo({
+                owner,repo,branch:'main',per_page:100,
+              })).data.workflow_runs.filter(r=>r.head_sha===sha);
+              const required=[
+                'Dispatch validated official TX-5DR platform releases',
+                'Build and Release Electron App',
                 'Build and Release Linux Server',
                 'Build and Release Docker Image',
-                'Build and Release Android Runtime'];
-              const current=done.map(n=>({
-                name:n,run:rows.filter(r=>r.name===n)
-                  .sort((a,b)=>Date.parse(b.created_at)-Date.parse(a.created_at))[0],
-              }));
+              ];
+              const current=required.map(name=>({name,run:releases
+                .filter(r=>r.name===name && r.event==='workflow_dispatch')
+                .sort((a,b)=>Date.parse(b.created_at)-Date.parse(a.created_at))[0]}));
+              const releaseRequest=await github.rest.repos.getContent({
+                owner,repo,path:'release/official-version.txt',ref:'main',
+              });
+              const tag=Buffer.from(releaseRequest.data.content,'base64')
+                .toString('utf8').trim();
               const complete=current.every(x=>x.run?.conclusion==='success');
+              const releasesVerified=[];
+              if(complete){
+                for(const releaseTag of [tag,tag+'-server',tag+'-docker']){
+                  try{
+                    const result=await github.rest.repos.getReleaseByTag({
+                      owner,repo,tag:releaseTag,
+                    });
+                    const item=result.data;
+                    releasesVerified.push(item.prerelease && (
+                      releaseTag.endsWith('-docker') ||
+                      item.assets.length>0));
+                  }catch(error){releasesVerified.push(false);}
+                }
+              }
               await report([
-                '### TX-5DR P9：已合并；自动执行发布候选构建',
-                'Merged SHA: ' + sha,
+                '### TX-5DR P9：Release Candidate 发布核查',
+                'Merged SHA: '+sha,'Release tag: '+tag,
                 '',
                 ...current.map(x=>'- '+x.name+': '+
                   (x.run?(x.run.status+' / '+(x.run.conclusion||'running')+
                     ' ([run]('+x.run.html_url+'))'):'awaiting run')),
                 '',
-                complete?'四项后续候选构建全部通过。注意：这些是 nightly 工件，不等于已发布正式版本。':
-                  '已调度后续 nightly 构建；失败需要根据对应日志继续排障。',
+                complete&&releasesVerified.every(Boolean)
+                  ?'Windows/Linux RC、Server RC、Docker RC 均已标记预发布；下一轮再决定 Stable 晋级。'
+                  :'仍需等待候选版构建与预发布产物核验；不可声称 Stable 已完成。',
+                '',
+                ...started,
               ]);
-              core.notice('P9 merged follow-up: '+jobs.join(', '));
               return;
             }
             if(pr.head.repo.full_name!==owner+'/'+repo ||
@@ -178,12 +198,10 @@ jobs:
                 })).data.jobs;
                 const required=item.name.startsWith('Experimental')?[
                   'Native ubuntu-24.04','Native ubuntu-24.04-arm',
-                  'Native windows-2022','Native macos-15-intel',
-                  'Native macos-latest','server-runtime',
+                  'Native windows-2022','server-runtime',
                 ]:[
                   'tx-5dr-windows-x64','tx-5dr-linux-x64',
-                  'tx-5dr-linux-arm64','tx-5dr-macos-x64',
-                  'tx-5dr-macos-arm64',
+                  'tx-5dr-linux-arm64',
                 ];
                 for(const value of required){
                   const job=jobs.find(j=>item.name.startsWith('Experimental')
@@ -220,7 +238,7 @@ jobs:
             }
             if(retried)next+=' Retried one transient setup failure automatically.';
             if(green){
-              next='All eight workflows and mandatory five-platform jobs are green. '+
+              next='All eight workflows and Windows/Linux native/UI/server-runtime jobs are green. '+
                 'Begin PR promotion and integration.';
               try{
                 if(pr.draft){
@@ -245,7 +263,7 @@ jobs:
                   });
                   if(merge.data.merged){
                     next='Merged into main at '+merge.data.sha+
-                      '. Dispatching post-merge nightly platform builds.';
+                      '. Dispatching Windows/Linux Release Candidate builds.';
                     const started=await dispatch(merge.data.sha);
                     next+=' '+started.join(', ');
                     const open=await github.paginate(github.rest.issues.listForRepo,{
