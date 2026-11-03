@@ -1427,6 +1427,7 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
       getAudioSidecar: () => this.audioSidecar,
       isVirtualRadioActive: () => this.virtualRadioSession !== null,
       getImageRadioService: () => this.imageRadioService,
+      getMfskLiveRxService: () => this.mfskLiveRxService,
       getStatus: () => this.getStatus(),
     });
     this.engineLifecycle.setVoiceSessionManager(this.voiceSessionManager);
@@ -1840,7 +1841,13 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
         return;
       }
 
-      const digitalMode = mode as ModeDescriptor;
+      // Never trust client-provided stage/clock parameters; resolve canonical
+      // server-side descriptors to prevent invalid mode timings.
+      const requestedDigitalName=typeof mode==='string'?mode:mode.name;
+      const digitalMode=Object.values(MODES).find(m=>m.name===requestedDigitalName);
+      if(!digitalMode || !['FT8','FT4','Q65','WSPR','MSK144','JTTY'].includes(digitalMode.name)){
+        throw new Error(`Unsupported digital protocol: ${requestedDigitalName}`);
+      }
 
       // If switching from voice to digital
       if (this.engineMode === 'voice') {
@@ -1857,6 +1864,18 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
 
       if (this.engineMode === 'image') {
         await this.runWithModeChangeGate(() => this.switchEngineMode('digital', digitalMode));
+        return;
+      }
+
+      // Entering/leaving a native protocol family requires complete resource
+      // reconfiguration: its RX is neither the FT8 scheduler nor a fake slot.
+      const nativeNames=new Set(['Q65','WSPR','MSK144','JTTY']);
+      if(nativeNames.has(this.currentMode.name)||nativeNames.has(digitalMode.name)){
+        if(this.currentMode.name===digitalMode.name){
+          this.emitStatusSnapshot();return;
+        }
+        await this.runWithModeChangeGate(() => this.switchEngineMode('digital',digitalMode));
+        await ConfigManager.getInstance().setLastDigitalModeName(digitalMode.name);
         return;
       }
 
@@ -3149,14 +3168,17 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
   }
 
   public getCurrentSlotInfo(): SlotInfo | null {
+    if(['Q65','WSPR','MSK144','JTTY'].includes(this.currentMode.name))return null;
     return this.slotClock?.getCurrentSlotInfo() ?? null;
   }
 
   public getStatus() {
     const isRunning = this.engineLifecycle?.getIsRunning() ?? false;
     // Voice and CW modes have no decode slot loop, so mirror engine running state.
+    const isNativeMode=['Q65','WSPR','MSK144','JTTY'].includes(this.currentMode.name);
     const isActuallyDecoding = this.engineMode === 'voice' || this.engineMode === 'cw' || this.engineMode === 'image'
       ? isRunning
+      : isNativeMode ? isRunning && this.mfskLiveRxService.status().ready
       : isRunning && (this.slotClock?.isRunning ?? false);
 
     const engineState = this.engineLifecycle?.getEngineState() ?? 'idle';

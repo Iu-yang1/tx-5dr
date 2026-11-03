@@ -81,6 +81,28 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
     return this.history.filter(e=>e.timestampMs>afterTimestampMs).slice(-200);
   }
 
+  /** ResourceManager awaits native load; no misleading engine RUNNING state. */
+  async startReady(config:MfskLiveConfig,timeoutMs=15_000):Promise<MfskLiveStatus>{
+    this.start(config);
+    return new Promise((resolve,reject)=>{
+      const cleanup=()=>{
+        clearTimeout(timer);
+        this.off('status',onStatus);
+      };
+      const onStatus=(state:MfskLiveStatus)=>{
+        if(state.ready){cleanup();resolve(state);return;}
+        if(!state.running){cleanup();reject(new Error(state.lastError??'Native receiver stopped before ready'));}
+      };
+      const timer=setTimeout(()=>{
+        cleanup();
+        this.stop();
+        reject(new Error('Timed out waiting for native receiver process'));
+      },timeoutMs);
+      this.on('status',onStatus);
+      if(this.ready)onStatus(this.status());
+    });
+  }
+
   start(config:MfskLiveConfig):MfskLiveStatus {
     this.stop();
     const definition=resolveDigitalSchedule(config.mode,config.q65Submode);

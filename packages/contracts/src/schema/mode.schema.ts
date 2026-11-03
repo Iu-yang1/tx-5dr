@@ -53,6 +53,25 @@ export const MODES = {
     transmitTiming: 500, // WSJT-X 标准：FT4 信号 T+0.5s 起，6.0s 长
     encodeAdvance: 300   // encodeStart 在 T+200ms 触发，留 ~300ms 给编码完成，使 transmitStart 时音频已就绪
   } as ModeDescriptor,
+  // Native multimode: these are first-class modes, but deliberately have
+  // no FT8/FT4 stage windows. EngineLifecycle selects the dedicated native
+  // receiver resource plan instead of the old slot scheduler.
+  Q65: {
+    name: 'Q65',slotMs:60000,toleranceMs:250,windowTiming:[],
+    transmitTiming:500,encodeAdvance:500,
+  } as ModeDescriptor,
+  WSPR: {
+    name:'WSPR',slotMs:120000,toleranceMs:250,windowTiming:[],
+    transmitTiming:2000,encodeAdvance:1500,
+  } as ModeDescriptor,
+  MSK144: {
+    name:'MSK144',slotMs:0,toleranceMs:0,windowTiming:[],
+    transmitTiming:0,encodeAdvance:0,
+  } as ModeDescriptor,
+  JTTY: {
+    name:'JTTY',slotMs:0,toleranceMs:0,windowTiming:[],
+    transmitTiming:0,encodeAdvance:0,
+  } as ModeDescriptor,
   VOICE: {
     name: 'VOICE',
     slotMs: 0,            // 语音模式无时隙概念
