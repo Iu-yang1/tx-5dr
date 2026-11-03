@@ -1,0 +1,53 @@
+name: Experimental mfsk-native six-mode smoke build
+
+on:
+  push:
+    branches: [ 'integration/mfsk-six-mode-*' ]
+    paths:
+      - 'packages/mfsk-native/**'
+      - '.github/workflows/mfsk-native-acceptance.yml'
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: Native ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022, ubuntu-24.04-arm]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build Rust Node-API addon (fixed mfsk-core v0.15.0)
+        shell: bash
+        run: |
+          cargo test --manifest-path packages/mfsk-native/Cargo.toml --release
+          cargo build --manifest-path packages/mfsk-native/Cargo.toml --release
+      - name: Prepare runtime addon
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            cp packages/mfsk-native/target/release/tx5dr_mfsk_native.dll packages/mfsk-native/mfsk-native.node
+          else
+            cp packages/mfsk-native/target/release/libtx5dr_mfsk_native.so packages/mfsk-native/mfsk-native.node
+          fi
+      - name: Verify real Node-API load and offline TX waveforms
+        run: node packages/mfsk-native/smoke.cjs
+      - name: Upload experimental native addon
+        uses: actions/upload-artifact@v4
+        with:
+          name: mfsk-native-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
+          path: |
+            packages/mfsk-native/mfsk-native.node
+            packages/mfsk-native/smoke.cjs
+          retention-days: 14
