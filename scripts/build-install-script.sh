@@ -24,12 +24,12 @@ for f in "$COMMON" "$CHECKS" "$INSTALL"; do
     fi
 done
 
-REPO="boybook/tx-5dr"
+REPO="${TX5DR_GITHUB_REPO:-${GITHUB_REPOSITORY:-boybook/tx-5dr}}"
 DEFAULT_DOWNLOAD_BASE_URL="https://tx5dr.oss-cn-hangzhou.aliyuncs.com"
 DOWNLOAD_BASE_URL="${TX5DR_DOWNLOAD_BASE_URL:-$DEFAULT_DOWNLOAD_BASE_URL}"
 
 python3 - "$COMMON" "$CHECKS" "$INSTALL" "$OUTPUT" "$REPO" "$DOWNLOAD_BASE_URL" << 'PYEOF'
-import sys, re
+import sys, re, os
 
 common_path, checks_path, install_path, output_path, repo, download_base_url = sys.argv[1:7]
 
@@ -64,11 +64,11 @@ tx5dr_online_install_missing_package() {
 
     log_info "Resolving latest nightly package..."
     _dl_family=$(os_family)
-    _fallback_tag="nightly-server"
+    _fallback_tag="${TX5DR_INSTALL_RELEASE_TAG:-nightly-server}"
     if [[ "$_dl_family" == "rhel" ]]; then
-        _asset_name="TX-5DR-nightly-server-linux-${ARCH}.rpm"
+        _asset_name="TX-5DR-${_fallback_tag%-server}-server-linux-${ARCH}.rpm"
     else
-        _asset_name="TX-5DR-nightly-server-linux-${ARCH}.deb"
+        _asset_name="TX-5DR-${_fallback_tag%-server}-server-linux-${ARCH}.deb"
     fi
     _pkg_ext="${_asset_name##*.}"
     _fallback_url="$(get_github_release_asset_url "$_fallback_tag" "$_asset_name")"
@@ -87,6 +87,7 @@ tx5dr_online_install_missing_package() {
         _sources=(github oss)
     fi
 
+    if [[ "$_fallback_tag" == "nightly-server" ]]; then
     for _source in "${_sources[@]}"; do
         if _manifest_json=$(fetch_server_manifest_from_source "$_source" 2>/dev/null); then
             _resolved_url=$(get_server_manifest_package_url_for_source "$_manifest_json" "${ARCH}" "$_pkg_ext" "$_source" 2>/dev/null || true)
@@ -97,6 +98,7 @@ tx5dr_online_install_missing_package() {
         fi
         log_warn "${_source} manifest unavailable or missing ${ARCH}/${_pkg_ext}; trying next source..."
     done
+    fi
     [[ -n "$_resolved_url" ]] || _resolved_url="$_fallback_url"
 
     _tmp_dir=$(mktemp -d)
@@ -177,6 +179,11 @@ if 'tx5dr_online_install_missing_package' not in install_src:
     print('ERROR: linux/install.sh no longer calls tx5dr_online_install_missing_package hook', file=sys.stderr)
     sys.exit(1)
 
+release_tag = os.environ.get('TX5DR_INSTALL_RELEASE_TAG', 'nightly-server')
+if not re.fullmatch(r'(?:nightly|v\d+\.\d+\.\d+)-server', release_tag):
+    raise SystemExit('Invalid TX5DR_INSTALL_RELEASE_TAG: '+release_tag)
+repo_assignment = f'TX5DR_GITHUB_REPO="${{TX5DR_GITHUB_REPO:-{repo}}}"\n'
+release_assignment = f'TX5DR_INSTALL_RELEASE_TAG="${{TX5DR_INSTALL_RELEASE_TAG:-{release_tag}}}"\n'
 download_base_assignment = ''
 if download_base_url:
     escaped = download_base_url.replace('\\', '\\\\').replace('"', '\\"')
@@ -193,7 +200,7 @@ header = f'''#!/bin/bash
 # ║    sudo bash install-online.sh --check-only                      ║
 # ╚══════════════════════════════════════════════════════════════════╝
 set -euo pipefail
-{download_base_assignment}'''
+{repo_assignment}{release_assignment}{download_base_assignment}'''
 
 with open(output_path, 'w') as f:
     f.write(header)
