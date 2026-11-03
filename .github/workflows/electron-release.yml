@@ -178,12 +178,10 @@ jobs:
 
       # Experimental six-mode branch only. Keep the official release pipeline
       # unchanged until the P9 migration is verified and the license audit passes.
-      - name: Install Rust for experimental native codecs
-        if: github.event_name == 'pull_request'
+      - name: Install Rust for native six-mode codec
         uses: dtolnay/rust-toolchain@stable
 
       - name: Compile and probe mfsk-native before Electron packaging
-        if: github.event_name == 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
@@ -372,7 +370,7 @@ jobs:
       - name: Package application
         shell: bash
         env:
-          TX5DR_REQUIRE_MFSK_NATIVE: ${{ github.event_name == 'pull_request' && '1' || '0' }}
+          TX5DR_REQUIRE_MFSK_NATIVE: '1'
           NODE_ENV: production
           PLATFORM: ${{ matrix.platform }}
           ARCH: ${{ matrix.arch }}

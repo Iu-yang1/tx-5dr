@@ -1,6 +1,13 @@
 # TX-5DR Docker Image - Multi-Architecture Support
 # 使用多阶段构建来减小最终镜像大小
+# Portable, multiarch Rust toolchain for the six-mode native codec.
+FROM rust:1-slim-bookworm AS native-rust-toolchain
+
 FROM node:22-slim AS builder
+COPY --from=native-rust-toolchain /usr/local/cargo /usr/local/cargo
+COPY --from=native-rust-toolchain /usr/local/rustup /usr/local/rustup
+ENV CARGO_HOME=/usr/local/cargo RUSTUP_HOME=/usr/local/rustup
+ENV PATH="/usr/local/cargo/bin:${PATH}"
 
 # 设置环境变量
 ENV YARN_VERSION=4.9.1
@@ -90,6 +97,12 @@ RUN node scripts/check-version-consistency.mjs && \
     --build-stamp "${BUILD_STAMP}" \
     --distribution docker
 
+# Compile for the container's real CPU architecture: neither x64 nor arm64
+# may accidentally ship a host-architecture .node binary.
+RUN cargo build --manifest-path packages/mfsk-native/Cargo.toml --release \
+    && cp packages/mfsk-native/target/release/libtx5dr_mfsk_native.so packages/mfsk-native/mfsk-native.node \
+    && node packages/mfsk-native/smoke.cjs
+
 # 构建应用
 RUN echo "Building application for $(uname -m)..." && \
     TX5DR_CLUBLOG_API_KEY="$TX5DR_CLUBLOG_API_KEY" yarn build
@@ -160,6 +173,7 @@ COPY --from=builder /app/turbo.json ./turbo.json
 
 RUN rm -rf /tmp/tx5dr-linux/
 RUN node -e "const a=require('audify'); const e=new a.OpusEncoder(48000,1,a.OpusApplication.OPUS_APPLICATION_RESTRICTED_LOWDELAY); const d=new a.OpusDecoder(48000,1); const p=e.encode(Buffer.alloc(960*2),960); d.decode(p,960); console.log('audify Opus runtime ok');" \
+    && node -e "const n=require('./packages/mfsk-native/mfsk-native.node'); for(const m of ['FT8','FT4','WSPR','Q65-60B','MSK144','JTTY'])if(!n.supportedModes().includes(m))throw new Error('MFSK mode missing: '+m); console.log('native MFSK runtime ok',n.codecVersion())" \
     && node -e "import('wsjtx-lib').then(()=>console.log('wsjtx-lib runtime ok'))" \
     && node -e "const {PNG}=require('pngjs'); if(typeof PNG.sync.read!=='function') throw new Error('pngjs unavailable'); const r=require('rasterwave-node'); if(r.sstvModes().length!==31) throw new Error('rasterwave mode catalog incomplete'); Promise.all([new r.SstvDecoder(12000,{outputMode:'continuousPaper',fallbackMode:'robot36',queueCapacitySamples:24000},()=>{}).dispose(),new r.FaxDecoder(12000,{outputMode:'continuousPaper',continuousAuto:true,queueCapacitySamples:24000},()=>{}).dispose()]).then(()=>console.log('Image Radio runtime ok')).catch(e=>{console.error(e);process.exit(1)});"
 

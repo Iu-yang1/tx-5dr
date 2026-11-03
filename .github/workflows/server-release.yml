@@ -94,6 +94,18 @@ jobs:
               --distribution linux-service
           fi
 
+      - name: Prepare Rust toolchain for packaged native codec
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build and validate six-mode Node-API native module
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo check --manifest-path packages/mfsk-native/Cargo.toml --all-targets --release
+          cargo build --manifest-path packages/mfsk-native/Cargo.toml --release
+          cp packages/mfsk-native/target/release/libtx5dr_mfsk_native.so packages/mfsk-native/mfsk-native.node
+          node packages/mfsk-native/smoke.cjs
+
       - name: Build application
         run: yarn build
         env:
@@ -140,6 +152,25 @@ jobs:
               rasterwave.correctFaxPaper(new Uint8Array(8), 4, 2, 0, []),
             ]).then(() => console.log("Packaged Image Radio runtime ok")).catch((error) => { console.error(error); process.exit(1); });
           ')
+
+      - name: Verify native addon exists and loads inside installed DEB
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEB_FILE=$(find dist -name '*.deb' -type f | head -1)
+          test -n "$DEB_FILE"
+          EXTRACT_DIR=$(mktemp -d)
+          trap 'rm -rf "$EXTRACT_DIR"' EXIT
+          dpkg-deb -x "$DEB_FILE" "$EXTRACT_DIR"
+          APP_ROOT="$EXTRACT_DIR/usr/share/tx5dr"
+          test -s "$APP_ROOT/packages/mfsk-native/mfsk-native.node"
+          node - "$APP_ROOT/packages/mfsk-native/mfsk-native.node" <<'NODE'
+          const native=require(process.argv[2]);
+          for(const mode of ['FT8','FT4','WSPR','Q65-60B','MSK144','JTTY']){
+            if(!native.supportedModes().includes(mode))throw new Error('Missing native '+mode);
+          }
+          console.log('Native headless DEB addon verified:',native.codecVersion());
+          NODE
 
       - name: Prepare artifacts
         run: |

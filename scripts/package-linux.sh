@@ -130,6 +130,19 @@ mkdir -p "$APP_ROOT/packages/server"
 cp -r "$PROJECT_ROOT/packages/server/dist" "$APP_ROOT/packages/server/"
 cp "$PROJECT_ROOT/packages/server/package.json" "$APP_ROOT/packages/server/"
 
+# Native receiver/encoder is required on headless installations too; it is
+# resolved relative to the server's dist/decode/MfskNativeAdapter.js file.
+# Fail the package build rather than silently shipping the legacy decoder.
+MFSK_NATIVE="$PROJECT_ROOT/packages/mfsk-native/mfsk-native.node"
+if [[ ! -f "$MFSK_NATIVE" ]]; then
+    err "Missing six-mode MFSK native addon: $MFSK_NATIVE"
+    err "Build packages/mfsk-native with Rust before packaging."
+    exit 1
+fi
+mkdir -p "$APP_ROOT/packages/mfsk-native"
+cp "$MFSK_NATIVE" "$APP_ROOT/packages/mfsk-native/mfsk-native.node"
+
+
 for pkg in "${SERVER_RUNTIME_WORKSPACES[@]}"; do
     if [[ -d "$PROJECT_ROOT/packages/$pkg/dist" ]]; then
         mkdir -p "$APP_ROOT/packages/$pkg"
