@@ -80,6 +80,14 @@
     "liveNoEvents": "暂无解码结果",
     "liveNoTx": "当前仅开放实时接收；本功能不会控制 PTT、射频发射或自动创建通联日志。",
     "liveInvalidFrequency": "请输入 100–5500 Hz 的 AF 频率",
-    "liveOperationFailed": "操作失败，请检查服务端日志"
+    "liveOperationFailed": "操作失败，请检查服务端日志",
+    "applyRx": "应用接收设置",
+    "txTitle": "手动数字模式发射",
+    "manualTx": "发送消息",
+    "rfAvailable": "射频功能已按实验设置启用；通过物理租约协调器发射",
+    "rfLocked": "射频发送尚未开放；必须完成 P9 安全验收",
+    "beaconAuthorization": "我明确授权发送 WSPR 信标（120 秒固定周期）",
+    "txComplete": "已完成一次发射流程",
+    "txFailed": "发射未成功：请检查模式、操作员权限、射频门禁与服务端诊断"
   }
 }

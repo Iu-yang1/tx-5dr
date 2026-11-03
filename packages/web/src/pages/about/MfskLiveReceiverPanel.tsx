@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Button, Card, CardBody, Input } from '@heroui/react';
 import { useTranslation } from 'react-i18next';
 import { api } from '@tx5dr/core';
+import { useCurrentOperatorId } from '../../store/radioStore';
 import { Q65SubmodeSchema, type DigitalCodecMode, type DigitalRxEvent,
   type MfskLiveRxStatus, type Q65Submode } from '@tx5dr/contracts';
 
@@ -9,6 +10,7 @@ import { Q65SubmodeSchema, type DigitalCodecMode, type DigitalRxEvent,
  * Does not offer any PTT or RF TX control. Visible only to administrators. */
 export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecMode} = {}) {
   const { t } = useTranslation('about');
+  const { currentOperatorId } = useCurrentOperatorId();
   const [status,setStatus] = useState<MfskLiveRxStatus | null>(null);
   const [mode,setMode] = useState<DigitalCodecMode>(initialMode??'Q65');
   const [submode,setSubmode] = useState<Q65Submode>('Q65-60B');
@@ -18,6 +20,11 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
   const [events,setEvents] = useState<DigitalRxEvent[]>([]);
   const [busy,setBusy] = useState(false);
   const [error,setError] = useState<string | null>(null);
+  const [txStatus,setTxStatus] = useState<{rfEnabled:boolean;busy:boolean}>({rfEnabled:false,busy:false});
+  const [text,setText] = useState('CQ K1ABC FN42');
+  const [beaconAuthorized,setBeaconAuthorized] = useState(false);
+  const [txPending,setTxPending] = useState(false);
+  const [txNotice,setTxNotice] = useState<string | null>(null);
 
   useEffect(()=>{
     let active=true;
@@ -27,6 +34,9 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
         setStatus(data.status);
         setEvents(data.events.slice(-60));
       }).catch(()=>{/* Feature is optional on non-experimental server. */});
+      void api.getMfskNativeTxStatus().then(value=>{if(active)setTxStatus(value);}).catch(()=>{
+        if(active)setTxStatus({rfEnabled:false,busy:false});
+      });
     };
     poll();
     const timer=setInterval(poll,1500);
@@ -50,6 +60,23 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
       .finally(()=>setBusy(false));
   };
 
+  const transmit=()=>{
+    if(!currentOperatorId || !txStatus.rfEnabled || !status?.ready || txPending) return;
+    const hz=Number(frequency);
+    if(!Number.isFinite(hz)||hz<100||hz>5500) {
+      setTxNotice(t('codec.liveInvalidFrequency')); return;
+    }
+    setTxPending(true);
+    setTxNotice(null);
+    void api.transmitMfsk({
+      mode,operatorId:currentOperatorId,text:text.trim(),audioHz:hz,
+      ...(mode==='Q65'?{q65Submode:submode}:{}),
+      ...(mode==='WSPR'?{beaconAuthorized}:{}),
+    }).then(()=>setTxNotice(t('codec.txComplete')))
+      .catch(()=>setTxNotice(t('codec.txFailed')))
+      .finally(()=>setTxPending(false));
+  };
+
   return <Card shadow="none">
     <CardBody className="gap-3 px-6 py-5">
       <h2 className="text-base font-semibold">{t('codec.liveTitle')}</h2>
@@ -66,27 +93,27 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
           <label htmlFor="mfsk-live-q65" className="text-sm">{t('codec.submode')}</label>
           <select id="mfsk-live-q65" value={submode} onChange={e=>setSubmode(e.target.value as Q65Submode)}
             className="rounded-md border border-default-300 bg-content1 px-3 py-2 text-sm"
-            disabled={busy||status?.running}>
+            disabled={busy}>
             {Q65SubmodeSchema.options.map(m=><option key={m} value={m}>{m}</option>)}
           </select>
         </>}
         <Input size="sm" className="max-w-[140px]" type="number"
           label={t('codec.afFrequency')} value={frequency} onValueChange={setFrequency}
-          isDisabled={busy||status?.running}/>
+          isDisabled={busy}/>
       </div>
       {mode==='Q65' && <div className="flex flex-wrap gap-5 text-sm">
         <label><input type="checkbox" checked={averaging}
-          disabled={busy||status?.running} onChange={e=>setAveraging(e.target.checked)}/> {t('codec.averaging')}</label>
+          disabled={busy} onChange={e=>setAveraging(e.target.checked)}/> {t('codec.averaging')}</label>
         <label><input type="checkbox" checked={emeDelay}
-          disabled={busy||status?.running} onChange={e=>setEmeDelay(e.target.checked)}/> {t('codec.emeDelay')}</label>
+          disabled={busy} onChange={e=>setEmeDelay(e.target.checked)}/> {t('codec.emeDelay')}</label>
       </div>}
       <div className="flex flex-wrap gap-2 items-center">
         <Button size="sm" color="primary" onPress={()=>run(true)}
-          isDisabled={busy||status?.running} isLoading={busy}>
-          {t('codec.startRx')}
+          isDisabled={busy} isLoading={busy}>
+          {status?.running?t('codec.applyRx'):t('codec.startRx')}
         </Button>
         <Button size="sm" variant="flat" onPress={()=>run(false)}
-          isDisabled={busy||!status?.running}>{t('codec.stopRx')}</Button>
+          isDisabled={busy||!status?.running||Boolean(initialMode)}>{t('codec.stopRx')}</Button>
         <span className="text-xs text-default-500">
           {status?.ready?t('codec.liveReady'):status?.running?t('codec.liveStarting'):t('codec.liveStopped')}
         </span>
@@ -109,6 +136,26 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
               <td className="px-2 py-1">{e.frequencyHz.toFixed(1)}</td>
               <td className="px-2 py-1 font-mono">{e.text}</td>
             </tr>)}</tbody></table>}
+      </div>
+      <div className="rounded-md border border-default-200 p-3 space-y-3">
+        <p className="text-sm font-medium">{t('codec.txTitle')}</p>
+        <Input size="sm" label={t('codec.message')} value={text} onValueChange={setText}
+          isDisabled={txPending} maxLength={64}/>
+        {mode==='WSPR' && <label className="text-xs flex gap-2 items-center">
+          <input type="checkbox" checked={beaconAuthorized} onChange={e=>setBeaconAuthorized(e.target.checked)}
+            disabled={txPending}/>
+          {t('codec.beaconAuthorization')}
+        </label>}
+        <div className="flex gap-2 items-center flex-wrap">
+          <Button size="sm" color="warning" isLoading={txPending}
+            isDisabled={!status?.ready||!txStatus.rfEnabled||txStatus.busy||!currentOperatorId||
+              !text.trim()||txPending||(mode==='WSPR'&&!beaconAuthorized)}
+            onPress={transmit}>{t('codec.manualTx')}</Button>
+          <span className="text-xs text-default-500">
+            {txStatus.rfEnabled?t('codec.rfAvailable'):t('codec.rfLocked')}
+          </span>
+        </div>
+        {txNotice && <p className="text-xs" role="status">{txNotice}</p>}
       </div>
       <p className="text-xs text-default-500">{t('codec.liveNoTx')}</p>
     </CardBody>

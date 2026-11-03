@@ -80,6 +80,14 @@
     "liveNoEvents": "No decoded messages yet",
     "liveNoTx": "Receive-only: this panel never requests PTT, transmits RF, or saves QSOs.",
     "liveInvalidFrequency": "Enter AF frequency between 100 and 5500 Hz",
-    "liveOperationFailed": "Operation failed; inspect server logs"
+    "liveOperationFailed": "Operation failed; inspect server logs",
+    "applyRx": "Apply receiver settings",
+    "txTitle": "Manual digital transmission",
+    "manualTx": "Transmit message",
+    "rfAvailable": "Experimental RF enabled; coordinated through physical TX lease",
+    "rfLocked": "RF TX is locked pending P9 safety acceptance",
+    "beaconAuthorization": "I explicitly authorize a WSPR beacon transmission (120 s period)",
+    "txComplete": "Transmission workflow completed",
+    "txFailed": "TX failed: check mode, operator permission, RF gate and server diagnostics"
   }
 }
