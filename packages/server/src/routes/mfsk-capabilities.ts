@@ -1,3 +1,4 @@
+import { assertNativeLiveModeAdmission } from './mfsk-live-admission.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { FastifyInstance } from 'fastify';
@@ -97,8 +98,15 @@ export async function mfskCapabilityRoutes(fastify:FastifyInstance):Promise<void
   fastify.post('/live/start',{preHandler:[requireAbility('execute','ModeSwitch')]},
     async(request,reply)=>{
       const cfg=MfskLiveRxStartSchema.parse(request.body);
-      const live=DigitalRadioEngine.getInstance().getMfskLiveRxService();
-      return reply.send(MfskLiveRxStatusSchema.parse(live.start(cfg)));
+      const engine=DigitalRadioEngine.getInstance();
+      try {
+        assertNativeLiveModeAdmission(cfg.mode,engine.getCurrentMode().name,
+          engine.getStatus().isRunning);
+      } catch(error) {
+        return reply.code(409).send({success:false,
+          error:error instanceof Error?error.message:'Receiver mode admission rejected'});
+      }
+      return reply.send(MfskLiveRxStatusSchema.parse(engine.getMfskLiveRxService().start(cfg)));
     });
   fastify.post('/live/ap-context',{preHandler:[requireAbility('execute','ModeSwitch')]},
     async(request,reply)=>{
