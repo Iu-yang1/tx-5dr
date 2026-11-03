@@ -169,7 +169,7 @@ export class MfskMultimodeRuntime {
       throw new Error('Out of order slot; reset the decoder before replay');
     }
     const samples = validateSamples(input.samples, 12_000 * 305);
-    if (state.definition.slotMs === null || samples.length > 12 * state.definition.slotMs / 1000) {
+    if (state.definition.slotMs === null || samples.length > 12_000 * state.definition.slotMs / 1000) {
       throw new Error('PCM exceeds this mode period');
     }
     const period = slot.period;
