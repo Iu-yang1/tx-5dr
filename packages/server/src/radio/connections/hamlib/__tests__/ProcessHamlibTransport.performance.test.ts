@@ -86,7 +86,8 @@ describe('Hamlib real child-process IPC performance', () => {
       parentCpuMs: round((cpu.user + cpu.system) / 1000),
       parentRssDeltaMiB: round(rssDelta / (1024 * 1024)),
     };
-    console.log('HAMLIB_IPC_PERF_METRICS ' + JSON.stringify(metrics));
+    // Preserve the CI-readable benchmark record without bypassing application logger rules.
+    process.stdout.write('HAMLIB_IPC_PERF_METRICS ' + JSON.stringify(metrics) + '\n');
     expect(spectrumFrames).toBeGreaterThan(0);
   }, 120000);
 });
