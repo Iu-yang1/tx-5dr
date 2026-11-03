@@ -35,11 +35,14 @@ jobs:
         run: yarn install --immutable
       - name: Build
         run: yarn build
+      - name: Verify locale parity
+        run: yarn check:i18n
       - name: Focused Web tests
         run: |
           set -euo pipefail
           cd packages/web
           TESTS=(
+            src/pages/about/MfskLiveReceiverPanel.test.tsx
             src/audio/__tests__/softwareSquelchPreference.test.ts
             src/components/common/__tests__/QrzCallsignLink.test.ts
             src/components/radio/control/__tests__/RadioControlPluginToolbar.test.ts
