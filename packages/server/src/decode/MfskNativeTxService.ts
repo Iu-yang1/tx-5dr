@@ -41,7 +41,7 @@ export interface MfskTxAdmission {
   transmitAudio(request:PhysicalAudioTransmissionRequest):Promise<PhysicalTxResult>;
   stopTuneTone():Promise<void>;
   /** True ONLY after P9 TX eligibility and explicit RF enable are verified. */
-  rfAllowed():boolean;
+  rfAllowed(operatorId:string):boolean;
   sleep?(ms:number):Promise<void>;
   encode?(request:MfskTxRequest):Promise<MfskTxWaveform>;
 }
@@ -85,12 +85,12 @@ export class MfskNativeTxService {
     finally{detach();}
   }
   isBusy():boolean {return this.busy;}
-  isRfEnabled():boolean {return this.deps.rfAllowed();}
+  isRfEnabled(operatorId:string):boolean {return this.deps.rfAllowed(operatorId);}
 
   async send(request:MfskTxRequest):Promise<MfskTxOutcome> {
     if(this.busy)throw new Error('A native transmit operation is already pending');
     this.validateRequest(request);
-    if(!this.deps.rfAllowed())throw new Error('Native RF TX requires explicit operator authorization');
+    if(!this.deps.rfAllowed(request.operatorId))throw new Error('Native RF TX requires explicit operator authorization');
     this.assertPreconditions(request);
     const epoch=this.epoch;
     const controller=new AbortController();
@@ -205,7 +205,7 @@ export class MfskNativeTxService {
   }
   private assertPreconditions(r:MfskTxRequest,epoch=this.epoch):void {
     if(epoch!==this.epoch)throw new Error('Native TX cancelled by a newer mode or radio generation');
-    if(!this.deps.rfAllowed())throw new Error('Native RF TX disabled');
+    if(!this.deps.rfAllowed(r.operatorId))throw new Error('Native RF TX disabled');
     if(!this.deps.isRunning()||this.deps.mode()!==r.mode){
       throw new Error('Native TX mode is not the active running radio engine mode');
     }

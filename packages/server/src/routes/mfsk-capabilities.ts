@@ -141,21 +141,33 @@ export async function mfskCapabilityRoutes(fastify:FastifyInstance):Promise<void
   // Dedicated authenticated TX path. The host's physical lease owns PTT;
   // Rust encoding runs in a separate child. Explicit, short-lived arm only.
   fastify.get('/tx/status',{preHandler:[requireAbility('read','all')]},
-    async(_request,reply)=>{
-      const service=DigitalRadioEngine.getInstance().getMfskNativeTxService();
-      return reply.send({
-        ...DigitalRadioEngine.getInstance().getMfskRfArmGate().status(),
-        rfEnabled:service.isRfEnabled(),busy:service.isBusy(),
-      });
-    });
-  fastify.post('/tx/arm',{preHandler:[requireAbility('execute','RadioControl')]},
     async(request,reply)=>{
-      if((request.body as {acknowledged?:unknown}|null)?.acknowledged!==true){
-        return reply.code(400).send({success:false,error:'Explicit RF safety acknowledgement required'});
+      const operatorId=(request.query as {operatorId?:string})?.operatorId??'';
+      const engine=DigitalRadioEngine.getInstance();
+      const ownsOperator=Boolean(operatorId && request.authUser &&
+        (request.ability.can('manage','all') ||
+         request.authUser.role==='admin' ||
+         request.authUser.operatorIds.includes(operatorId)));
+      const status=ownsOperator
+        ?engine.getMfskRfArmGate().status(operatorId,request.authUser!.tokenId)
+        :{rfEnabled:false,remainingMs:0};
+      return reply.send({...status,busy:engine.getMfskNativeTxService().isBusy()});
+    });
+  fastify.post('/tx/arm',{
+    preHandler:[
+      requireAbility('execute','RadioControl'),
+      requireOperatorAbility(req=>(req.body as {operatorId?:string})?.operatorId??''),
+    ],
+  },async(request,reply)=>{
+      const payload=request.body as {acknowledged?:unknown;operatorId?:unknown}|null;
+      if(payload?.acknowledged!==true || typeof payload?.operatorId!=='string'){
+        return reply.code(400).send({success:false,error:'Explicit RF safety acknowledgement and operator required'});
       }
       const engine=DigitalRadioEngine.getInstance();
       try{
-        return reply.send({success:true,...engine.armMfskNativeRfTx(true)});
+        return reply.send({success:true,...engine.armMfskNativeRfTx(
+          true,payload.operatorId,request.authUser!.tokenId,
+        )});
       }catch(e){
         return reply.code(409).send({
           success:false,error:e instanceof Error?e.message:'RF arm admission rejected',
@@ -169,11 +181,16 @@ export async function mfskCapabilityRoutes(fastify:FastifyInstance):Promise<void
       return reply.send({success:true,...engine.getMfskRfArmGate().status()});
     });
   fastify.post('/tx/send',{
-    preHandler:[requireOperatorAbility(req=>(req.body as {operatorId?:string})?.operatorId??'')],
+    preHandler:[
+      requireAbility('execute','RadioControl'),
+      requireOperatorAbility(req=>(req.body as {operatorId?:string})?.operatorId??''),
+    ],
   },async(request,reply)=>{
     const payload=MfskPhysicalTxRequestSchema.parse(request.body);
-    const service=DigitalRadioEngine.getInstance().getMfskNativeTxService();
-    if(!service.isRfEnabled()){
+    const engine=DigitalRadioEngine.getInstance();
+    const service=engine.getMfskNativeTxService();
+    const auth=engine.getMfskRfArmGate().status(payload.operatorId,request.authUser!.tokenId);
+    if(!auth.rfEnabled || !service.isRfEnabled(payload.operatorId)){
       return reply.code(423).send({
         success:false,error:'Native RF requires explicit time-limited authorization',
       });

@@ -413,7 +413,7 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
       stopTuneTone:()=>this.stopTuneTone('native digital transmitter started'),
       // Only an explicit in-app approval tied to the current physical rig,
       // native mode and RX generation can enable a guarded manual TX.
-      rfAllowed:()=>this.mfskRfArmGate.allowed(),
+      rfAllowed:operatorId=>this.mfskRfArmGate.allowedForOperator(operatorId),
     });
     // A native worker crash or a receiver restart is an RF boundary, not
     // merely a decode warning. Cancel an uncommitted UTC send immediately
@@ -915,11 +915,12 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
     return this.mfskRfArmGate;
   }
 
-  public armMfskNativeRfTx(acknowledged:boolean) {
+  public armMfskNativeRfTx(acknowledged:boolean,operatorId:string,principalId:string) {
     if(this.physicalTxCoordinator.getSnapshot().phase!=='idle'){
       throw new Error('Cannot arm native RF while a physical TX lease is active');
     }
-    return this.mfskRfArmGate.arm(acknowledged);
+    if(!this._operatorManager.getOperatorById(operatorId))throw new Error('Unknown operator');
+    return this.mfskRfArmGate.arm(acknowledged,operatorId,principalId);
   }
 
   public async disarmMfskNativeRfTx():Promise<void>{

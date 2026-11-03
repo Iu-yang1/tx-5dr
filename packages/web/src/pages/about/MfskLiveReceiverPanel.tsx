@@ -97,14 +97,14 @@ export function MfskLiveReceiverPanel({
           }).catch(()=>{if(active)setWsprSpots([]);});
         }
       }).catch(()=>{/* Feature is optional on non-experimental server. */});
-      void api.getMfskNativeTxStatus().then(value=>{if(active)setTxStatus(value);}).catch(()=>{
+      void api.getMfskNativeTxStatus(currentOperatorId??undefined).then(value=>{if(active)setTxStatus(value);}).catch(()=>{
         if(active)setTxStatus({rfEnabled:false,busy:false,remainingMs:0});
       });
     };
     poll();
     const timer=setInterval(poll,1500);
     return ()=>{active=false;clearInterval(timer);};
-  },[]);
+  },[currentOperatorId]);
 
   // Keep the Q65 selector aligned with the receiver after a page reload,
   // unless the operator is intentionally editing the next submode.
@@ -251,9 +251,9 @@ export function MfskLiveReceiverPanel({
   };
 
   const changeArm=(arm:boolean)=>{
-    if(!mayArmRf || armPending || (arm && !rfAcknowledged))return;
+    if(!mayArmRf || armPending || (arm && (!rfAcknowledged||!currentOperatorId)))return;
     setArmPending(true);setArmNotice(null);
-    void (arm?api.armMfskNativeTx():api.disarmMfskNativeTx())
+    void (arm?api.armMfskNativeTx(currentOperatorId!):api.disarmMfskNativeTx())
       .then(result=>{
         setTxStatus(current=>({...current,rfEnabled:result.rfEnabled,remainingMs:result.remainingMs}));
         setRfAcknowledged(false);
@@ -263,7 +263,7 @@ export function MfskLiveReceiverPanel({
   };
 
   const transmit=()=>{
-    if(!currentOperatorId || !txStatus.rfEnabled || !receiverMatches || txPending) return;
+    if(!mayArmRf || !currentOperatorId || !txStatus.rfEnabled || !receiverMatches || txPending) return;
     const hz=Number(mode==='MSK144'?1500:txFrequency);
     if(!Number.isFinite(hz)||hz<100||hz>5500) {
       setTxNotice(t('codec.liveInvalidFrequency')); return;
@@ -432,7 +432,7 @@ export function MfskLiveReceiverPanel({
           </label>
           <div className="flex flex-wrap items-center gap-2">
             <Button size="sm" variant="flat" color="warning" isLoading={armPending}
-              isDisabled={armPending||!rfAcknowledged||!receiverMatches}
+              isDisabled={armPending||!rfAcknowledged||!receiverMatches||!currentOperatorId}
               onPress={()=>changeArm(true)}>{t('codec.armRf')}</Button>
             <Button size="sm" variant="flat" isDisabled={armPending||!txStatus.rfEnabled}
               onPress={()=>changeArm(false)}>{t('codec.disarmRf')}</Button>
@@ -480,7 +480,7 @@ export function MfskLiveReceiverPanel({
         </label>}
         <div className="flex gap-2 items-center flex-wrap">
           <Button size="sm" color="warning" isLoading={txPending}
-            isDisabled={!receiverMatches||!txStatus.rfEnabled||txStatus.busy||!currentOperatorId||
+            isDisabled={!mayArmRf||!receiverMatches||!txStatus.rfEnabled||txStatus.busy||!currentOperatorId||
               !text.trim()||txPending||(mode==='WSPR'&&!beaconAuthorized)}
             onPress={transmit}>{t('codec.manualTx')}</Button>
           <span className="text-xs text-default-500">
