@@ -302,7 +302,8 @@ jobs:
           EOF
 
       - name: Generate OSS docker manifest
-        if: env.OSS_ACCESS_KEY_ID != '' && env.OSS_ACCESS_KEY_SECRET != '' && env.OSS_BUCKET != '' && env.OSS_ENDPOINT != '' && env.OSS_BASE_URL != ''
+        # RC is tagged separately in GHCR; it must not write nightly/latest OSS indexes.
+        if: env.OSS_ACCESS_KEY_ID != '' && env.OSS_ACCESS_KEY_SECRET != '' && env.OSS_BUCKET != '' && env.OSS_ENDPOINT != '' && env.OSS_BASE_URL != '' && !contains(github.event.inputs.tag, '-rc.')
         run: |
           node scripts/generate-oss-manifest.mjs \
             --product docker \
@@ -319,7 +320,7 @@ jobs:
             --docker-digest "${{ steps.docker_build.outputs.digest }}"
 
       - name: Upload docker metadata to OSS
-        if: env.OSS_ACCESS_KEY_ID != '' && env.OSS_ACCESS_KEY_SECRET != '' && env.OSS_BUCKET != '' && env.OSS_ENDPOINT != '' && env.OSS_BASE_URL != ''
+        if: env.OSS_ACCESS_KEY_ID != '' && env.OSS_ACCESS_KEY_SECRET != '' && env.OSS_BUCKET != '' && env.OSS_ENDPOINT != '' && env.OSS_BASE_URL != '' && !contains(github.event.inputs.tag, '-rc.')
         run: |
           ossutil cp "oss-metadata/docker/latest.json" "oss://${OSS_BUCKET}/tx-5dr/docker/nightly-docker/latest.json" --force -c "${RUNNER_TEMP}/.ossutilconfig"
           ossutil cp "oss-metadata/docker/latest.json" "oss://${OSS_BUCKET}/tx-5dr/docker/latest.json" --force -c "${RUNNER_TEMP}/.ossutilconfig"

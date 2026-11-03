@@ -928,7 +928,12 @@ jobs:
             echo "tag=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
             echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
             echo "channel=release" >> $GITHUB_OUTPUT
-            echo "channel_path=release" >> $GITHUB_OUTPUT
+            # RC manifests must NEVER replace the stable /release/latest.json feed.
+            if [[ "${{ github.event.inputs.version }}" == *-rc.* ]]; then
+              echo "channel_path=rc" >> $GITHUB_OUTPUT
+            else
+              echo "channel_path=release" >> $GITHUB_OUTPUT
+            fi
             echo "app_version=${{ github.event.inputs.version }}" | sed 's/^app_version=v/app_version=/' >> $GITHUB_OUTPUT
           fi
 
