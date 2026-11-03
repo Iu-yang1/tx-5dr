@@ -1,6 +1,11 @@
 name: MFSK weak-signal sensitivity study (on demand)
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'packages/mfsk-native/sensitivity-monte-carlo.cjs'
+      - 'packages/server/scripts/reference-threshold-monte-carlo.cjs'
+      - '.github/workflows/mfsk-sensitivity.yml'
 permissions:
   contents: read
 jobs:
