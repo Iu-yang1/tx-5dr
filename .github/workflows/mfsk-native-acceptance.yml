@@ -65,3 +65,34 @@ jobs:
             packages/mfsk-native/simulation-report.json
             packages/mfsk-native/six-mode-replay-report.json
           retention-days: 14
+
+  # A native .node that works in isolation can still be unusable by the real
+  # TypeScript server. This job validates the actual compiled server pipeline.
+  server-runtime:
+    needs: native
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.1'
+      - name: Enable yarn
+        run: |
+          corepack enable
+          corepack prepare yarn@4.9.1 --activate
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libasound2-dev libpulse-dev libhamlib-dev libhamlib4 libopus-dev build-essential python3-dev pkg-config
+      - name: Download x64 native codec built and tested by matrix
+        uses: actions/download-artifact@v4
+        with:
+          name: mfsk-native-Linux-X64-${{ github.sha }}
+          path: packages/mfsk-native
+      - name: Build all TypeScript packages
+        run: |
+          yarn install --immutable
+          yarn build
+      - name: Exercise all six real compiled server simulation paths
+        run: node packages/server/scripts/mfsk-sim-e2e.cjs
