@@ -168,16 +168,35 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
    */
   async flushAndStop(timeoutMs=2_000):Promise<MfskLiveStatus> {
     if(!this.child||!this.ready||this.config?.mode!=='JTTY')return this.stop();
-    const child=this.child;
-    const generation=this.generation;
+    if(!Number.isFinite(timeoutMs)||timeoutMs<100||timeoutMs>10_000){
+      throw new Error('Invalid JTTY shutdown timeout');
+    }
+    const child=this.child,generation=this.generation;
+    this.audio.off('audioData',this.onPcm);
+    const deadline=Date.now()+timeoutMs;
+    // Drain the serialized AF resampler before a terminal control message.
+    // JTTY's final frame otherwise arrives too late for reception-ended.
+    let drainTimer:NodeJS.Timeout|undefined,drained=false;
+    await Promise.race([
+      this.serialized.then(()=>{drained=true;}),
+      new Promise<void>(resolve=>{
+        drainTimer=setTimeout(resolve,Math.max(1,Math.floor(timeoutMs/2)));
+        drainTimer.unref();
+      }),
+    ]);
+    if(drainTimer)clearTimeout(drainTimer);
+    if(this.child!==child||this.generation!==generation)return this.status();
+    if(!drained){
+      this.fail(generation,'JTTY shutdown timed out draining queued PCM');
+      return this.status();
+    }
     return new Promise(resolve=>{
       let done=false;
       const finish=()=>{
         if(done)return;
-        done=true;
-        clearTimeout(timer);
+        done=true;clearTimeout(timer);
         child.off('message',onMessage);
-        if(this.child===child && this.generation===generation)this.stop();
+        if(this.child===child&&this.generation===generation)this.stop();
         resolve(this.status());
       };
       const onMessage=(payload:unknown)=>{
@@ -185,7 +204,7 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
         const value=payload as {type?:string;generation?:number};
         if(value.type==='stopped'&&value.generation===generation)finish();
       };
-      const timer=setTimeout(finish,timeoutMs);
+      const timer=setTimeout(finish,Math.max(1,deadline-Date.now()));
       timer.unref();
       child.on('message',onMessage);
       try{child.send({cmd:'stop',generation});}

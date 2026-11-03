@@ -125,6 +125,7 @@ describe('live receiver protects the real AF ingestion and native session bounda
     const worker=s.workers[0];
     worker.emit('message',{type:'started',generation:active.generation});
     const pending=s.live.flushAndStop();
+    await new Promise(resolve=>setImmediate(resolve));
     expect(worker.messages.at(-1)).toMatchObject({cmd:'stop',generation:active.generation});
     worker.emit('message',{type:'events',generation:active.generation,events:[{
       kind:'message-update',sessionId:`live-${active.generation}`,
@@ -139,4 +140,23 @@ describe('live receiver protects the real AF ingestion and native session bounda
       expect.objectContaining({kind:'message-update',state:'reception-ended',text:'CQ K1ABC'}),
     ]);
   });
+  it('waits for queued JTTY AF PCM before terminating the decoder',async()=>{
+    const s=setup();
+    const active=s.live.start({mode:'JTTY'});
+    const worker=s.workers[0];
+    worker.emit('message',{type:'started',generation:active.generation});
+    const audio=s.audio as unknown as EventEmitter;
+    audio.emit('audioData',new Float32Array(480),12000);
+    const pending=s.live.flushAndStop();
+    expect(worker.messages.some(m=>(m as {cmd:string}).cmd==='stop')).toBe(false);
+    audio.emit('audioData',new Float32Array(480),12000);
+    await new Promise(resolve=>setImmediate(resolve));
+    expect(worker.messages.map(m=>(m as {cmd:string}).cmd))
+      .toEqual(['start','audio','stop']);
+    worker.emit('message',{type:'stopped',generation:active.generation});
+    const outcome=await pending;
+    expect(outcome.running).toBe(false);
+    expect(worker.killed).toBe(true);
+  });
+
 });
