@@ -100,6 +100,16 @@ jobs:
         run: node packages/server/scripts/p9-codec-runtime-audit.cjs
       - name: Exercise all six real compiled server simulation paths
         run: node packages/server/scripts/mfsk-sim-e2e.cjs
+      - name: Cross-decode independent FT8/FT4 reference TX and Rust TX (both directions)
+        run: node packages/server/scripts/reference-crosscodec.cjs
+      - name: Upload independent cross-codec reference results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mfsk-reference-interoperability-${{ github.sha }}
+          path: packages/server/scripts/reference-crosscodec-report.json
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Run real TX-5DR virtual-radio QSO regression on native FT8/FT4 backend
         env:
           TX5DR_CODEC_BACKEND: mfsk-native
