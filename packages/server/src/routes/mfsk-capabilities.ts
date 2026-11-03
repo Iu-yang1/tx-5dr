@@ -200,8 +200,10 @@ export async function mfskCapabilityRoutes(fastify:FastifyInstance):Promise<void
   // Only one CPU-intensive native simulation at a time per server process.
   // Runs in a disposable child; malformed native code cannot crash Fastify.
   let simulationInFlight=false;
+  // Offline DSP simulation is CPU-intensive (up to a 300 s Q65 period).
+  // View-only accounts can inspect status but cannot launch decode jobs.
   fastify.post('/simulate', {
-    preHandler:[requireAbility('read','all')],
+    preHandler:[requireAbility('execute','ModeSwitch')],
   },async (request,reply)=>{
     const payload = MfskCodecSimulationRequestSchema.parse(request.body);
     if(simulationInFlight){
