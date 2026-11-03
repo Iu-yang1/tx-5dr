@@ -81,6 +81,11 @@ export class MfskNativeTxService {
       const durationMs=count/12;
       const definition=resolveDigitalSchedule(request.mode,request.q65Submode);
       const periodMs=definition.slotMs;
+      const tailHoldMs=100;
+      // Reserve additional room for PTT setup, audio output preparation and
+      // known timer jitter. A partially transmitted protocol frame is invalid.
+      const startGuardMs=request.mode==='WSPR'?1500:500;
+      let latestAllowedStartMs:number|null=null;
       let startMs:null|number=null;
       if(periodMs!==null){
         const margin=request.mode==='WSPR'?2000:500;
@@ -89,13 +94,16 @@ export class MfskNativeTxService {
         // or Q65 waveform, even if the UI clicked near a UTC boundary.
         const slotStart=(Math.floor((now+1000)/periodMs)+1)*periodMs;
         startMs=slotStart+margin;
-        const remaining=periodMs-margin-durationMs;
-        if(remaining<300)throw new Error('Encoded waveform exceeds safe UTC TX period budget');
+        const remaining=periodMs-margin-durationMs-tailHoldMs-startGuardMs;
+        if(remaining<0)throw new Error('Encoded waveform exceeds safe UTC TX period budget');
+        // This is the latest instant at which the physical audio can start
+        // without crossing the UTC slot edge. Recheck after async PTT setup.
+        latestAllowedStartMs=slotStart+periodMs-durationMs-tailHoldMs-startGuardMs;
         const delay=Math.max(0,startMs-this.deps.now());
         if(delay>periodMs+2000)throw new Error('Unreasonable UTC TX wait');
         await (this.deps.sleep??(ms=>new Promise<void>(resolve=>setTimeout(resolve,ms))))(delay);
         this.assertPreconditions(request,epoch);
-        if(this.deps.now()>slotStart+periodMs-durationMs-200){
+        if(this.deps.now()>latestAllowedStartMs){
           throw new Error('TX preparation deadline missed: insufficient slot budget');
         }
       }
@@ -103,9 +111,14 @@ export class MfskNativeTxService {
         source:'digital',operatorIds:[request.operatorId],playbackKind:'digital',
         reason:`native ${request.mode} manual transmission`,
         audioData:encoded.audioData,sampleRate:encoded.sampleRate,
-        assertPtt:true,tailHoldMs:100,
+        assertPtt:true,tailHoldMs,
         beforeStart:()=>this.deps.stopTuneTone(),
-        validateStart:()=>this.assertPreconditions(request,epoch),
+        validateStart:()=>{
+          this.assertPreconditions(request,epoch);
+          if(latestAllowedStartMs!==null && this.deps.now()>latestAllowedStartMs){
+            throw new Error('Native TX slot budget expired during PTT or audio preparation');
+          }
+        },
       });
       return {mode:request.mode,scheduledStartMs:startMs,durationMs,result:outcome};
     }finally{

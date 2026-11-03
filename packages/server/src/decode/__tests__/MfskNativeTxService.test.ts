@@ -74,4 +74,26 @@ describe('native six-mode transmit protocol and physical lease boundaries',()=>{
     await expect(s.send({mode:'Q65',text:'CQ K1ABC FN42',operatorId:'op1',
       audioHz:6000})).rejects.toThrow();
   });
+  it('fences stale UTC waveforms after slow PTT/output setup',async()=>{
+    const c=context();
+    const callbacks: Array<() => void|Promise<void>>=[];
+    const deps:MfskTxAdmission={...c.deps,transmitAudio:async(request)=>{
+      if(request.validateStart)callbacks.push(request.validateStart);
+      // Simulate a backend which resolves playback preparation only when
+      // too little time remains to send the complete Q65 60s waveform.
+      await c.deps.sleep?.(59_000);
+      await request.validateStart?.();
+      return {
+        leaseId:'should-not-commit',source:'digital',operatorIds:['op1'],
+        success:true,reason:'unexpected',physicalConfirmed:true,
+      };
+    }};
+    const service=new MfskNativeTxService(deps);
+    await expect(service.send({mode:'Q65',text:'CQ K1ABC FN42',
+      operatorId:'op1',audioHz:1500,q65Submode:'Q65-60B'}))
+      .rejects.toThrow(/slot budget expired/);
+    expect(callbacks).toHaveLength(1);
+    expect(c.sent).not.toHaveBeenCalled();
+  });
+
 });
