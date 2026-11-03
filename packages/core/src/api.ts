@@ -568,6 +568,10 @@ function normalizeOperatorRequest<T extends CreateRadioOperatorRequest | UpdateR
 // ========== API 对象 ==========
 
 export const api = {
+  /** Isolated probe only; cannot authorize real RF transmissions. */
+  async getMfskCodecProbe(): Promise<import('@tx5dr/contracts').MfskCodecProbeResponse> {
+    return apiRequest<import('@tx5dr/contracts').MfskCodecProbeResponse>('/mfsk/capabilities');
+  },
   /** Applies all scalar members of one host-declared radio parameter group atomically. */
   async writeRadioCapabilityGroup(payload: WriteCapabilityGroupPayload, apiBase?: string): Promise<{ success: boolean }> {
     return apiRequest<{ success: boolean }>(`/radio/capability-groups/${encodeURIComponent(payload.groupId)}`, {

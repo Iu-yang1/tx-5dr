@@ -133,3 +133,13 @@ export function digitalCodecSlotStart(timeMs: number, slotMs: number): number {
   }
   return Math.floor(timeMs / slotMs) * slotMs;
 }
+
+/** Read-only probe of an isolated native codec process (never RF readiness). */
+export const MfskCodecProbeResponseSchema = z.object({
+  experimental: z.literal(true),
+  physicalTxEnabled: z.literal(false),
+  version: z.string().nullable(),
+  capabilities: z.array(DigitalCodecRuntimeCapabilitySchema).length(6),
+  error: z.string().optional(),
+});
+export type MfskCodecProbeResponse = z.infer<typeof MfskCodecProbeResponseSchema>;

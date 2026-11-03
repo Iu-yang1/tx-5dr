@@ -45,5 +45,12 @@
       "bronze": "Bronze Sponsor",
       "individual": "Individual Sponsor"
     }
+  },
+  "codec": {
+    "title": "Native multimode codecs (experimental)",
+    "virtualOnly": "Offline codec capabilities only, not an operational radio-mode selector.",
+    "offlineReady": "Native interface loaded",
+    "unavailable": "Unavailable",
+    "noRf": "Physical RF transmit remains disabled in this experimental implementation until P9 acceptance."
   }
 }
