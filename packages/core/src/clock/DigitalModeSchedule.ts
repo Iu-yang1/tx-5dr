@@ -118,7 +118,8 @@ export class AudioStreamSequence {
   accept(generation: number, sampleStart: number, sampleCount: number): boolean {
     if (!this.generation.accepts(generation)
       || !Number.isSafeInteger(sampleStart) || sampleStart < 0
-      || !Number.isSafeInteger(sampleCount) || sampleCount <= 0) return false;
+      || !Number.isSafeInteger(sampleCount) || sampleCount <= 0
+      || !Number.isSafeInteger(sampleStart + sampleCount)) return false;
     if (this.lastEndSample !== null && sampleStart !== this.lastEndSample) return false;
     this.lastEndSample = sampleStart + sampleCount;
     return true;
