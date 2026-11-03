@@ -502,7 +502,7 @@ jobs:
           artifacts: "release-assets/*"
           token: ${{ secrets.GITHUB_TOKEN }}
           draft: false
-          prerelease: false
+          prerelease: ${{ contains(github.event.inputs.version, '-rc.') }}
           makeLatest: false
 
       - name: Install ossutil

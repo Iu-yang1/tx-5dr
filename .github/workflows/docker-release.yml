@@ -70,10 +70,13 @@ jobs:
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           COMMIT_STAMP=$(git show -s --date=format-local:%Y%m%d%H%M --format=%cd "${{ github.sha }}")
           HOST_VERSION=$(node scripts/host-version.mjs --channel nightly --build-stamp "$COMMIT_STAMP" --commit "${{ github.sha }}")
+          if [ -n "${{ github.event.inputs.tag }}" ]; then HOST_VERSION="${{ github.event.inputs.tag }}"; fi
 
-          # 基础标签
-          TAGS="${IMAGE}:latest"
-          TAGS="${TAGS},${IMAGE}:${SHORT_SHA}"
+          # RC releases NEVER overwrite :latest; stable and nightly retain it.
+          TAGS="${IMAGE}:${SHORT_SHA}"
+          if [[ "${{ github.event.inputs.tag }}" != *-rc.* ]]; then
+            TAGS="${IMAGE}:latest,${TAGS}"
+          fi
 
           # 如果是手动触发且指定了标签
           if [ -n "${{ github.event.inputs.tag }}" ]; then
@@ -259,7 +262,7 @@ jobs:
           allowUpdates: ${{ github.event.inputs.tag == '' }}
           artifacts: ""
           token: ${{ secrets.GITHUB_TOKEN }}
-          prerelease: ${{ github.event.inputs.tag == '' }}
+          prerelease: ${{ github.event.inputs.tag == '' || contains(github.event.inputs.tag, '-rc.') }}
           makeLatest: false
 
       - name: Install ossutil

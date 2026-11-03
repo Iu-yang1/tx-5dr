@@ -28,14 +28,14 @@ jobs:
           set -euo pipefail
           test "${GITHUB_REF}" = 'refs/heads/main' || { echo 'Only main can request official release'; exit 1; }
           VERSION=$(tr -d '\r\n ' < release/official-version.txt)
-          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid version: $VERSION"; exit 1; }
+          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]] || { echo "Invalid version: $VERSION"; exit 1; }
           PACKAGE_VERSION=$(node -p "require('./package.json').version")
           test "$VERSION" = "v$PACKAGE_VERSION" || { echo "Release version $VERSION does not match package.json $PACKAGE_VERSION"; exit 1; }
           if gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Desktop release $VERSION already exists, refusing to replace";
             exit 1
           fi
-          for suffix in server android-runtime docker; do
+          for suffix in server docker; do
             if gh release view "$VERSION-$suffix" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
               echo "Release $VERSION-$suffix already exists, refusing to replace";
               exit 1
@@ -43,7 +43,7 @@ jobs:
           done
           echo "RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
 
-      - name: Start official Windows/Linux Desktop, Server, Android and Docker releases
+      - name: Start candidate Windows/Linux Desktop, Linux Server and Docker releases
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -51,6 +51,5 @@ jobs:
           set -euo pipefail
           gh workflow run electron-release.yml --repo "$GITHUB_REPOSITORY" --ref main --field "version=$RELEASE_VERSION" --field "windows_linux_only=true"
           gh workflow run server-release.yml --repo "$GITHUB_REPOSITORY" --ref main --field "version=$RELEASE_VERSION"
-          gh workflow run android-runtime-release.yml --repo "$GITHUB_REPOSITORY" --ref main --field "version=$RELEASE_VERSION"
           gh workflow run docker-release.yml --repo "$GITHUB_REPOSITORY" --ref main --field "tag=$RELEASE_VERSION"
-          echo "Dispatched validated release builds for $RELEASE_VERSION; inspect each run and release before claiming publication."
+          echo "Dispatched Windows/Linux RC builds for $RELEASE_VERSION; -rc.N is prerelease, NOT stable/latest."
