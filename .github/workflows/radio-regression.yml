@@ -75,6 +75,7 @@ jobs:
           set -euo pipefail
           cd packages/server
           TESTS=(
+            src/decode/__tests__/MfskLiveRxService.test.ts
             src/utils/__tests__/frequencyMHz.test.ts
             src/audio/__tests__/AudioHotplugRecovery.test.ts
             src/config/__tests__/ConfigManager.audioIdentity.test.ts
