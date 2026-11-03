@@ -181,7 +181,8 @@ export class MfskMultimodeRuntime {
     decoder.setApContext(ap?.myCall??'',ap?.myGrid??'',ap?.dxCall??'',ap?.dxGrid??'',ap?.progress??0, Boolean(ap));
     state.lastSlotStartMs = input.slotStartMs;
     const prefix = state.cfg.mode === 'FT8' && !input.final;
-    const rows=decoder.decode(samples,period,prefix);
+    const pcm = Buffer.from(samples.buffer, samples.byteOffset, samples.byteLength);
+    const rows=decoder.decode(pcm,period,prefix);
     return rows.map(r=> {
       const event: DigitalRxEvent = {
         kind:'slot-decode',sessionId,mode:state.cfg.mode,
