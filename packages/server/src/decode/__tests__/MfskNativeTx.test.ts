@@ -13,7 +13,7 @@ describe('experimental native TX compatibility adapter', () => {
     const complete: Array<EncodeResult & { request: unknown }> = [];
     queue.on('encodeComplete', r => complete.push(r as EncodeResult & { request: unknown }));
     const request = {
-      operatorId:'op-1',mode:'FT4' as const, message:'CQ K1ABC FN42',
+      operatorId:'simulation:peer-1',virtualSimulation:true,mode:'FT4' as const, message:'CQ K1ABC FN42',
       frequency:1500, slotStartMs:1800000000000,
       frameId:'frame-1',frameRevision:3,decisionEpoch:7,
     };
@@ -34,9 +34,23 @@ describe('experimental native TX compatibility adapter', () => {
     const ok = vi.fn(), bad = vi.fn();
     queue.on('encodeComplete',ok);
     queue.on('encodeError',bad);
-    await queue.push({operatorId:'op-1', mode:'FT8', message:'CQ K1ABC FN42',frequency:1500});
+    await queue.push({operatorId:'simulation:peer-1', virtualSimulation:true,mode:'FT8', message:'CQ K1ABC FN42',frequency:1500});
     expect(ok).not.toHaveBeenCalled();
     expect(bad).toHaveBeenCalledTimes(1);
     await queue.destroy();
   });
+  it('blocks physical RF native TX even when the caller supplies a valid frame', async () => {
+    const native = { encodeSlotted: vi.fn() } as unknown as MfskNativeModule;
+    const queue = new WSJTXEncodeWorkQueue(1,native);
+    const ok=vi.fn(),bad=vi.fn();
+    queue.on('encodeComplete',ok);
+    queue.on('encodeError',bad);
+    await queue.push({operatorId:'op-1',mode:'FT8',
+      frameId:'frame-1',message:'CQ K1ABC FN42',frequency:1500});
+    expect(native.encodeSlotted).not.toHaveBeenCalled();
+    expect(ok).not.toHaveBeenCalled();
+    expect(bad).toHaveBeenCalledTimes(1);
+    await queue.destroy();
+  });
+
 });

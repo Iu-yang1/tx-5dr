@@ -15,6 +15,8 @@ export interface EncodeRequest {
   streamId?: string;
   trackId?: string;
   mode?: 'FT8' | 'FT4';
+  /** Native migration: request originated inside virtual-radio simulation only. */
+  virtualSimulation?: boolean;
   slotStartMs?: number; // 时隙开始时间戳
   timeSinceSlotStartMs?: number; // 从时隙开始到现在经过的时间（毫秒）
   requestId?: string; // 编码请求唯一ID（用于去重和追踪）
@@ -112,6 +114,13 @@ export class WSJTXEncodeWorkQueue extends EventEmitter<EncodeWorkQueueEvents> {
 
       // Native mode is explicitly opted into; a missing module fails closed.
       if (this.native) {
+        // Native is experimental, unapproved for physical RF TX. Do not trust
+        // a caller-supplied operatorId alone; require the explicit simulator
+        // provenance and absence of a physical frame identity.
+        if (!request.virtualSimulation || !request.operatorId.startsWith('simulation:')
+          || request.frameId !== undefined) {
+          throw new Error('mfsk-native RF transmission is disabled pending P9 acceptance');
+        }
         const mode = request.mode === 'FT4' ? 'FT4' : 'FT8';
         const waveform = this.native.encodeSlotted(mode, request.message, request.frequency);
         const samples = verifyNativeWaveform(waveform, request.message, mode);

@@ -309,6 +309,7 @@ export class VirtualRadioSession {
     const requestId = `simulation-${this.sessionId}-${randomUUID()}`;
     const request: EncodeRequest = {
       operatorId: `simulation:${peerId}`,
+      virtualSimulation: true,
       streamId: peerId,
       requestId,
       message,
