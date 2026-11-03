@@ -5,6 +5,7 @@ import { createLogger } from '../utils/logger.js';
 import { WSJTXNativeGate } from './WSJTXNativeGate.js';
 import { digitalMessageTextsMatch, normalizeDigitalMessageText } from './digitalMessageValidation.js';
 import { loadMfskNative, verifyNativeWaveform, type MfskNativeModule } from './MfskNativeAdapter.js';
+import { resolveCodecBackend } from './codec-backend.js';
 
 const logger = createLogger('EncodeWorkQueue');
 
@@ -91,7 +92,7 @@ export class WSJTXEncodeWorkQueue extends EventEmitter<EncodeWorkQueueEvents> {
     this.maxConcurrency = Number.isFinite(maxConcurrency)
       ? Math.max(1, Math.floor(maxConcurrency))
       : 1;
-    if (process.env.TX5DR_CODEC_BACKEND === 'mfsk-native' || nativeForTests) {
+    if (nativeForTests || resolveCodecBackend(process.env.TX5DR_CODEC_BACKEND,process.env.NODE_ENV)==='mfsk-native') {
       const loaded = nativeForTests ? { ready: true as const, module: nativeForTests } : loadMfskNative();
       if (!loaded.ready) throw new Error(loaded.reason);
       this.native = loaded.module;

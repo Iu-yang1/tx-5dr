@@ -4,6 +4,7 @@ import { createLogger } from '../utils/logger.js';
 import { WSJTXDecodeWorkerCore } from './WSJTXDecodeWorkerCore.js';
 import { MfskDecodeWorkerCore } from './MfskDecodeWorkerCore.js';
 import { DecodeWorkerCommandSchema } from './decode-worker-protocol.js';
+import { resolveCodecBackend } from './codec-backend.js';
 
 const logger = createLogger('DecodeWorker');
 const workerId = process.env.TX5DR_DECODE_WORKER_ID || String(process.pid ?? 'unknown');
@@ -15,9 +16,9 @@ const telemetryIntervalMs = Number.isFinite(configuredTelemetryIntervalMs) && co
   ? configuredTelemetryIntervalMs
   : 2000;
 const MIN_CPU_SAMPLE_INTERVAL_MS = 250;
-// Experimental backend is an explicit opt-in. Missing native binding fails
-// closed at worker startup; no silent fallback or cross-backend mixing.
-const decoder = process.env.TX5DR_CODEC_BACKEND === 'mfsk-native'
+// mfsk-core is the production default. Only an explicit legacy setting or
+// NODE_ENV=test selects the old comparison backend. Never silently fall back.
+const decoder = resolveCodecBackend(process.env.TX5DR_CODEC_BACKEND,process.env.NODE_ENV)==='mfsk-native'
   ? new MfskDecodeWorkerCore() : new WSJTXDecodeWorkerCore();
 let busy = false;
 let shuttingDown = false;
