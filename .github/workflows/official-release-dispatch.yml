@@ -1,0 +1,51 @@
+name: Dispatch validated official TX-5DR platform releases
+
+on:
+  push:
+    branches: [main]
+    paths: ['release/official-version.txt']
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout requested release source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Validate release request
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = 'refs/heads/main' || { echo 'Only main can request official release'; exit 1; }
+          VERSION=$(tr -d '\r\n ' < release/official-version.txt)
+          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid version: $VERSION"; exit 1; }
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          test "$VERSION" = "v$PACKAGE_VERSION" || { echo "Release version $VERSION does not match package.json $PACKAGE_VERSION"; exit 1; }
+          for suffix in server android-runtime docker; do
+            if gh release view "$VERSION-$suffix" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "Release $VERSION-$suffix already exists, refusing to replace";
+              exit 1
+            fi
+          done
+          echo "RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Start official Linux Server, Android Runtime and Docker releases
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run server-release.yml --repo "$GITHUB_REPOSITORY" --ref main --field "version=$RELEASE_VERSION"
+          gh workflow run android-runtime-release.yml --repo "$GITHUB_REPOSITORY" --ref main --field "version=$RELEASE_VERSION"
+          gh workflow run docker-release.yml --repo "$GITHUB_REPOSITORY" --ref main --field "tag=$RELEASE_VERSION"
+          echo "Dispatched validated release builds for $RELEASE_VERSION; inspect each run and release before claiming publication."
