@@ -24,6 +24,11 @@ on:
       - '.github/workflows/mfsk-sensitivity.yml'
 permissions:
   contents: read
+# A fast-moving integration PR must not keep obsolete 80x bootstrap jobs
+# running indefinitely. The newest SHA owns acceptance evidence.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   sensitivity:
     runs-on: ubuntu-24.04
@@ -57,7 +62,13 @@ jobs:
           sudo apt-get install -y libasound2-dev libpulse-dev libhamlib-dev libhamlib4 libopus-dev build-essential python3-dev pkg-config
           corepack enable
           corepack prepare yarn@4.9.1 --activate
-          yarn install --immutable
+          # Reference-only CI needs wsjtx-lib, NOT post-install scripts for
+          # onnxruntime-node / Electron / unrelated optional radio plugins.
+          # Such scripts fetch large external models and can fail on GitHub
+          # runner networking before any codec threshold is exercised.
+          yarn install --immutable --mode=skip-build
+          yarn rebuild wsjtx-lib
+          node --input-type=module -e "const {WSJTXLib,WSJTXMode}=await import('wsjtx-lib');if(!WSJTXLib||!WSJTXMode)throw Error('WSJT-X reference module unavailable');console.log('Independent WSJT-X reference module loaded')"
       - name: FT8 independent codec threshold comparison
         env:
           MFSK_MODE: FT8
