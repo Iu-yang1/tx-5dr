@@ -76,6 +76,26 @@ jobs:
           MFSK_SPREAD_HZ: ${{ inputs.spread_hz || '1' }}
           MFSK_DOPPLER_RATE: ${{ inputs.doppler_rate || '0' }}
         run: node packages/server/scripts/reference-threshold-monte-carlo.cjs
+      - name: Watterson-style fading and linear-Doppler coverage matrix
+        # Exploratory paired reference recovery, NOT the AWGN 0.5dB gate:
+        # 1/10/30 Hz Gaussian spread at 0/10/20 Hz/s deterministic drift.
+        # Every row keeps both decoders' hits, false frames and Wilson CI.
+        env:
+          MFSK_CHANNEL: watterson
+          MFSK_TRIALS: '8'
+          MFSK_SNR_POINTS: '-22,-19,-16'
+          MFSK_ENFORCE_THRESHOLD: '0'
+        run: |
+          set -euo pipefail
+          for spread in 1 10 30; do
+            for rate in 0 10 20; do
+              for mode in FT8 FT4; do
+                MFSK_MODE="$mode" MFSK_SPREAD_HZ="$spread" \
+                  MFSK_DOPPLER_RATE="$rate" \
+                  node packages/server/scripts/reference-threshold-monte-carlo.cjs
+              done
+            done
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:

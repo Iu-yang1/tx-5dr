@@ -18,8 +18,16 @@ const MODE=process.env.MFSK_MODE||'FT8',TRIALS=Number(process.env.MFSK_TRIALS||'
 const Fs=12000,B=2500;
 assert(['FT8','FT4'].includes(MODE),'mode must be FT8 or FT4');
 assert(Number.isInteger(TRIALS)&&TRIALS>=1&&TRIALS<=200);
-// One-dB grid: a 2-dB sweep cannot resolve a 0.5-dB P9 target.
-const SNR=Array.from({length:19},(_,i)=>-30+i);
+// Full AWGN 0.5 dB gate uses the original one-dB, 19-point grid.
+// A separate, non-enforcing Watterson/Doppler coverage run may sample
+// fewer SNR points; it cannot be passed off as a 50% sensitivity gate.
+const overrideSnr=process.env.MFSK_SNR_POINTS;
+assert(!(overrideSnr&&process.env.MFSK_ENFORCE_THRESHOLD==='1'),
+  'P9 AWGN threshold may not use reduced exploratory SNR points');
+const SNR=overrideSnr?overrideSnr.split(',').map(Number):
+  Array.from({length:19},(_,i)=>-30+i);
+assert(SNR.length>=2&&SNR.length<=30&&SNR.every((v,i)=>
+  Number.isFinite(v)&&v>=-40&&v<=20&&(i===0||v>SNR[i-1])),'invalid SNR grid');
 function generator(seed) {
  let state=seed>>>0;
  return ()=>{state^=state<<13;state^=state>>>17;state^=state<<5;return ((state>>>0)+0.5)/4294967296};
@@ -151,7 +159,7 @@ async function main(){
  const pairedDelta95=pairedThresholdBootstrap(pairedOutcomes);
  const result={protocol:MODE,source:'Independent wsjtx-lib@2.2.0 transmit samples',
    codec:native.codecVersion(),reference:'wsjtx-lib@2.2.0',
-   noiseReferenceBandwidthHz:B,sampleRateHz:Fs,TRIALS,
+   noiseReferenceBandwidthHz:B,sampleRateHz:Fs,TRIALS,snrPoints:SNR,
    channelModel:CHANNEL,spreadTwoSigmaHz:CHANNEL==='watterson'?SPREAD_HZ:null,
    linearDopplerHzPerSec:CHANNEL==='watterson'?DOPPLER_RATE:null,
    randomizedBy:'seeded xorshift + Box-Muller; same waveform and noise to both decoders',
@@ -160,7 +168,7 @@ async function main(){
      (deltaDb<=0.5&&pairedDelta95.upper95<=0.5&&pairedDelta95.valid>=.95*pairedDelta95.replicates),
    caveats:['50% crossing is linearly interpolated, not an MLE or a fitted psychometric curve',
      'Per-SNR Wilson intervals and a paired nonparametric bootstrap interval for the 50% threshold difference are reported',
-     'The 1 dB threshold interpolation grid is an approximation; refinement should use sub-dB measurements',
+     overrideSnr?'Exploratory reduced-SNR Watterson/Doppler coverage, no 0.5 dB threshold acceptance claim':'The 1 dB threshold interpolation grid is an approximation; refinement should use sub-dB measurements',
      CHANNEL==='watterson'?'Finite 96-scatterer dual-path Watterson-style approximation; not a calibrated ITU test instrument':'AWGN only; Doppler and fading untested in this run',
      'Strong cochannel interference and hardware PTT require independent tests'],
  };

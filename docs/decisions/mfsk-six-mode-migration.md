@@ -1,12 +1,12 @@
 # Six-mode codec migration: P0 evidence and acceptance contract
 
-Status: **P0 implementation baseline / P1 contract candidate. Not a completed migration.**
+Status: **P2–P8 implemented on PR #23; P9 pending current-head acceptance and release.** No verified physical RF claims.
 
 ## Fixed upstream and application baselines
 
 - Application: `Iu-yang1/tx-5dr` `main` at `d684a561bf775a91be276049cd49e9642bcce259` (2026-11-03).
 - Rust upstream: `jl1nie/mfsk-core` `v0.15.0` at `18b37c068e150541b051944db2a94f30bc6c36af`.
-- Legacy production native dependency: `wsjtx-lib@2.2.0` in `packages/server/package.json`. The decode and encode worker implementations directly import this package.
+- Legacy reference: `wsjtx-lib@2.2.0` is now a test/development-only dependency in `packages/server/package.json`. Production uses the pinned Rust addon and fails closed if it is absent.
 - Desired release: FT8, FT4, Q65 (ten actual submodes), WSPR, MSK144, JTTY; RX and TX for all six. `wsjtx-lib` must not remain a production codec after P9.
 
 ## Actual code owners
@@ -28,9 +28,9 @@ The `mfsk-ffi` v0.15.0 header provides `mfsk_decoder_*` for slotted modes, `mfsk
 
 Exact Q65 names in mfsk-core are `Q65-15A`, `Q65-30A`, `Q65-60A` through `Q65-60E`, `Q65-120D/E`, and `Q65-300A`. FT8 early-prefix handling is not equivalent to every legacy 41/47/49/50 checkpoint; a silent remap is forbidden.
 
-## Release licensing blocker
+## Resolved package licensing audit
 
-The repository root `LICENSE` is GNU GPL version 3, but its root `package.json` advertises `"license": "MIT"`. `mfsk-core v0.15.0` declares `GPL-3.0-only`. Resolve package and published-artifact metadata consistently with actual upstream files and dependency licenses before a public P9 release. Do **not** silently edit ownership or license declarations on the assumption that all components have the same copyright holder.
+The root package metadata now declares `GPL-3.0-only` consistently with the existing repository `LICENSE` and the pinned `mfsk-core v0.15.0`. This metadata fix does not alter ownership or imply that unrelated third-party components share the same copyright holder.
 
 ## P0–P9 simulated acceptance gates
 
@@ -52,3 +52,22 @@ Physical radio testing is **not** a release gate per operator instruction. Mock 
 Use deterministic AWGN, Watterson fading, controlled Doppler/drift, noise-only false-alarm tests, multi-station interference, cross-decoder TX vectors, cancellation and 10,000 cycle durability. The proposed weak-signal target is no more than 0.5 dB degradation of 50% decode threshold with confidence intervals, rather than assuming parity from a few WAV examples. Store machine-readable scores and reject out-of-budget regressions.
 
 Until P9 passes, `mfsk-native` is experimental; no automatic fallback or silent protocol substitution is allowed in the released path.
+
+## Normal radio workspace integration (PR #23)
+
+The existing `RadioControl` mode selector is the only primary mode entry point. Selecting Q65, WSPR, MSK144 or JTTY retains the existing radio control and spectrum surface and switches the native-family resource plan in `EngineLifecycle`. No stand-alone About-page receiver console or extra MFSK mode menu is required.
+
+- Existing **left RX pane**: decoded AF messages, UTC, SNR/frequency diagnostics, Q65 actual submode, AP and EME delay/averaging controls and local-only WSPR spots.
+- Existing **right operator pane**: operator selection, manual TX message and independently selectable TX AF carrier, Q65 and MSK144 T/R parity, 5/10/15/30 s MSK144 periods, explicit WSPR beacon consent, and manual QSO confirmation. JTTY incremental revisions replace earlier versions of the same message in display.
+- FT8/FT4 retain their original RX timeline, operator automation and legacy slot decisions. In native modes, obsolete FT8 automation cards are hidden rather than being allowed to key the wrong protocol.
+- RF is **not automatically armed** by selecting a mode, connecting a rig or receiving AF. An operator with `RadioControl` permission must explicitly acknowledge their station, frequency and PTT readiness in the existing right pane. A per-process, ten-minute approval is bound to the physical radio connection generation, current native mode and receiver session generation. A mode change, engine stop, receiver restart or reconnect invalidates it; disarm requests interrupt a currently held native digital PTT lease.
+- The host continues to own actual PTT through `PhysicalTxCoordinator`. No successful QSO is inferred from decode events; the operator explicitly logs a completed exchange. WSPR spots are not QSOs.
+- MSK144 TX is fixed at 1500 Hz AF by the upstream synthesizer, independently of tunable RX AF. It supports standard 72 ms frames; legacy MSK40 shorthand and adaptive RX equalization are not implemented in the pinned upstream version.
+
+## Evidence and remaining release limits
+
+- [PR #23 integration branch](https://github.com/Iu-yang1/tx-5dr/pull/23) must pass *all mandatory* tests on one unchanged head SHA before `main` is updated.
+- [P9 native matrix](https://github.com/Iu-yang1/tx-5dr/actions/workflows/mfsk-native-acceptance.yml) validates the pinned addon on five OS/CPU targets, independent WSJT-X recordings and compiled runtime loading.
+- [Reference sensitivity](https://github.com/Iu-yang1/tx-5dr/actions/workflows/mfsk-sensitivity.yml) enforces paired FT8/FT4 AWGN 50% decode degradation no worse than +0.5 dB (including 95% paired-bootstrap upper bound); exploratory Watterson-like 1/10/30 Hz and 0/10/20 Hz/s Doppler runs record separate per-SNR reference recoveries and false detections and are not a calibrated fading-equipment claim.
+- Distribution checks for Electron, Linux server and Docker must verify the compiled Rust addon is installed; `wsjtx-lib` is not a production runtime dependency.
+- Native physical transceiver output, audio-interface timing, hardware PTT latency and actual on-air QSO quality are untested on CI and must be described as such. A successful virtual-radio release gate is not a hardware certification.
