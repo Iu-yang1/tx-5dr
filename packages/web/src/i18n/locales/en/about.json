@@ -122,6 +122,7 @@
     "wsprLocalOnly": "Standard decoded messages only. AF Hz is not the RF dial frequency. Nothing is auto-uploaded to WSPRnet or PSK Reporter.",
     "wsprNoSpots": "No recognized standard WSPR messages yet.",
     "mskTxFirst": "MSK144 TX First (even UTC periods)",
-    "q65TxFirst": "Q65 TX First (even UTC periods)"
+    "q65TxFirst": "Q65 TX First (even UTC periods)",
+    "mskFixedTxAf": "MSK144 transmit audio is fixed at 1500 Hz (WSJT-X standard); RX AF centre can differ. Message format: CALL1 CALL2 REPORT."
   }
 }

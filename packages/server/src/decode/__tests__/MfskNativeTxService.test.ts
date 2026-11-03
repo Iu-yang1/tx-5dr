@@ -66,6 +66,14 @@ describe('native six-mode transmit protocol and physical lease boundaries',()=>{
       q65TxFirst:true,
     })).rejects.toThrow(/Q65 TX phase/);
   });
+  it('rejects a misleading non-1500 Hz MSK144 TX request',async()=>{
+    const c=context('MSK144');
+    const svc=new MfskNativeTxService(c.deps);
+    await expect(svc.send({mode:'MSK144',text:'K1ABC K2ABC -10',
+      operatorId:'op1',audioHz:1750,mskPeriodSeconds:5}))
+      .rejects.toThrow(/fixed 1500 Hz/);
+    expect(c.sent).not.toHaveBeenCalled();
+  });
   it('prevents unconsented WSPR beacons and wrong active-mode TX',async()=>{
     const c=context();
     const service=new MfskNativeTxService(c.deps);

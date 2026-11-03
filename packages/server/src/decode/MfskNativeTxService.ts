@@ -171,6 +171,12 @@ export class MfskNativeTxService {
     if(request.mode!=='Q65'&&request.q65TxFirst!==undefined){
       throw new Error('Q65 TX phase is only valid for Q65');
     }
+    // WSJT-X MSK144 uses a fixed 1500 Hz TX centre irrespective of
+    // the operator-selected RX centre. Never pretend arbitrary AF pitch
+    // was transmitted when the native modulator ignored that argument.
+    if(request.mode==='MSK144'&&request.audioHz!==1500){
+      throw new Error('MSK144 physical TX has a fixed 1500 Hz audio centre');
+    }
     if(request.mode==='WSPR'&&!request.beaconAuthorized){
       throw new Error('WSPR beacon transmission requires explicit authorization');
     }

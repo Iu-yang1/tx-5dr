@@ -147,7 +147,8 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
     setTxPending(true);
     setTxNotice(null);
     void api.transmitMfsk({
-      mode,operatorId:currentOperatorId,text:text.trim(),audioHz:hz,
+      mode,operatorId:currentOperatorId,text:text.trim(),
+      audioHz:mode==='MSK144'?1500:hz,
       ...(mode==='Q65'?{q65Submode:submode,q65TxFirst}:{}),
       ...(mode==='WSPR'?{beaconAuthorized}:{}),
       ...(mode==='MSK144'?{mskPeriodSeconds:mskPeriod,mskTxFirst}:{}),
@@ -262,6 +263,7 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
       </section>}
       <div className="rounded-md border border-default-200 p-3 space-y-3">
         <p className="text-sm font-medium">{t('codec.txTitle')}</p>
+        {mode==='MSK144' && <p className="text-xs text-default-500">{t('codec.mskFixedTxAf')}</p>}
         <Input size="sm" label={t('codec.message')} value={text} onValueChange={setText}
           isDisabled={txPending} maxLength={64}/>
         {mode==='Q65' && <label className="text-xs flex gap-2 items-center">

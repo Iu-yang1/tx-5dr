@@ -122,6 +122,7 @@
     "wsprLocalOnly": "標準メッセージのみ表示します。AF HzはRF周波数ではありません。外部送信は行いません。",
     "wsprNoSpots": "標準WSPRメッセージはまだありません。",
     "mskTxFirst": "MSK144 TX先行（UTC偶数周期）",
-    "q65TxFirst": "Q65 TX先行（UTC偶数周期）"
+    "q65TxFirst": "Q65 TX先行（UTC偶数周期）",
+    "mskFixedTxAf": "MSK144送信AFはWSJT-X準拠で1500 Hz固定です。受信AF中心は別に設定できます。形式：CALL1 CALL2 REPORT。"
   }
 }

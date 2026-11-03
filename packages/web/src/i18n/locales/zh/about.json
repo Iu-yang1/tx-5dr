@@ -122,6 +122,7 @@
     "wsprLocalOnly": "仅根据已解码的标准消息显示；AF Hz 不是实际射频频率。未自动上传 WSPRnet/PSK Reporter。",
     "wsprNoSpots": "尚无可解析的标准 WSPR 消息。",
     "mskTxFirst": "MSK144 本方先发（UTC 偶周期）",
-    "q65TxFirst": "Q65 本方先发（UTC 偶周期）"
+    "q65TxFirst": "Q65 本方先发（UTC 偶周期）",
+    "mskFixedTxAf": "MSK144 发射 AF 固定为 1500 Hz（WSJT-X 标准），与可调的接收中心频率独立。消息格式：呼号1 呼号2 报告。"
   }
 }
