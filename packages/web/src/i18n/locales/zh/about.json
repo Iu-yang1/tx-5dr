@@ -117,6 +117,9 @@
     "apStage4": "RRR 确认",
     "apStage5": "73 结束",
     "apGuide": "三项必填信息（本站呼号、本站网格、目标呼号）均有效后才会启用 AP 假设；修改后点击“应用接收设置”重启解码会话。",
-    "mskPeriod": "MSK144 T/R 周期"
+    "mskPeriod": "MSK144 T/R 周期",
+    "wsprSpots": "WSPR 本地接收报告",
+    "wsprLocalOnly": "仅根据已解码的标准消息显示；AF Hz 不是实际射频频率。未自动上传 WSPRnet/PSK Reporter。",
+    "wsprNoSpots": "尚无可解析的标准 WSPR 消息。"
   }
 }

@@ -271,3 +271,22 @@ export const MfskManualQsoSchema = z.object({
   }
 });
 export type MfskManualQso=z.infer<typeof MfskManualQsoSchema>;
+
+/** Standard decoded WSPR Type-1 spot: AF Hz is not an RF dial frequency. */
+export const WsprDecodedSpotSchema=z.object({
+  slotId:z.string().min(1),
+  receivedAtMs:z.number().int().nonnegative(),
+  callsign:z.string().min(3).max(16),
+  grid:z.string().regex(/^[A-R]{2}[0-9]{2}$/),
+  powerDbm:z.number().int().min(0).max(60),
+  audioHz:z.number().finite().min(0).max(6000),
+  snrDb:z.number().finite(),
+  text:z.string(),
+});
+export type WsprDecodedSpot=z.infer<typeof WsprDecodedSpotSchema>;
+export const WsprSpotsResponseSchema=z.object({
+  spots:z.array(WsprDecodedSpotSchema).max(200),
+  localOnly:z.literal(true),
+  rfDialCalibrated:z.literal(false),
+});
+export type WsprSpotsResponse=z.infer<typeof WsprSpotsResponseSchema>;

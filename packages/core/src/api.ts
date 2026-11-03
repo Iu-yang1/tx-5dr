@@ -596,6 +596,9 @@ export const api = {
   async getMfskLiveRxStatus(): Promise<import('@tx5dr/contracts').MfskLiveRxStatus> {
     return apiRequest<import('@tx5dr/contracts').MfskLiveRxStatus>('/mfsk/live/status');
   },
+  async getMfskLiveWsprSpots(): Promise<import('@tx5dr/contracts').WsprSpotsResponse> {
+    return apiRequest<import('@tx5dr/contracts').WsprSpotsResponse>('/mfsk/live/wspr-spots');
+  },
   async getMfskLiveRxEvents(afterMs = 0): Promise<import('@tx5dr/contracts').MfskLiveRxEvents> {
     return apiRequest<import('@tx5dr/contracts').MfskLiveRxEvents>(`/mfsk/live/events?afterMs=${Math.max(0,Math.floor(afterMs))}`);
   },

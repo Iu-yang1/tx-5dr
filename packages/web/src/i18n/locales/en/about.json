@@ -117,6 +117,9 @@
     "apStage4": "Rogers",
     "apStage5": "Signoff",
     "apGuide": "AP hypotheses are enabled only with valid station call, station grid and DX call. Apply receiver settings to restart decoding.",
-    "mskPeriod": "MSK144 T/R period"
+    "mskPeriod": "MSK144 T/R period",
+    "wsprSpots": "Local WSPR spots",
+    "wsprLocalOnly": "Standard decoded messages only. AF Hz is not the RF dial frequency. Nothing is auto-uploaded to WSPRnet or PSK Reporter.",
+    "wsprNoSpots": "No recognized standard WSPR messages yet."
   }
 }

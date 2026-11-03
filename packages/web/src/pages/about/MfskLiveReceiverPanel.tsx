@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { api } from '@tx5dr/core';
 import { useCurrentOperatorId, useRadioModeState } from '../../store/radioStore';
 import { Q65SubmodeSchema, type DigitalCodecMode, type DigitalRxEvent,
-  type MfskLiveRxStatus, type Q65Submode } from '@tx5dr/contracts';
+  type MfskLiveRxStatus, type Q65Submode, type WsprDecodedSpot } from '@tx5dr/contracts';
 
 /** Receives post-demodulated AF from the application's live audio input.
  * Does not offer any PTT or RF TX control. Visible only to administrators. */
@@ -24,6 +24,7 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
   const [apDxGrid,setApDxGrid] = useState('');
   const [apProgress,setApProgress] = useState<0|1|2|3|4|5>(0);
   const [events,setEvents] = useState<DigitalRxEvent[]>([]);
+  const [wsprSpots,setWsprSpots] = useState<WsprDecodedSpot[]>([]);
   const [busy,setBusy] = useState(false);
   const [error,setError] = useState<string | null>(null);
   const [txStatus,setTxStatus] = useState<{rfEnabled:boolean;busy:boolean}>({rfEnabled:false,busy:false});
@@ -49,6 +50,11 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
         if(!active)return;
         setStatus(data.status);
         setEvents(data.events.slice(-60));
+        if(data.status.mode==='WSPR'){
+          void api.getMfskLiveWsprSpots().then(result=>{
+            if(active)setWsprSpots(result.spots);
+          }).catch(()=>{if(active)setWsprSpots([]);});
+        }
       }).catch(()=>{/* Feature is optional on non-experimental server. */});
       void api.getMfskNativeTxStatus().then(value=>{if(active)setTxStatus(value);}).catch(()=>{
         if(active)setTxStatus({rfEnabled:false,busy:false});
@@ -81,7 +87,7 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
           frequencyHz:hz,depth:3,
         })
       : api.stopMfskLiveRx();
-    void action.then(value=>{setStatus(value);setEvents([]);})
+    void action.then(value=>{setStatus(value);setEvents([]);setWsprSpots([]);})
       .catch(()=>setError(t('codec.liveOperationFailed')))
       .finally(()=>setBusy(false));
   };
@@ -220,6 +226,27 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
               <td className="px-2 py-1 font-mono">{e.text}</td>
             </tr>)}</tbody></table>}
       </div>
+      {status?.mode==='WSPR' && <section className="rounded-md border border-default-200 p-3">
+        <h3 className="text-sm font-medium mb-1">{t('codec.wsprSpots')}</h3>
+        <p className="text-xs text-default-500 mb-2">{t('codec.wsprLocalOnly')}</p>
+        {wsprSpots.length===0?<p className="text-xs text-default-500">{t('codec.wsprNoSpots')}</p>:
+          <div className="max-h-56 overflow-auto">
+            <table className="w-full text-left text-xs">
+              <thead><tr>
+                <th className="p-1">UTC</th><th className="p-1">{t('codec.dxCall')}</th>
+                <th className="p-1">Grid</th><th className="p-1">dBm</th>
+                <th className="p-1">SNR</th><th className="p-1">AF Hz</th>
+              </tr></thead><tbody>{wsprSpots.map((spot,i)=><tr
+                key={`${spot.slotId}-${spot.callsign}-${i}`} className="border-t border-default-100">
+                <td className="p-1">{new Date(spot.receivedAtMs).toISOString().slice(11,19)}</td>
+                <td className="p-1 font-mono">{spot.callsign}</td>
+                <td className="p-1">{spot.grid}</td><td className="p-1">{spot.powerDbm}</td>
+                <td className="p-1">{spot.snrDb.toFixed(1)}</td>
+                <td className="p-1">{spot.audioHz.toFixed(1)}</td>
+              </tr>)}</tbody>
+            </table>
+          </div>}
+      </section>}
       <div className="rounded-md border border-default-200 p-3 space-y-3">
         <p className="text-sm font-medium">{t('codec.txTitle')}</p>
         <Input size="sm" label={t('codec.message')} value={text} onValueChange={setText}

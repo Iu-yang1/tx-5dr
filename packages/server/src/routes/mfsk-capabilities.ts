@@ -14,7 +14,7 @@ import { MfskCodecSimulationRequestSchema, MfskCodecSimulationResponseSchema } f
 import { fileURLToPath } from 'node:url';
 import { DigitalRadioEngine } from '../DigitalRadioEngine.js';
 import { requireOperatorAbility } from '../auth/authPlugin.js';
-import { MfskPhysicalTxRequestSchema, MfskManualQsoSchema } from '@tx5dr/contracts';
+import { MfskPhysicalTxRequestSchema, MfskManualQsoSchema, WsprSpotsResponseSchema } from '@tx5dr/contracts';
 import { randomUUID } from 'node:crypto';
 import {
   MfskLiveRxStartSchema, MfskLiveRxStatusSchema, MfskLiveRxEventsSchema,
@@ -118,6 +118,14 @@ export async function mfskCapabilityRoutes(fastify:FastifyInstance):Promise<void
       const live=DigitalRadioEngine.getInstance().getMfskLiveRxService();
       return reply.send(MfskLiveRxEventsSchema.parse({
         events:live.recent(afterMs),status:live.status(),
+      }));
+    });
+
+  fastify.get('/live/wspr-spots',{preHandler:[requireAbility('manage','all')]},
+    async(_request,reply)=>{
+      const live=DigitalRadioEngine.getInstance().getMfskLiveRxService();
+      return reply.send(WsprSpotsResponseSchema.parse({
+        spots:live.wsprSpots(),localOnly:true,rfDialCalibrated:false,
       }));
     });
 

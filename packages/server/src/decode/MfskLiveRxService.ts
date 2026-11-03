@@ -9,6 +9,7 @@ import {
   type Q65Submode, type MfskApContext,
 } from '@tx5dr/contracts';
 import { resolveDigitalSchedule } from '@tx5dr/core';
+import { WsprSpotStore, type WsprDecodedSpot } from './WsprSpotStore.js';
 
 export interface MfskLiveConfig {
   mode: DigitalCodecMode;
@@ -57,6 +58,7 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
   private lastError:string|undefined;
   private serialized:Promise<void>=Promise.resolve();
   private readonly history:DigitalRxEvent[]=[];
+  private readonly wsprSpotStore=new WsprSpotStore();
   private readonly onPcm=(samples:Float32Array,rate:number)=>this.receiveAudio(samples,rate);
 
   constructor(audio:AudioStreamManager, now:()=>number=Date.now,
@@ -76,6 +78,8 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
       ...(this.lastError?{lastError:this.lastError}:{}),
     };
   }
+
+  wsprSpots():WsprDecodedSpot[] {return this.wsprSpotStore.list();}
 
   recent(afterTimestampMs=0):DigitalRxEvent[] {
     if(!Number.isFinite(afterTimestampMs)||afterTimestampMs<0)throw new Error('Invalid event cursor');
@@ -122,6 +126,7 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
     this.lastDecodedSlot=definition.slotMs===null?-1:
       Math.floor(this.now()/definition.slotMs)*definition.slotMs-definition.slotMs;
     this.nextSample=0;this.pending=0;this.history.length=0;this.received=0;
+    this.wsprSpotStore.clear();
     this.lastError=undefined;this.ready=false;this.droppedAudioChunks=0;
     this.rejectedSlots=0;this.workerFaults=0;
     // Independent long-period buffer: a 300 s Q65 slot cannot fit the
@@ -191,6 +196,7 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
         return;
       }
       this.history.push(...events);this.received+=events.length;
+      for(const event of events)this.wsprSpotStore.add(event);
       if(this.history.length>200)this.history.splice(0,this.history.length-200);
       this.emit('events',events);
     }

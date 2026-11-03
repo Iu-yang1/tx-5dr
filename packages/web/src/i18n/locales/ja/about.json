@@ -117,6 +117,9 @@
     "apStage4": "RRR",
     "apStage5": "73",
     "apGuide": "自局コール・グリッド・相手コールが有効な場合にAPを適用します。受信設定を更新してください。",
-    "mskPeriod": "MSK144 T/R周期"
+    "mskPeriod": "MSK144 T/R周期",
+    "wsprSpots": "ローカルWSPRスポット",
+    "wsprLocalOnly": "標準メッセージのみ表示します。AF HzはRF周波数ではありません。外部送信は行いません。",
+    "wsprNoSpots": "標準WSPRメッセージはまだありません。"
   }
 }
