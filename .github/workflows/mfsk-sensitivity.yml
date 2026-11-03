@@ -1,6 +1,22 @@
 name: MFSK weak-signal sensitivity study (on demand)
 on:
   workflow_dispatch:
+    inputs:
+      channel:
+        description: Channel model
+        type: choice
+        options: [awgn, watterson]
+        default: awgn
+      spread_hz:
+        description: Two-sigma Gaussian spread (Hz)
+        type: choice
+        options: ['1', '10', '30']
+        default: '1'
+      doppler_rate:
+        description: Linear Doppler rate (Hz/s)
+        type: choice
+        options: ['0', '10', '20']
+        default: '0'
   pull_request:
     paths:
       - 'packages/mfsk-native/sensitivity-monte-carlo.cjs'
@@ -23,6 +39,8 @@ jobs:
           cargo build --manifest-path packages/mfsk-native/Cargo.toml --release
           cp packages/mfsk-native/target/release/libtx5dr_mfsk_native.so packages/mfsk-native/mfsk-native.node
           node packages/mfsk-native/smoke.cjs
+      - name: Validate deterministic two-path Gaussian Doppler channel
+        run: node --test packages/mfsk-native/watterson-channel.test.cjs
       - name: FT8 Monte Carlo with Wilson confidence intervals
         env:
           MFSK_MODE: FT8
@@ -45,12 +63,18 @@ jobs:
           MFSK_MODE: FT8
           MFSK_TRIALS: '80'
           MFSK_ENFORCE_THRESHOLD: '1'
+          MFSK_CHANNEL: ${{ inputs.channel || 'awgn' }}
+          MFSK_SPREAD_HZ: ${{ inputs.spread_hz || '1' }}
+          MFSK_DOPPLER_RATE: ${{ inputs.doppler_rate || '0' }}
         run: node packages/server/scripts/reference-threshold-monte-carlo.cjs
       - name: FT4 independent codec threshold comparison
         env:
           MFSK_MODE: FT4
           MFSK_TRIALS: '80'
           MFSK_ENFORCE_THRESHOLD: '1'
+          MFSK_CHANNEL: ${{ inputs.channel || 'awgn' }}
+          MFSK_SPREAD_HZ: ${{ inputs.spread_hz || '1' }}
+          MFSK_DOPPLER_RATE: ${{ inputs.doppler_rate || '0' }}
         run: node packages/server/scripts/reference-threshold-monte-carlo.cjs
       - uses: actions/upload-artifact@v4
         if: always()

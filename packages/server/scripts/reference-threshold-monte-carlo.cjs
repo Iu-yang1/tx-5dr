@@ -9,6 +9,11 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const native=require(path.resolve(__dirname,'../../mfsk-native/mfsk-native.node'));
+const {wattersonApprox}=require(path.resolve(__dirname,'../../mfsk-native/watterson-channel.cjs'));
+const CHANNEL=process.env.MFSK_CHANNEL||'awgn';
+const SPREAD_HZ=Number(process.env.MFSK_SPREAD_HZ||'1');
+const DOPPLER_RATE=Number(process.env.MFSK_DOPPLER_RATE||'0');
+assert(['awgn','watterson'].includes(CHANNEL));
 const MODE=process.env.MFSK_MODE||'FT8',TRIALS=Number(process.env.MFSK_TRIALS||'20');
 const Fs=12000,B=2500;
 assert(['FT8','FT4'].includes(MODE),'mode must be FT8 or FT4');
@@ -43,11 +48,18 @@ function makeChannel(tx,snrDb,trial){
  let power=0;for(const s of tx)power+=s*s;power/=tx.length;
  const noiseSigma=Math.sqrt(power*(Fs/2/B)*Math.pow(10,-snrDb/10));
  const rand=generator((0x8a17b46^trial*1664525^((snrDb+60)*7919))>>>0);
+ const clean=new Float32Array(n);
+ for(let i=0;i<n;i++){
+  const idx=i-offset;
+  clean[i]=idx>=0&&idx<tx.length?tx[idx]:0;
+ }
+ const faded=CHANNEL==='watterson'?wattersonApprox(clean,{
+   spreadHz:SPREAD_HZ,dopplerRateHzPerSec:DOPPLER_RATE,delayMs:2,
+   seed:trial*7919+Math.round(snrDb*1000)}):clean;
  const out=new Float32Array(n);
  let peak=0;
  for(let i=0;i<n;i++){
-  const index=i-offset,signal=index>=0&&index<tx.length?tx[index]:0;
-  const sample=signal+noiseSigma*normal(rand);
+  const sample=faded[i]+noiseSigma*normal(rand);
   out[i]=sample;peak=Math.max(peak,Math.abs(sample));
  }
  // Avoid differential clipping in the reference int16 conversion.
@@ -140,6 +152,8 @@ async function main(){
  const result={protocol:MODE,source:'Independent wsjtx-lib@2.2.0 transmit samples',
    codec:native.codecVersion(),reference:'wsjtx-lib@2.2.0',
    noiseReferenceBandwidthHz:B,sampleRateHz:Fs,TRIALS,
+   channelModel:CHANNEL,spreadTwoSigmaHz:CHANNEL==='watterson'?SPREAD_HZ:null,
+   linearDopplerHzPerSec:CHANNEL==='watterson'?DOPPLER_RATE:null,
    randomizedBy:'seeded xorshift + Box-Muller; same waveform and noise to both decoders',
    rows,rust50,reference50,rustDegradationDb:deltaDb,pairedDelta95,
    underHalfDbTarget:deltaDb===null||pairedDelta95.upper95===null?null:
@@ -147,9 +161,11 @@ async function main(){
    caveats:['50% crossing is linearly interpolated, not an MLE or a fitted psychometric curve',
      'Per-SNR Wilson intervals and a paired nonparametric bootstrap interval for the 50% threshold difference are reported',
      'The 1 dB threshold interpolation grid is an approximation; refinement should use sub-dB measurements',
-     'AWGN only; Watterson, drifting Doppler and strong QRM require independent tests'],
+     CHANNEL==='watterson'?'Finite 96-scatterer dual-path Watterson-style approximation; not a calibrated ITU test instrument':'AWGN only; Doppler and fading untested in this run',
+     'Strong cochannel interference and hardware PTT require independent tests'],
  };
- const output=path.join(__dirname,'reference-threshold-'+MODE.toLowerCase()+'.json');
+ const suffix=CHANNEL==='watterson'?'watterson-'+SPREAD_HZ+'hz-'+DOPPLER_RATE+'hzps':'awgn';
+ const output=path.join(__dirname,'reference-threshold-'+MODE.toLowerCase()+'-'+suffix+'.json');
  fs.writeFileSync(output,JSON.stringify(result,null,2)+'\n');
  console.log(JSON.stringify({output,rust50,reference50,deltaDb}));
  if(process.env.MFSK_ENFORCE_THRESHOLD==='1'){
