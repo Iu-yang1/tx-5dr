@@ -502,58 +502,32 @@ export const AudioDeviceSettings = forwardRef<AudioDeviceSettingsRef, AudioDevic
         : selectedDeviceId
           ? resolution?.configuredDeviceId === selectedDeviceId
           : (resolution?.configuredDeviceName ?? '') === selectedName;
-    if (resolutionMatchesSelection && resolution?.status === 'missing') {
-      return null;
-    }
+    if (resolutionMatchesSelection && resolution?.status === 'missing') return null;
     return (resolutionMatchesSelection ? resolution?.effectiveDevice : undefined)
       ?? findSelectedAudioDeviceOption(
         buildAudioDeviceSelectOptions(direction, devices, selectedName, undefined, selectedRouteKey),
-        {
-          routeKey: selectedRouteKey,
-          hardwareId: selectedHardwareId,
-          deviceId: selectedDeviceId,
-          deviceName: selectedName,
-        },
+        { routeKey: selectedRouteKey, hardwareId: selectedHardwareId, deviceId: selectedDeviceId, deviceName: selectedName },
       )?.device
       ?? null;
   }
 
-  const renderDeviceItems = (options: AudioDeviceSelectOption[]) => options.map((option) => {
-    const deviceDetail = formatDeviceDetail(option.device);
-    return (
-      <SelectItem
-        key={option.key}
-        textValue={option.device ? formatDeviceText(t, option.device) : `${option.deviceName} (${t('audio.deviceUnavailableShort')})`}
-      >
-        <div className="flex flex-col">
-          <span className="flex items-center gap-2">
-            {option.device ? formatDeviceText(t, option.device) : option.deviceName}
-            {option.device && (
-              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-default-100 text-default-600 dark:bg-default-800 dark:text-default-300">
-                {t(`audio.deviceCategory.${getAudioDeviceCategory(option.device)}`)}
-              </span>
-            )}
-            {option.isMissing && (
-              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-warning-100 text-warning-700 dark:bg-warning-900 dark:text-warning-300">
-                {t('audio.deviceUnavailableShort')}
-              </span>
-            )}
-            {option.device && getAudioDeviceStatusBadges(option.device).map((badge) => (
-              <span key={badge.key} className={getStatusBadgeClassName(badge.tone)}>
-                {t(`audio.deviceStatus.${badge.key}`)}
-              </span>
-            ))}
-          </span>
-          <span className="text-xs text-default-400">
-            {option.device
-              ? `${formatChannelText(t, option.device.channels)}, ${formatHertz(option.device.sampleRate)}`
-              : t('audio.deviceMissingPreservedShort')}
-          </span>
-          {deviceDetail && (
-            <span className="text-xs text-default-400">{deviceDetail}</span>
+  const renderDeviceItems = (options: AudioDeviceSelectOption[]) => options.map((option) => (
+    <SelectItem
+      key={option.key}
+      textValue={option.device ? formatDeviceText(t, option.device) : `${option.deviceName} (${t('audio.deviceUnavailableShort')})`}
+    >
+      <div className="flex flex-col">
+        <span className="flex items-center gap-2">
+          {option.device ? formatDeviceText(t, option.device) : option.deviceName}
+          {option.device && (
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-default-100 text-default-600 dark:bg-default-800 dark:text-default-300">
+              {t(`audio.deviceCategory.${getAudioDeviceCategory(option.device)}`)}
+            </span>
           )}
-          {option.device?.failureReason && (
-            <span className="text-xs text-danger-500">{option.device.failureReason}</span>
+          {option.isMissing && (
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-warning-100 text-warning-700 dark:bg-warning-900 dark:text-warning-300">
+              {t('audio.deviceUnavailableShort')}
+            </span>
           )}
           {option.device && getAudioDeviceStatusBadges(option.device).map((badge) => (
             <span key={badge.key} className={getStatusBadgeClassName(badge.tone)}>
@@ -596,19 +570,12 @@ export const AudioDeviceSettings = forwardRef<AudioDeviceSettingsRef, AudioDevic
     const selectedDeviceId = isInput ? selectedInputDeviceId : selectedOutputDeviceId;
     const selectedHardwareId = isInput ? selectedInputHardwareId : selectedOutputHardwareId;
     const displayOptions = buildAudioDeviceSelectOptions(direction, devices, selectedName, resolution, selectedRouteKey);
-    const selectedOption = selectedRouteKey
-      ? displayOptions.find((option) => option.routeKey === selectedRouteKey)
-      : (
-          displayOptions.find((option) => (
-            Boolean(selectedHardwareId) && option.device?.hardwareId === selectedHardwareId
-          ))
-          ?? displayOptions.find((option) => (
-            Boolean(selectedDeviceId)
-            && option.device?.id === selectedDeviceId
-            && (!selectedName || option.deviceName === selectedName)
-          ))
-          ?? displayOptions.find((option) => option.deviceName === selectedName)
-        );
+    const selectedOption = findSelectedAudioDeviceOption(displayOptions, {
+      routeKey: selectedRouteKey,
+      hardwareId: selectedHardwareId,
+      deviceId: selectedDeviceId,
+      deviceName: selectedName,
+    });
     const sampleOptions = deriveSampleRateOptions(effectiveDevice, sampleRate);
     const bufferOptions = deriveBufferSizeOptions(effectiveDevice?.capabilities?.bufferSizes ?? bufferSizes, bufferSize);
     const sampleRateConfigurable = effectiveDevice
