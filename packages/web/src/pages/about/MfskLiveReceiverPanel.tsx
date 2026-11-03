@@ -17,6 +17,7 @@ export function MfskLiveReceiverPanel({
   const { operators } = useOperators();
   const radioMode = useRadioModeState();
   const maySwitchMode = useCan('execute','ModeSwitch');
+  const mayArmRf = useCan('execute','RadioControl');
   const [status,setStatus] = useState<MfskLiveRxStatus | null>(null);
   // The existing RadioControl mode selector owns both workspace panes.
   const selected = radioMode.currentMode?.name ?? '';
@@ -37,7 +38,10 @@ export function MfskLiveReceiverPanel({
   const [wsprSpots,setWsprSpots] = useState<WsprDecodedSpot[]>([]);
   const [busy,setBusy] = useState(false);
   const [error,setError] = useState<string | null>(null);
-  const [txStatus,setTxStatus] = useState<{rfEnabled:boolean;busy:boolean}>({rfEnabled:false,busy:false});
+  const [txStatus,setTxStatus] = useState<{rfEnabled:boolean;busy:boolean;remainingMs:number}>({rfEnabled:false,busy:false,remainingMs:0});
+  const [rfAcknowledged,setRfAcknowledged] = useState(false);
+  const [armPending,setArmPending] = useState(false);
+  const [armNotice,setArmNotice] = useState<string|null>(null);
   // Never prefill a fictitious TX callsign into a live transmitter.
   const [text,setText] = useState('');
   const [beaconAuthorized,setBeaconAuthorized] = useState(false);
@@ -70,7 +74,7 @@ export function MfskLiveReceiverPanel({
         }
       }).catch(()=>{/* Feature is optional on non-experimental server. */});
       void api.getMfskNativeTxStatus().then(value=>{if(active)setTxStatus(value);}).catch(()=>{
-        if(active)setTxStatus({rfEnabled:false,busy:false});
+        if(active)setTxStatus({rfEnabled:false,busy:false,remainingMs:0});
       });
     };
     poll();
@@ -148,6 +152,18 @@ export function MfskLiveReceiverPanel({
       if(value.success){setContactStartMs(Date.now());setDxCall('');}
     }).catch(()=>setQsoNotice(t('codec.logFailed')))
       .finally(()=>setQsoBusy(false));
+  };
+
+  const changeArm=(arm:boolean)=>{
+    if(!mayArmRf || armPending || (arm && !rfAcknowledged))return;
+    setArmPending(true);setArmNotice(null);
+    void (arm?api.armMfskNativeTx():api.disarmMfskNativeTx())
+      .then(result=>{
+        setTxStatus(current=>({...current,rfEnabled:result.rfEnabled,remainingMs:result.remainingMs}));
+        setRfAcknowledged(false);
+      })
+      .catch(()=>setArmNotice(t('codec.armFailed')))
+      .finally(()=>setArmPending(false));
   };
 
   const transmit=()=>{
@@ -283,6 +299,24 @@ export function MfskLiveReceiverPanel({
       </div>
       <div className="rounded-md border border-default-200 p-3 space-y-3">
         <p className="text-sm font-medium">{t('codec.txTitle')} · {mode}{mode==='Q65'? ` (${activeSubmode})`:''}</p>
+        {mayArmRf && <div className="rounded-md border border-default-200 p-2 space-y-2">
+          <label className="flex gap-2 text-xs items-start">
+            <input type="checkbox" checked={rfAcknowledged} disabled={armPending}
+              onChange={e=>setRfAcknowledged(e.target.checked)}/>
+            {t('codec.armAcknowledgement')}
+          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" variant="flat" color="warning" isLoading={armPending}
+              isDisabled={armPending||!rfAcknowledged||!receiverMatches}
+              onPress={()=>changeArm(true)}>{t('codec.armRf')}</Button>
+            <Button size="sm" variant="flat" isDisabled={armPending||!txStatus.rfEnabled}
+              onPress={()=>changeArm(false)}>{t('codec.disarmRf')}</Button>
+            <span className="text-xs text-default-500">
+              {txStatus.rfEnabled?t('codec.armRemaining',{seconds:Math.ceil(txStatus.remainingMs/1000)}):t('codec.rfLocked')}
+            </span>
+          </div>
+          {armNotice && <p role="alert" className="text-xs text-danger">{armNotice}</p>}
+        </div>}
         {mode==='MSK144' && <p className="text-xs text-default-500">{t('codec.mskFixedTxAf')}</p>}
         <Input size="sm" label={t('codec.message')} value={text} onValueChange={setText}
           isDisabled={txPending} maxLength={64}/>

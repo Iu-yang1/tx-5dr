@@ -125,6 +125,11 @@
     "q65TxFirst": "Q65 TX First (even UTC periods)",
     "mskFixedTxAf": "MSK144 transmit audio is fixed at 1500 Hz (WSJT-X standard); RX AF centre can differ. Message format: CALL1 CALL2 REPORT.",
     "operatorSelect": "Operator",
-    "operatorRequired": "Select operator"
+    "operatorRequired": "Select operator",
+    "armAcknowledgement": "I confirm that the selected station is permitted to transmit on this frequency and that the RF, antenna and PTT paths are ready. Arm this current radio session for up to 10 minutes.",
+    "armRf": "Arm RF (10 min)",
+    "disarmRf": "Disarm / stop RF",
+    "armRemaining": "RF armed · {{seconds}}s remaining",
+    "armFailed": "RF authorization failed; confirm real radio connection, running receiver and permissions."
   }
 }

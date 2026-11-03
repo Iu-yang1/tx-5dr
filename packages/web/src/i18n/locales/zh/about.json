@@ -125,6 +125,11 @@
     "q65TxFirst": "Q65 本方先发（UTC 偶周期）",
     "mskFixedTxAf": "MSK144 发射 AF 固定为 1500 Hz（WSJT-X 标准），与可调的接收中心频率独立。消息格式：呼号1 呼号2 报告。",
     "operatorSelect": "操作员",
-    "operatorRequired": "请选择操作员"
+    "operatorRequired": "请选择操作员",
+    "armAcknowledgement": "我确认当前台站有权在所选频率发射，且射频、天线和 PTT 链路已准备就绪。仅为本次电台连接授权发射，最长 10 分钟。",
+    "armRf": "授权射频发射（10 分钟）",
+    "disarmRf": "撤销授权／停止发射",
+    "armRemaining": "RF 已授权 · 剩余 {{seconds}} 秒",
+    "armFailed": "RF 授权失败，请检查实机连接、运行中的接收机及账户权限。"
   }
 }

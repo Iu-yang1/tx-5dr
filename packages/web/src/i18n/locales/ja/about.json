@@ -125,6 +125,11 @@
     "q65TxFirst": "Q65 TX先行（UTC偶数周期）",
     "mskFixedTxAf": "MSK144送信AFはWSJT-X準拠で1500 Hz固定です。受信AF中心は別に設定できます。形式：CALL1 CALL2 REPORT。",
     "operatorSelect": "オペレーター",
-    "operatorRequired": "オペレーターを選択"
+    "operatorRequired": "オペレーターを選択",
+    "armAcknowledgement": "現在の局がこの周波数で送信可能であり、RF・アンテナ・PTT経路が準備済みであることを確認します。許可は最大10分間です。",
+    "armRf": "RF送信許可（10分）",
+    "disarmRf": "許可解除／送信停止",
+    "armRemaining": "RF許可中 · 残り{{seconds}}秒",
+    "armFailed": "RF許可に失敗しました。無線機接続、受信動作、権限を確認してください。"
   }
 }

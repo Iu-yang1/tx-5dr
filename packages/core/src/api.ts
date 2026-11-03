@@ -569,8 +569,17 @@ function normalizeOperatorRequest<T extends CreateRadioOperatorRequest | UpdateR
 
 export const api = {
   /** Isolated probe only; cannot authorize real RF transmissions. */
-  async getMfskNativeTxStatus():Promise<{rfEnabled:boolean;busy:boolean}>{
-    return apiRequest<{rfEnabled:boolean;busy:boolean}>('/mfsk/tx/status');
+  async getMfskNativeTxStatus():Promise<{rfEnabled:boolean;busy:boolean;remainingMs:number}>{
+    return apiRequest<{rfEnabled:boolean;busy:boolean;remainingMs:number}>('/mfsk/tx/status');
+  },
+  /** Explicit RF authorization, bound to current real radio + native RX generation. */
+  async armMfskNativeTx():Promise<{success:true;rfEnabled:boolean;remainingMs:number}> {
+    return apiRequest('/mfsk/tx/arm',{
+      method:'POST',body:JSON.stringify({acknowledged:true}),
+    });
+  },
+  async disarmMfskNativeTx():Promise<{success:true;rfEnabled:boolean;remainingMs:number}> {
+    return apiRequest('/mfsk/tx/disarm',{method:'POST'});
   },
   async confirmMfskQso(request:import('@tx5dr/contracts').MfskManualQso):
     Promise<{success:true;id:string}> {
