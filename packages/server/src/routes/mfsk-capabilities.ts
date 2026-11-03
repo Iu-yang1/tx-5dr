@@ -131,12 +131,34 @@ export async function mfskCapabilityRoutes(fastify:FastifyInstance):Promise<void
     });
 
   // Dedicated authenticated TX path. The host's physical lease owns PTT;
-  // Rust encoding runs in a separate child. A hard product RF gate remains
-  // disabled by default, including for a connected physical transceiver.
+  // Rust encoding runs in a separate child. Explicit, short-lived arm only.
   fastify.get('/tx/status',{preHandler:[requireAbility('read','all')]},
     async(_request,reply)=>{
       const service=DigitalRadioEngine.getInstance().getMfskNativeTxService();
-      return reply.send({rfEnabled:service.isRfEnabled(),busy:service.isBusy()});
+      return reply.send({
+        ...DigitalRadioEngine.getInstance().getMfskRfArmGate().status(),
+        rfEnabled:service.isRfEnabled(),busy:service.isBusy(),
+      });
+    });
+  fastify.post('/tx/arm',{preHandler:[requireAbility('execute','RadioControl')]},
+    async(request,reply)=>{
+      if((request.body as {acknowledged?:unknown}|null)?.acknowledged!==true){
+        return reply.code(400).send({success:false,error:'Explicit RF safety acknowledgement required'});
+      }
+      const engine=DigitalRadioEngine.getInstance();
+      try{
+        return reply.send({success:true,...engine.armMfskNativeRfTx(true)});
+      }catch(e){
+        return reply.code(409).send({
+          success:false,error:e instanceof Error?e.message:'RF arm admission rejected',
+        });
+      }
+    });
+  fastify.post('/tx/disarm',{preHandler:[requireAbility('execute','RadioControl')]},
+    async(_request,reply)=>{
+      const engine=DigitalRadioEngine.getInstance();
+      await engine.disarmMfskNativeRfTx();
+      return reply.send({success:true,...engine.getMfskRfArmGate().status()});
     });
   fastify.post('/tx/send',{
     preHandler:[requireOperatorAbility(req=>(req.body as {operatorId?:string})?.operatorId??'')],
@@ -145,7 +167,7 @@ export async function mfskCapabilityRoutes(fastify:FastifyInstance):Promise<void
     const service=DigitalRadioEngine.getInstance().getMfskNativeTxService();
     if(!service.isRfEnabled()){
       return reply.code(423).send({
-        success:false,error:'MFSK physical TX is locked until P9 acceptance',
+        success:false,error:'Native RF requires explicit time-limited authorization',
       });
     }
     const result=await service.send(payload);

@@ -75,7 +75,7 @@ export class MfskNativeTxService {
   async send(request:MfskTxRequest):Promise<MfskTxOutcome> {
     if(this.busy)throw new Error('A native transmit operation is already pending');
     this.validateRequest(request);
-    if(!this.deps.rfAllowed())throw new Error('Native RF TX disabled pending P9 release acceptance');
+    if(!this.deps.rfAllowed())throw new Error('Native RF TX requires explicit operator authorization');
     this.assertPreconditions(request);
     const epoch=this.epoch;
     this.busy=true;

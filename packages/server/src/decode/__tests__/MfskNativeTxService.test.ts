@@ -34,7 +34,7 @@ describe('native six-mode transmit protocol and physical lease boundaries',()=>{
     const c=context();
     const service=new MfskNativeTxService({...c.deps,rfAllowed:()=>false});
     await expect(service.send({mode:'Q65',text:'CQ K1ABC FN42',operatorId:'op1',audioHz:1500}))
-      .rejects.toThrow(/P9/);
+      .rejects.toThrow(/authorization/);
     expect(c.sent).not.toHaveBeenCalled();
   });
   it('sends Q65 only inside a future 60-second UTC frame via guarded coordinator',async()=>{
