@@ -174,6 +174,16 @@ export const MfskCodecSimulationResponseSchema = z.object({
 export type MfskCodecSimulationResponse = z.infer<typeof MfskCodecSimulationResponseSchema>;
 
 /** Separate live RX process. This API NEVER requests physical PTT. */
+export const MfskApContextSchema = z.object({
+  myCall:z.string().trim().toUpperCase().regex(/^[A-Z0-9\/]{3,24}$/),
+  myGrid:z.string().trim().toUpperCase().regex(/^[A-R]{2}[0-9]{2}(?:[A-X]{2})?$/),
+  dxCall:z.string().trim().toUpperCase().regex(/^[A-Z0-9\/]{3,24}$/),
+  dxGrid:z.string().trim().toUpperCase().regex(/^[A-R]{2}[0-9]{2}(?:[A-X]{2})?$/).optional(),
+  progress:z.union([z.literal(0),z.literal(1),z.literal(2),
+    z.literal(3),z.literal(4),z.literal(5)]).default(0),
+});
+export type MfskApContext=z.infer<typeof MfskApContextSchema>;
+
 export const MfskLiveRxStartSchema = z.object({
   mode: DigitalCodecModeSchema,
   q65Submode: Q65SubmodeSchema.optional(),
@@ -181,9 +191,13 @@ export const MfskLiveRxStartSchema = z.object({
   depth: z.union([z.literal(1),z.literal(2),z.literal(3)]).default(3),
   averaging: z.boolean().default(false),
   emeDelay: z.boolean().default(false),
+  apContext:MfskApContextSchema.optional(),
 }).superRefine((value,ctx)=>{
   if(value.q65Submode && value.mode!=='Q65'){
     ctx.addIssue({code:z.ZodIssueCode.custom,path:['q65Submode'],message:'Q65 submode is only for Q65'});
+  }
+  if(value.apContext && value.mode!=='Q65'){
+    ctx.addIssue({code:z.ZodIssueCode.custom,path:['apContext'],message:'AP context only supported on Q65'});
   }
   if((value.averaging||value.emeDelay)&&value.mode!=='Q65'){
     ctx.addIssue({code:z.ZodIssueCode.custom,path:['averaging'],message:'EME settings are only for Q65'});

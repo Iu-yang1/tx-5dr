@@ -103,6 +103,19 @@
     "logFailed": "ログ保存に失敗しました",
     "logCallInvalid": "有効なコールサインを入力",
     "logGridInvalid": "グリッドは4または6文字で入力",
-    "logFrequencyInvalid": "有効なRF周波数をMHzで入力"
+    "logFrequencyInvalid": "有効なRF周波数をMHzで入力",
+    "apTitle": "Q65 AP / EME QSOコンテキスト",
+    "apMyCall": "自局コール",
+    "apMyGrid": "自局グリッド",
+    "apDxCall": "相手局コール",
+    "apDxGrid": "相手グリッド（任意）",
+    "apProgress": "QSO進行",
+    "apStage0": "CQ",
+    "apStage1": "応答",
+    "apStage2": "レポート",
+    "apStage3": "レポート確認",
+    "apStage4": "RRR",
+    "apStage5": "73",
+    "apGuide": "自局コール・グリッド・相手コールが有効な場合にAPを適用します。受信設定を更新してください。"
   }
 }

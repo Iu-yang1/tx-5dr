@@ -103,6 +103,19 @@
     "logFailed": "日志保存失败，请检查操作员、模式及日志本",
     "logCallInvalid": "请输入有效对方呼号",
     "logGridInvalid": "网格需要 4 或 6 字符的 Maidenhead 格式",
-    "logFrequencyInvalid": "请输入有效的射频频率（MHz）"
+    "logFrequencyInvalid": "请输入有效的射频频率（MHz）",
+    "apTitle": "Q65 AP / EME 通联上下文",
+    "apMyCall": "本站呼号",
+    "apMyGrid": "本站网格",
+    "apDxCall": "目标呼号",
+    "apDxGrid": "目标网格（可选）",
+    "apProgress": "当前 QSO 阶段",
+    "apStage0": "呼叫 CQ",
+    "apStage1": "正在回应",
+    "apStage2": "交换报告",
+    "apStage3": "确认报告",
+    "apStage4": "RRR 确认",
+    "apStage5": "73 结束",
+    "apGuide": "三项必填信息（本站呼号、本站网格、目标呼号）均有效后才会启用 AP 假设；修改后点击“应用接收设置”重启解码会话。"
   }
 }

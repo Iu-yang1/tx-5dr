@@ -103,6 +103,19 @@
     "logFailed": "Logbook write failed: inspect operator, mode and logbook",
     "logCallInvalid": "Enter a valid callsign",
     "logGridInvalid": "Grid must be 4 or 6-character Maidenhead",
-    "logFrequencyInvalid": "Enter a valid RF frequency in MHz"
+    "logFrequencyInvalid": "Enter a valid RF frequency in MHz",
+    "apTitle": "Q65 AP / EME QSO context",
+    "apMyCall": "My callsign",
+    "apMyGrid": "My locator",
+    "apDxCall": "DX callsign",
+    "apDxGrid": "DX locator (optional)",
+    "apProgress": "QSO progress",
+    "apStage0": "CQ calling",
+    "apStage1": "Replying",
+    "apStage2": "Report",
+    "apStage3": "Roger report",
+    "apStage4": "Rogers",
+    "apStage5": "Signoff",
+    "apGuide": "AP hypotheses are enabled only with valid station call, station grid and DX call. Apply receiver settings to restart decoding."
   }
 }

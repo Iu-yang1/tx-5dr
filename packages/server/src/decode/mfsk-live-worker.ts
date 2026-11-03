@@ -3,7 +3,7 @@
  * main Fastify event loop. It has no radio, PTT or logbook capability.
  */
 import { MfskMultimodeRuntime, type MfskSessionConfig } from './MfskMultimodeRuntime.js';
-import type { DigitalRxEvent } from '@tx5dr/contracts';
+import type { DigitalRxEvent, MfskApContext } from '@tx5dr/contracts';
 
 type StartMessage = { cmd: 'start'; generation: number; config: MfskSessionConfig };
 type SlotMessage = { cmd: 'slot'; generation: number; utcStartMs: number; timestampMs: number; pcm: Buffer };
@@ -12,7 +12,7 @@ type StopMessage = { cmd: 'stop' | 'shutdown'; generation: number };
 type RxCommand = StartMessage | SlotMessage | StreamMessage | StopMessage;
 
 let decoder: MfskMultimodeRuntime | null = null;
-let active: { id: string; generation: number; mode: MfskSessionConfig['mode'] } | null = null;
+let active: { id: string; generation: number; mode: MfskSessionConfig['mode']; ap?: MfskApContext } | null = null;
 let processing = false;
 
 function send(message: unknown): void {
@@ -56,7 +56,8 @@ function processCommand(message: RxCommand): void {
       if(active && decoder) decoder.stop(active.id);
       decoder=new MfskMultimodeRuntime();
       decoder.begin(message.config);
-      active={id:message.config.sessionId,generation:message.generation,mode:message.config.mode};
+      active={id:message.config.sessionId,generation:message.generation,
+        mode:message.config.mode,ap:(message.config as MfskSessionConfig & {apContext?:MfskApContext}).apContext};
       send({type:'started',generation:message.generation});
       return;
     }
@@ -72,6 +73,7 @@ function processCommand(message: RxCommand): void {
       ? decoder.decodeSlot(active.id,0,{
           slotStartMs:message.utcStartMs,timestampMs:message.timestampMs,
           samples:pcm,final:true,
+          ...(active.ap?{ap:active.ap}:{}),
         })
       : decoder.pushStream(active.id,0,message.startSample,message.timestampMs,pcm);
     if(events.length) send({type:'events',generation:message.generation,events});

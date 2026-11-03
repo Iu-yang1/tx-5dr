@@ -6,7 +6,7 @@ import { resampleAudioProfessional } from '../utils/audioUtils.js';
 import type { AudioStreamManager } from '../audio/AudioStreamManager.js';
 import {
   DigitalRxEventSchema, type DigitalCodecMode, type DigitalRxEvent,
-  type Q65Submode,
+  type Q65Submode, type MfskApContext,
 } from '@tx5dr/contracts';
 import { resolveDigitalSchedule } from '@tx5dr/core';
 
@@ -17,6 +17,7 @@ export interface MfskLiveConfig {
   depth?: 1|2|3;
   averaging?: boolean;
   emeDelay?: boolean;
+  apContext?: MfskApContext;
 }
 export interface MfskLiveStatus {
   running: boolean;
@@ -111,6 +112,7 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
     if(config.depth!==undefined && ![1,2,3].includes(config.depth))throw new Error('Invalid decode depth');
     if(config.averaging && config.mode!=='Q65')throw new Error('Averaging only supported for Q65');
     if(config.emeDelay && config.mode!=='Q65')throw new Error('EME delay only supported for Q65');
+    if(config.apContext && config.mode!=='Q65')throw new Error('AP context only supported for Q65');
 
     this.generation++;
     const generation=this.generation;
@@ -143,6 +145,7 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
       sessionId:`live-${generation}`,mode:config.mode,q65Submode:config.q65Submode,
       audioFrequencyHz:f,depth:config.depth??3,averaging:config.averaging??false,
       emeDelay:config.emeDelay??false,
+      apContext:config.apContext,
     }});
     this.audio.on('audioData',this.onPcm);
     if(definition.slotMs!==null) {

@@ -18,6 +18,11 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
   const [frequency,setFrequency] = useState('1500');
   const [averaging,setAveraging] = useState(false);
   const [emeDelay,setEmeDelay] = useState(false);
+  const [apMyCall,setApMyCall] = useState('');
+  const [apMyGrid,setApMyGrid] = useState('');
+  const [apDxCall,setApDxCall] = useState('');
+  const [apDxGrid,setApDxGrid] = useState('');
+  const [apProgress,setApProgress] = useState<0|1|2|3|4|5>(0);
   const [events,setEvents] = useState<DigitalRxEvent[]>([]);
   const [busy,setBusy] = useState(false);
   const [error,setError] = useState<string | null>(null);
@@ -61,7 +66,17 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
     }
     const action=start
       ? api.startMfskLiveRx({
-          mode,...(mode==='Q65'?{q65Submode:submode,averaging,emeDelay}:{}),
+          mode,...(mode==='Q65'?{
+            q65Submode:submode,averaging,emeDelay,
+            ...(apMyCall.trim()&&apMyGrid.trim()&&apDxCall.trim()?{
+              apContext:{
+                myCall:apMyCall.trim().toUpperCase(),myGrid:apMyGrid.trim().toUpperCase(),
+                dxCall:apDxCall.trim().toUpperCase(),
+                ...(apDxGrid.trim()?{dxGrid:apDxGrid.trim().toUpperCase()}:{}),
+                progress:apProgress,
+              },
+            }:{}),
+          }:{}),
           frequencyHz:hz,depth:3,
         })
       : api.stopMfskLiveRx();
@@ -150,6 +165,29 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
         <label><input type="checkbox" checked={emeDelay}
           disabled={busy} onChange={e=>setEmeDelay(e.target.checked)}/> {t('codec.emeDelay')}</label>
       </div>}
+      {mode==='Q65'&&<section className="rounded-md border border-default-200 p-2 space-y-2">
+        <p className="text-xs font-medium">{t('codec.apTitle')}</p>
+        <div className="grid grid-cols-2 gap-2">
+          <Input size="sm" maxLength={24} value={apMyCall} onValueChange={setApMyCall}
+            label={t('codec.apMyCall')}/>
+          <Input size="sm" maxLength={6} value={apMyGrid} onValueChange={setApMyGrid}
+            label={t('codec.apMyGrid')}/>
+          <Input size="sm" maxLength={24} value={apDxCall} onValueChange={setApDxCall}
+            label={t('codec.apDxCall')}/>
+          <Input size="sm" maxLength={6} value={apDxGrid} onValueChange={setApDxGrid}
+            label={t('codec.apDxGrid')}/>
+        </div>
+        <div className="flex flex-wrap gap-2 items-center">
+          <label className="text-xs" htmlFor="mfsk-ap-progress">{t('codec.apProgress')}</label>
+          <select id="mfsk-ap-progress" value={apProgress}
+            onChange={e=>setApProgress(Number(e.target.value) as 0|1|2|3|4|5)}
+            className="rounded-md border border-default-300 bg-content1 px-2 py-1 text-xs">
+            {([0,1,2,3,4,5] as const).map(n=>
+              <option key={n} value={n}>{t(`codec.apStage${n}`)}</option>)}
+          </select>
+        </div>
+        <p className="text-xs text-default-500">{t('codec.apGuide')}</p>
+      </section>}
       <div className="flex flex-wrap gap-2 items-center">
         <Button size="sm" color="primary" onPress={()=>run(true)}
           isDisabled={busy} isLoading={busy}>
