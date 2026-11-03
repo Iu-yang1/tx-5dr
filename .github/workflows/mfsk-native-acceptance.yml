@@ -96,6 +96,8 @@ jobs:
         run: |
           yarn install --immutable
           yarn build
+      - name: Audit production Rust selection, NAPI ABI and absence of eager legacy imports
+        run: node packages/server/scripts/p9-codec-runtime-audit.cjs
       - name: Exercise all six real compiled server simulation paths
         run: node packages/server/scripts/mfsk-sim-e2e.cjs
       - name: Run real TX-5DR virtual-radio QSO regression on native FT8/FT4 backend
