@@ -132,6 +132,13 @@
     "armRemaining": "RF許可中 · 残り{{seconds}}秒",
     "armFailed": "RF許可に失敗しました。無線機接続、受信動作、権限を確認してください。",
     "txAfFrequency": "送信音声キャリア（Hz）",
-    "manageOperators": "オペレーター管理"
+    "manageOperators": "オペレーター管理",
+    "selectDecode": "復号行をダブルクリックしてCQのコールサインとAF周波数を送信欄へ反映します（自動送信なし）。",
+    "template": {
+      "cq": "CQ",
+      "report": "レポート",
+      "roger": "Rレポート",
+      "rr73": "RR73"
+    }
   }
 }

@@ -132,6 +132,13 @@
     "armRemaining": "RF armed · {{seconds}}s remaining",
     "armFailed": "RF authorization failed; confirm real radio connection, running receiver and permissions.",
     "txAfFrequency": "Transmit audio carrier (Hz)",
-    "manageOperators": "Manage operators"
+    "manageOperators": "Manage operators",
+    "selectDecode": "Double-click a decoded station to use its CQ callsign and AF frequency in the operator pane (no automatic TX).",
+    "template": {
+      "cq": "CQ",
+      "report": "Report",
+      "roger": "R-report",
+      "rr73": "RR73"
+    }
   }
 }

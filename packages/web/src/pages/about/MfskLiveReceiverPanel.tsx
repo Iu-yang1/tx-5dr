@@ -1,4 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
+import {
+  NATIVE_DIGITAL_SELECTION_EVENT,
+  extractCqCallsign,
+  type NativeDigitalSelection,
+} from '../../components/radio/digital/nativeDigitalSelection';
 import { Button, Card, CardBody, Input } from '@heroui/react';
 import { useTranslation } from 'react-i18next';
 import { useCan } from '../../store/authStore';
@@ -100,6 +105,42 @@ export function MfskLiveReceiverPanel({
   // the server-confirmed Q65 submode rather than its own initial state.
   const activeSubmode = surface==='operator'
     ? status?.q65Submode ?? 'Q65-60B' : submode;
+  useEffect(()=>{
+    if(surface!=='operator')return;
+    const listener=(event:Event)=>{
+      const detail=(event as CustomEvent<NativeDigitalSelection>).detail;
+      if(!detail || detail.mode!==mode)return;
+      if(Number.isFinite(detail.audioHz) && detail.audioHz>=100 && detail.audioHz<=5500
+        && mode!=='MSK144')setTxFrequency(String(Math.round(detail.audioHz)));
+      const call=extractCqCallsign(detail.text);
+      if(call)setDxCall(call);
+    };
+    window.addEventListener(NATIVE_DIGITAL_SELECTION_EVENT,listener);
+    return ()=>window.removeEventListener(NATIVE_DIGITAL_SELECTION_EVENT,listener);
+  },[mode,surface]);
+
+  const selectReceived=(event:DigitalRxEvent)=>{
+    window.dispatchEvent(new CustomEvent<NativeDigitalSelection>(
+      NATIVE_DIGITAL_SELECTION_EVENT,{detail:{
+        mode,text:event.text,audioHz:event.frequencyHz,
+      }},
+    ));
+  };
+
+  const selectedOperator=operators.find(item=>item.id===currentOperatorId);
+  const ownCall=selectedOperator?.context?.myCall?.trim().toUpperCase()??'';
+  const ownGrid=selectedOperator?.context?.myGrid?.trim().toUpperCase()??'';
+  const useTxTemplate=(kind:'cq'|'report'|'roger'|'rr73')=>{
+    if(!ownCall)return;
+    const dx=dxCall.trim().toUpperCase();
+    if(kind==='cq'){
+      if(ownGrid)setText(`CQ ${ownCall} ${ownGrid.slice(0,4)}`);
+    }else if(dx){
+      setText(`${dx} ${ownCall} ${kind==='report'?txReport.trim()||'-10':
+        kind==='roger'? `R${(txReport.trim()||'-10').replace(/^R/,'')}`: 'RR73'}`);
+    }
+  };
+
   const receiverMatches=Boolean(status?.ready && status.mode===mode &&
     (mode!=='Q65'||status.q65Submode===activeSubmode));
 
@@ -270,10 +311,16 @@ export function MfskLiveReceiverPanel({
           <p className="p-3 text-sm text-default-500">{t('codec.liveNoEvents')}</p>
           : <table className="w-full text-left text-xs">
             <thead><tr className="bg-default-100"><th className="px-2 py-1">UTC</th>
-              <th className="px-2 py-1">Hz</th><th className="px-2 py-1">{t('codec.decoded')}</th></tr></thead>
-            <tbody>{displayEvents.map((e,i)=><tr key={`${e.timestampMs}-${i}`} className="border-t border-default-100">
+              <th className="px-2 py-1">Hz</th><th className="px-2 py-1">SNR</th>
+              <th className="px-2 py-1">{t('codec.decoded')}</th></tr></thead>
+            <tbody>{displayEvents.map((e,i)=><tr key={`${e.timestampMs}-${i}`}
+              className="border-t border-default-100 cursor-pointer hover:bg-default-100"
+              tabIndex={0} title={t('codec.selectDecode')}
+              onDoubleClick={()=>selectReceived(e)}
+              onKeyDown={event=>{if(event.key==='Enter')selectReceived(e);}}>
               <td className="px-2 py-1 whitespace-nowrap">{new Date(e.timestampMs).toISOString().slice(11,19)}</td>
               <td className="px-2 py-1">{e.frequencyHz.toFixed(1)}</td>
+              <td className="px-2 py-1">{e.kind==='message-update'?'—':e.snrDb.toFixed(1)}</td>
               <td className="px-2 py-1 font-mono">{e.text}</td>
             </tr>)}</tbody></table>}
       </div>
@@ -338,6 +385,12 @@ export function MfskLiveReceiverPanel({
         {mode==='MSK144' && <p className="text-xs text-default-500">{t('codec.mskFixedTxAf')}</p>}
         <Input size="sm" label={t('codec.message')} value={text} onValueChange={setText}
           isDisabled={txPending} maxLength={64}/>
+        {(mode==='Q65'||mode==='MSK144') && <div className="flex flex-wrap gap-1">
+          {(['cq','report','roger','rr73'] as const).map(kind=>
+            <Button key={kind} size="sm" variant="flat" isDisabled={!ownCall||txPending||
+              (kind==='cq'?!ownGrid:!dxCall.trim())}
+              onPress={()=>useTxTemplate(kind)}>{t(`codec.template.${kind}`)}</Button>)}
+        </div>}
         {mode!=='MSK144' && <Input size="sm" type="number"
           label={t('codec.txAfFrequency')} value={txFrequency}
           onValueChange={setTxFrequency} isDisabled={txPending}/>} 

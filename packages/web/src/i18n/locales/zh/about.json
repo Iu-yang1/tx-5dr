@@ -132,6 +132,13 @@
     "armRemaining": "RF 已授权 · 剩余 {{seconds}} 秒",
     "armFailed": "RF 授权失败，请检查实机连接、运行中的接收机及账户权限。",
     "txAfFrequency": "发射音频载频（Hz）",
-    "manageOperators": "管理操作员"
+    "manageOperators": "管理操作员",
+    "selectDecode": "双击已解码台站，将 CQ 呼号与 AF 频率填入右侧操作区（不会自动发射）。",
+    "template": {
+      "cq": "CQ 呼叫",
+      "report": "信号报告",
+      "roger": "确认报告",
+      "rr73": "RR73"
+    }
   }
 }
