@@ -14,7 +14,8 @@ import { MfskCodecSimulationRequestSchema, MfskCodecSimulationResponseSchema } f
 import { fileURLToPath } from 'node:url';
 import { DigitalRadioEngine } from '../DigitalRadioEngine.js';
 import { requireOperatorAbility } from '../auth/authPlugin.js';
-import { MfskPhysicalTxRequestSchema } from '@tx5dr/contracts';
+import { MfskPhysicalTxRequestSchema, MfskManualQsoSchema } from '@tx5dr/contracts';
+import { randomUUID } from 'node:crypto';
 import {
   MfskLiveRxStartSchema, MfskLiveRxStatusSchema, MfskLiveRxEventsSchema,
 } from '@tx5dr/contracts';
@@ -140,6 +141,42 @@ export async function mfskCapabilityRoutes(fastify:FastifyInstance):Promise<void
     }
     const result=await service.send(payload);
     return reply.send(result);
+  });
+
+  // Never interpret a successful decode as a completed contact. Only
+  // a user-confirmed manual QSO is written to the existing logbook service.
+  fastify.post('/qso/confirm',{
+    preHandler:[requireOperatorAbility(req=>(req.body as {operatorId?:string})?.operatorId??'')],
+  },async(request,reply)=>{
+    const item=MfskManualQsoSchema.parse(request.body);
+    const engine=DigitalRadioEngine.getInstance();
+    const op=engine.operatorManager.getOperatorById(item.operatorId);
+    if(!op)return reply.code(404).send({success:false,error:'Unknown operator'});
+    if(engine.getCurrentMode().name!==item.mode){
+      return reply.code(409).send({success:false,error:'The recorded protocol must match the current active mode'});
+    }
+    const record=await engine.operatorManager.submitQsoCompletion({
+      operatorId:item.operatorId,
+      persistencePolicy:'preserve-distinct',
+      qsoRecord:{
+        id:randomUUID(),
+        callsign:item.callsign,
+        ...(item.grid?{grid:item.grid}:{}),
+        frequency:item.frequencyHz,
+        mode:item.mode,
+        startTime:item.startTime,endTime:item.endTime,
+        ...(item.reportSent?{reportSent:item.reportSent}:{}),
+        ...(item.reportReceived?{reportReceived:item.reportReceived}:{}),
+        messageHistory:item.messageHistory,
+        myCallsign:op.config.myCallsign,
+        ...(op.config.myGrid?{myGrid:op.config.myGrid}:{}),
+        ...(item.q65Submode?{notes:`Q65 submode: ${item.q65Submode}`}:{}),
+        ...(item.mode==='JTTY'?{notes:'Experimental JTTY continuous mode; ADIF compatibility projection applies'}:{}),
+        lotwQslSent:'N',lotwQslReceived:'N',
+        qrzQslSent:'N',qrzQslReceived:'N',
+      },
+    });
+    return reply.send({success:true,id:record.id});
   });
 
   // Only one CPU-intensive native simulation at a time per server process.

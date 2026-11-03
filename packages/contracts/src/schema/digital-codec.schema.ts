@@ -226,3 +226,26 @@ export const MfskPhysicalTxRequestSchema = z.object({
   }
 });
 export type MfskPhysicalTxRequest = z.infer<typeof MfskPhysicalTxRequestSchema>;
+
+/** Manual operator-confirmed contact only; WSPR is propagation beacon, not a QSO. */
+export const MfskManualQsoSchema = z.object({
+  mode:z.enum(['Q65','MSK144','JTTY']),
+  operatorId:z.string().trim().min(1).max(128),
+  callsign:z.string().trim().toUpperCase().regex(/^[A-Z0-9\/]{3,24}$/),
+  grid:z.string().trim().toUpperCase().regex(/^[A-R]{2}[0-9]{2}(?:[A-X]{2})?$/).optional(),
+  frequencyHz:z.number().finite().min(1000).max(100_000_000_000),
+  startTime:z.number().int().nonnegative(),
+  endTime:z.number().int().nonnegative(),
+  reportSent:z.string().trim().max(16).optional(),
+  reportReceived:z.string().trim().max(16).optional(),
+  q65Submode:Q65SubmodeSchema.optional(),
+  messageHistory:z.array(z.string().max(128)).max(128).default([]),
+}).superRefine((data,ctx)=>{
+  if(data.endTime<data.startTime){
+    ctx.addIssue({code:z.ZodIssueCode.custom,path:['endTime'],message:'End time before start time'});
+  }
+  if(data.mode!=='Q65'&&data.q65Submode){
+    ctx.addIssue({code:z.ZodIssueCode.custom,path:['q65Submode'],message:'Q65-only submode'});
+  }
+});
+export type MfskManualQso=z.infer<typeof MfskManualQsoSchema>;

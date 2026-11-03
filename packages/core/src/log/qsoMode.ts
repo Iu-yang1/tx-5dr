@@ -71,6 +71,12 @@ export function toAdifMode(input: QsoModeFields): ProjectedQsoMode {
   if (mode === 'FT4') {
     return { mode: 'MFSK', submode: 'FT4' };
   }
+  // ADIF 3.1.5: Q65 is a defined MFSK submode, not a top-level MODE.
+  if (mode === 'Q65') return { mode: 'MFSK', submode: 'Q65' };
+  // JTTY has no standardized ADIF submode; export as MFSK with the
+  // original protocol retained in the contact's notes.
+  if (mode === 'JTTY') return { mode: 'MFSK' };
+
 
   if (mode === 'MFSK' && submode) {
     return { mode: 'MFSK', submode };
@@ -99,6 +105,7 @@ export function toLotwContactMode(input: QsoModeFields): string {
   if (mode === 'PKT') {
     return 'PACKET';
   }
+  if (mode === 'JTTY') return 'DATA';
 
   return mode;
 }

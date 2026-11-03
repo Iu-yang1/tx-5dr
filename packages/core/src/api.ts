@@ -572,6 +572,12 @@ export const api = {
   async getMfskNativeTxStatus():Promise<{rfEnabled:boolean;busy:boolean}>{
     return apiRequest<{rfEnabled:boolean;busy:boolean}>('/mfsk/tx/status');
   },
+  async confirmMfskQso(request:import('@tx5dr/contracts').MfskManualQso):
+    Promise<{success:true;id:string}> {
+    return apiRequest<{success:true;id:string}>('/mfsk/qso/confirm',{
+      method:'POST',body:JSON.stringify(request),
+    });
+  },
   async transmitMfsk(request:import('@tx5dr/contracts').MfskPhysicalTxRequest):Promise<unknown>{
     return apiRequest('/mfsk/tx/send',{method:'POST',body:JSON.stringify(request)});
   },
