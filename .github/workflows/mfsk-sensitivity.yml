@@ -28,10 +28,29 @@ jobs:
           MFSK_MODE: FT4
           MFSK_TRIALS: '20'
         run: node packages/mfsk-native/sensitivity-monte-carlo.cjs
+      - name: Install dependencies for independent WSJT-X reference decoding
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libasound2-dev libpulse-dev libhamlib-dev libhamlib4 libopus-dev build-essential python3-dev pkg-config
+          corepack enable
+          corepack prepare yarn@4.9.1 --activate
+          yarn install --immutable
+      - name: FT8 independent codec threshold comparison
+        env:
+          MFSK_MODE: FT8
+          MFSK_TRIALS: '20'
+        run: node packages/server/scripts/reference-threshold-monte-carlo.cjs
+      - name: FT4 independent codec threshold comparison
+        env:
+          MFSK_MODE: FT4
+          MFSK_TRIALS: '20'
+        run: node packages/server/scripts/reference-threshold-monte-carlo.cjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: mfsk-weak-signal-sensitivity
-          path: packages/mfsk-native/sensitivity-*.json
+          path: |
+            packages/mfsk-native/sensitivity-*.json
+            packages/server/scripts/reference-threshold-*.json
           retention-days: 30
           if-no-files-found: warn
