@@ -130,6 +130,8 @@
     "armRf": "授权射频发射（10 分钟）",
     "disarmRf": "撤销授权／停止发射",
     "armRemaining": "RF 已授权 · 剩余 {{seconds}} 秒",
-    "armFailed": "RF 授权失败，请检查实机连接、运行中的接收机及账户权限。"
+    "armFailed": "RF 授权失败，请检查实机连接、运行中的接收机及账户权限。",
+    "txAfFrequency": "发射音频载频（Hz）",
+    "manageOperators": "管理操作员"
   }
 }

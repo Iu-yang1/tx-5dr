@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Button, Card, CardBody, Input } from '@heroui/react';
 import { useTranslation } from 'react-i18next';
 import { useCan } from '../../store/authStore';
@@ -27,6 +27,7 @@ export function MfskLiveReceiverPanel({
   );
   const [submode,setSubmode] = useState<Q65Submode>('Q65-60B');
   const [frequency,setFrequency] = useState('1500');
+  const [txFrequency,setTxFrequency] = useState('1500');
   const [averaging,setAveraging] = useState(false);
   const [emeDelay,setEmeDelay] = useState(false);
   const [apMyCall,setApMyCall] = useState('');
@@ -35,6 +36,19 @@ export function MfskLiveReceiverPanel({
   const [apDxGrid,setApDxGrid] = useState('');
   const [apProgress,setApProgress] = useState<0|1|2|3|4|5>(0);
   const [events,setEvents] = useState<DigitalRxEvent[]>([]);
+  // Replace incremental JTTY revisions by their latest message state.
+  const displayEvents=useMemo(()=>{
+    const merged=new Map<string,DigitalRxEvent>();
+    for(const event of events){
+      const id=event.kind==='message-update'
+        ? `${event.sessionId}|${event.messageId}`
+        : `${event.sessionId}|${event.timestampMs}|${event.frequencyHz}|${event.text}`;
+      const prior=merged.get(id);
+      if(!prior || (event.kind==='message-update' && prior.kind==='message-update'
+        && event.revision>=prior.revision))merged.set(id,event);
+    }
+    return Array.from(merged.values()).sort((a,b)=>a.timestampMs-b.timestampMs).slice(-60);
+  },[events]);
   const [wsprSpots,setWsprSpots] = useState<WsprDecodedSpot[]>([]);
   const [busy,setBusy] = useState(false);
   const [error,setError] = useState<string | null>(null);
@@ -168,7 +182,7 @@ export function MfskLiveReceiverPanel({
 
   const transmit=()=>{
     if(!currentOperatorId || !txStatus.rfEnabled || !receiverMatches || txPending) return;
-    const hz=Number(frequency);
+    const hz=Number(mode==='MSK144'?1500:txFrequency);
     if(!Number.isFinite(hz)||hz<100||hz>5500) {
       setTxNotice(t('codec.liveInvalidFrequency')); return;
     }
@@ -176,7 +190,7 @@ export function MfskLiveReceiverPanel({
     setTxNotice(null);
     void api.transmitMfsk({
       mode,operatorId:currentOperatorId,text:text.trim(),
-      audioHz:mode==='MSK144'?1500:hz,
+      audioHz:hz,
       ...(mode==='Q65'?{q65Submode:activeSubmode,q65TxFirst}:{}),
       ...(mode==='WSPR'?{beaconAuthorized}:{}),
       ...(mode==='MSK144'?{mskPeriodSeconds:mskPeriod,mskTxFirst}:{}),
@@ -252,12 +266,12 @@ export function MfskLiveReceiverPanel({
       {status?.lastError && <p role="alert" className="text-xs text-danger">{status.lastError}</p>}
       {error && <p role="alert" className="text-xs text-danger">{error}</p>}
       <div className="min-h-40 max-h-[50vh] overflow-y-auto rounded-md border border-default-200">
-        {events.length===0 ?
+        {displayEvents.length===0 ?
           <p className="p-3 text-sm text-default-500">{t('codec.liveNoEvents')}</p>
           : <table className="w-full text-left text-xs">
             <thead><tr className="bg-default-100"><th className="px-2 py-1">UTC</th>
               <th className="px-2 py-1">Hz</th><th className="px-2 py-1">{t('codec.decoded')}</th></tr></thead>
-            <tbody>{events.map((e,i)=><tr key={`${e.timestampMs}-${i}`} className="border-t border-default-100">
+            <tbody>{displayEvents.map((e,i)=><tr key={`${e.timestampMs}-${i}`} className="border-t border-default-100">
               <td className="px-2 py-1 whitespace-nowrap">{new Date(e.timestampMs).toISOString().slice(11,19)}</td>
               <td className="px-2 py-1">{e.frequencyHz.toFixed(1)}</td>
               <td className="px-2 py-1 font-mono">{e.text}</td>
@@ -296,6 +310,10 @@ export function MfskLiveReceiverPanel({
             {operator.context?.myCall || operator.id}
           </option>)}
         </select>
+        <Button size="sm" variant="flat" onPress={()=>
+          window.dispatchEvent(new CustomEvent('openSettingsModal',{detail:{tab:'operator'}}))}>
+          {t('codec.manageOperators')}
+        </Button>
       </div>
       <div className="rounded-md border border-default-200 p-3 space-y-3">
         <p className="text-sm font-medium">{t('codec.txTitle')} · {mode}{mode==='Q65'? ` (${activeSubmode})`:''}</p>
@@ -320,6 +338,9 @@ export function MfskLiveReceiverPanel({
         {mode==='MSK144' && <p className="text-xs text-default-500">{t('codec.mskFixedTxAf')}</p>}
         <Input size="sm" label={t('codec.message')} value={text} onValueChange={setText}
           isDisabled={txPending} maxLength={64}/>
+        {mode!=='MSK144' && <Input size="sm" type="number"
+          label={t('codec.txAfFrequency')} value={txFrequency}
+          onValueChange={setTxFrequency} isDisabled={txPending}/>} 
         {mode==='Q65' && <label className="text-xs flex gap-2 items-center">
           <input type="checkbox" checked={q65TxFirst}
             onChange={e=>setQ65TxFirst(e.target.checked)} disabled={txPending}/>

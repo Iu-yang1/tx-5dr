@@ -130,6 +130,8 @@
     "armRf": "Arm RF (10 min)",
     "disarmRf": "Disarm / stop RF",
     "armRemaining": "RF armed · {{seconds}}s remaining",
-    "armFailed": "RF authorization failed; confirm real radio connection, running receiver and permissions."
+    "armFailed": "RF authorization failed; confirm real radio connection, running receiver and permissions.",
+    "txAfFrequency": "Transmit audio carrier (Hz)",
+    "manageOperators": "Manage operators"
   }
 }
