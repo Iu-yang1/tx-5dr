@@ -257,6 +257,33 @@ impl SlottedSession {
         Ok(())
     }
 
+    /// Transmit/QSO context is explicit and is cleared when absent by the host.
+    /// This mirrors the station and QSO hypothesis fields of DecodeParams.
+    #[napi]
+    pub fn set_ap_context(
+        &self,
+        my_call: String, my_grid: String,
+        dx_call: String, dx_grid: String,
+        progress: u32, enabled: bool,
+    ) -> Result<()> {
+        use mfsk_core::decoder::{ApMode, QsoProgress, Station, QsoContext};
+        let state = match progress {
+            0 => QsoProgress::Calling,
+            1 => QsoProgress::Replying,
+            2 => QsoProgress::Report,
+            3 => QsoProgress::RogerReport,
+            4 => QsoProgress::Rogers,
+            5 => QsoProgress::Signoff,
+            _ => return Err(invalid("QSO progress must be between 0 and 5")),
+        };
+        let mut decoder = self.inner.lock().map_err(|_| invalid("decoder lock poisoned"))?;
+        let params = decoder.params_mut();
+        params.station = Station::new(&my_call, &my_grid);
+        params.qso = QsoContext::new(&dx_call, &dx_grid, state);
+        params.ap = if enabled { ApMode::Full } else { ApMode::Off };
+        Ok(())
+    }
+
     #[napi]
     pub fn clear(&self) -> Result<()> {
         self.inner.lock().map_err(|_| invalid("decoder lock poisoned"))?.clear();
