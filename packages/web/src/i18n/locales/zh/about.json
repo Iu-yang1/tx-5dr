@@ -120,6 +120,7 @@
     "mskPeriod": "MSK144 T/R 周期",
     "wsprSpots": "WSPR 本地接收报告",
     "wsprLocalOnly": "仅根据已解码的标准消息显示；AF Hz 不是实际射频频率。未自动上传 WSPRnet/PSK Reporter。",
-    "wsprNoSpots": "尚无可解析的标准 WSPR 消息。"
+    "wsprNoSpots": "尚无可解析的标准 WSPR 消息。",
+    "mskTxFirst": "MSK144 本方先发（UTC 偶周期）"
   }
 }

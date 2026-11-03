@@ -149,4 +149,50 @@ describe('native six-mode transmit protocol and physical lease boundaries',()=>{
     })).rejects.toThrow();
   });
 
+  it('aligns MSK144 to selected even/odd UTC T/R periods and ends on whole 72ms frames',async()=>{
+    const base=context('MSK144');
+    const submissions:Array<{audioData:Float32Array;validateStart?:()=>void|Promise<void>}>= [];
+    const service=new MfskNativeTxService({
+      ...base.deps,receiver:()=>({mode:'MSK144',ready:true}),
+      encode:async()=>({
+        audioData:new Float32Array(5*12_000),sampleRate:12_000,
+        canonicalText:'K1ABC K2ABC -10',
+      }),
+      transmitAudio:async(request)=>{
+        submissions.push(request);
+        await request.validateStart?.();
+        return {
+          leaseId:'mock-lease',source:'digital',operatorIds:['op1'],
+          success:true,reason:'completed',physicalConfirmed:true,
+        };
+      },
+    });
+    const even=await service.send({
+      mode:'MSK144',operatorId:'op1',audioHz:1500,
+      text:'K1ABC K2ABC -10',mskPeriodSeconds:5,mskTxFirst:true,
+    });
+    const odd=await service.send({
+      mode:'MSK144',operatorId:'op1',audioHz:1500,
+      text:'K1ABC K2ABC -10',mskPeriodSeconds:5,mskTxFirst:false,
+    });
+    expect(Math.floor((even.scheduledStartMs!-100)/5000)%2).toBe(0);
+    expect(Math.floor((odd.scheduledStartMs!-100)/5000)%2).toBe(1);
+    expect(submissions).toHaveLength(2);
+    for(const item of submissions){
+      expect(item.audioData.length%864).toBe(0);
+      expect(item.audioData.length).toBeLessThan(60_000);
+      expect(item.audioData.length).toBeGreaterThan(50_000);
+    }
+    expect(even.durationMs).toBe(submissions[0].audioData.length/12);
+    expect(odd.durationMs).toBe(submissions[1].audioData.length/12);
+  });
+  it('rejects an MSK144 phase on other digital protocols',async()=>{
+    const c=context();
+    await expect(new MfskNativeTxService(c.deps).send({
+      mode:'Q65',operatorId:'op1',audioHz:1500,
+      text:'CQ K1ABC FN42',mskTxFirst:true,
+    })).rejects.toThrow(/MSK144 TX phase/);
+    expect(c.sent).not.toHaveBeenCalled();
+  });
+
 });

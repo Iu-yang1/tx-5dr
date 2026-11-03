@@ -235,6 +235,7 @@ export const MfskPhysicalTxRequestSchema = z.object({
   audioHz:z.number().finite().min(100).max(5500),
   q65Submode:Q65SubmodeSchema.optional(),
   mskPeriodSeconds: z.union([z.literal(5),z.literal(10),z.literal(15),z.literal(30)]).optional(),
+  mskTxFirst: z.boolean().optional(),
   beaconAuthorized:z.boolean().default(false),
 }).superRefine((value,ctx)=>{
   if(value.mode==='WSPR'&&!value.beaconAuthorized){
@@ -245,6 +246,9 @@ export const MfskPhysicalTxRequestSchema = z.object({
   }
   if(value.mode!=='MSK144'&&value.mskPeriodSeconds!==undefined){
     ctx.addIssue({code:z.ZodIssueCode.custom,path:['mskPeriodSeconds'],message:'MSK144-only period'});
+  }
+  if(value.mode!=='MSK144'&&value.mskTxFirst!==undefined){
+    ctx.addIssue({code:z.ZodIssueCode.custom,path:['mskTxFirst'],message:'MSK144-only TX parity'});
   }
 });
 export type MfskPhysicalTxRequest = z.infer<typeof MfskPhysicalTxRequestSchema>;

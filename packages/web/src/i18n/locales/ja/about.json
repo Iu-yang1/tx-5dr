@@ -120,6 +120,7 @@
     "mskPeriod": "MSK144 T/R周期",
     "wsprSpots": "ローカルWSPRスポット",
     "wsprLocalOnly": "標準メッセージのみ表示します。AF HzはRF周波数ではありません。外部送信は行いません。",
-    "wsprNoSpots": "標準WSPRメッセージはまだありません。"
+    "wsprNoSpots": "標準WSPRメッセージはまだありません。",
+    "mskTxFirst": "MSK144 TX先行（UTC偶数周期）"
   }
 }

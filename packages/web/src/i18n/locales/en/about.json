@@ -120,6 +120,7 @@
     "mskPeriod": "MSK144 T/R period",
     "wsprSpots": "Local WSPR spots",
     "wsprLocalOnly": "Standard decoded messages only. AF Hz is not the RF dial frequency. Nothing is auto-uploaded to WSPRnet or PSK Reporter.",
-    "wsprNoSpots": "No recognized standard WSPR messages yet."
+    "wsprNoSpots": "No recognized standard WSPR messages yet.",
+    "mskTxFirst": "MSK144 TX First (even UTC periods)"
   }
 }

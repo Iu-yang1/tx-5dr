@@ -17,6 +17,8 @@ export interface MfskTxRequest {
   audioHz: number;
   q65Submode?: Q65Submode;
   mskPeriodSeconds?: 5|10|15|30;
+  /** Even UTC period is the first (Tx First) phase. Default: true. */
+  mskTxFirst?: boolean;
   /** Explicit opt-in for 120-second WSPR beacon transmission. */
   beaconAuthorized?: boolean;
 }
@@ -81,21 +83,38 @@ export class MfskNativeTxService {
       if(normalize(encoded.canonicalText)!==normalize(request.text)){
         throw new Error('Native TX canonicalized text differs from requested text');
       }
-      const durationMs=count/12;
       const definition=resolveDigitalSchedule(request.mode,request.q65Submode);
-      const periodMs=definition.slotMs;
+      const isMsk=request.mode==='MSK144';
+      const periodMs=isMsk?(request.mskPeriodSeconds??5)*1000:definition.slotMs;
+      // Standard MSK144 message frames are exactly 72ms (864 samples at
+      // 12 kHz). Never end a T/R interval in the middle of a frame.
+      // Reserve 700ms for PTT/audio startup, the TX->RX transition and
+      // OS scheduling jitter. Never cut a symbol or an incomplete frame.
+      let txAudio=encoded.audioData;
+      if(isMsk){
+        const ms=periodMs!;
+        const maxFrames=Math.floor(((ms-700)*12)/864);
+        const frames=Math.min(maxFrames,Math.floor(count/864));
+        if(frames<1)throw new Error('No complete MSK144 frame fits the TX slot');
+        txAudio=encoded.audioData.subarray(0,frames*864);
+      }
+      const durationMs=txAudio.length/12;
       const tailHoldMs=100;
       // Reserve additional room for PTT setup, audio output preparation and
       // known timer jitter. A partially transmitted protocol frame is invalid.
-      const startGuardMs=request.mode==='WSPR'?1500:500;
+      const startGuardMs=isMsk?200:request.mode==='WSPR'?1500:500;
       let latestAllowedStartMs:number|null=null;
       let startMs:null|number=null;
       if(periodMs!==null){
-        const margin=request.mode==='WSPR'?2000:500;
+        const margin=isMsk?100:request.mode==='WSPR'?2000:500;
         const now=this.deps.now();
-        // Schedule a completely future slot: never start a partial WSPR
-        // or Q65 waveform, even if the UI clicked near a UTC boundary.
-        const slotStart=(Math.floor((now+1000)/periodMs)+1)*periodMs;
+        // Schedule a future whole UTC interval. For MSK144 select the
+        // requested alternating even/odd T/R phase, not a random ping.
+        let slotStart=(Math.floor((now+1000)/periodMs)+1)*periodMs;
+        if(isMsk){
+          const desired=(request.mskTxFirst??true)?0:1;
+          if(Math.floor(slotStart/periodMs)%2!==desired)slotStart+=periodMs;
+        }
         startMs=slotStart+margin;
         const remaining=periodMs-margin-durationMs-tailHoldMs-startGuardMs;
         if(remaining<0)throw new Error('Encoded waveform exceeds safe UTC TX period budget');
@@ -103,7 +122,9 @@ export class MfskNativeTxService {
         // without crossing the UTC slot edge. Recheck after async PTT setup.
         latestAllowedStartMs=slotStart+periodMs-durationMs-tailHoldMs-startGuardMs;
         const delay=Math.max(0,startMs-this.deps.now());
-        if(delay>periodMs+2000)throw new Error('Unreasonable UTC TX wait');
+        if(delay>(isMsk?2*periodMs+2000:periodMs+2000)){
+          throw new Error('Unreasonable UTC TX wait');
+        }
         await (this.deps.sleep??(ms=>new Promise<void>(resolve=>setTimeout(resolve,ms))))(delay);
         this.assertPreconditions(request,epoch);
         if(this.deps.now()>latestAllowedStartMs){
@@ -113,7 +134,7 @@ export class MfskNativeTxService {
       const outcome=await this.deps.transmitAudio({
         source:'digital',operatorIds:[request.operatorId],playbackKind:'digital',
         reason:`native ${request.mode} manual transmission`,
-        audioData:encoded.audioData,sampleRate:encoded.sampleRate,
+        audioData:txAudio,sampleRate:encoded.sampleRate,
         assertPtt:true,tailHoldMs,
         beforeStart:()=>this.deps.stopTuneTone(),
         validateStart:()=>{
@@ -136,6 +157,9 @@ export class MfskNativeTxService {
       audioFrequencyHz:request.audioHz,q65Submode:request.q65Submode,
       mskPeriodSeconds:request.mskPeriodSeconds,
     });
+    if(request.mode!=='MSK144'&&request.mskTxFirst!==undefined){
+      throw new Error('MSK144 TX phase is only valid for MSK144');
+    }
     if(request.mode==='WSPR'&&!request.beaconAuthorized){
       throw new Error('WSPR beacon transmission requires explicit authorization');
     }

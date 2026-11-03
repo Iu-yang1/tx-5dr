@@ -31,6 +31,7 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
   const [text,setText] = useState('CQ K1ABC FN42');
   const [beaconAuthorized,setBeaconAuthorized] = useState(false);
   const [mskPeriod,setMskPeriod] = useState<5|10|15|30>(5);
+  const [mskTxFirst,setMskTxFirst] = useState(true);
   const [txPending,setTxPending] = useState(false);
   const [txNotice,setTxNotice] = useState<string | null>(null);
   const [dxCall,setDxCall] = useState('');
@@ -137,7 +138,7 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
       mode,operatorId:currentOperatorId,text:text.trim(),audioHz:hz,
       ...(mode==='Q65'?{q65Submode:submode}:{}),
       ...(mode==='WSPR'?{beaconAuthorized}:{}),
-      ...(mode==='MSK144'?{mskPeriodSeconds:mskPeriod}:{}),
+      ...(mode==='MSK144'?{mskPeriodSeconds:mskPeriod,mskTxFirst}:{}),
     }).then(()=>setTxNotice(t('codec.txComplete')))
       .catch(()=>setTxNotice(t('codec.txFailed')))
       .finally(()=>setTxPending(false));
@@ -260,6 +261,11 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
             {[5,10,15,30].map(seconds=><option key={seconds} value={seconds}>{seconds}s</option>)}
           </select>
         </div>}
+        {mode==='MSK144' && <label className="text-xs flex gap-2 items-center">
+          <input type="checkbox" checked={mskTxFirst}
+            onChange={e=>setMskTxFirst(e.target.checked)} disabled={txPending}/>
+          {t('codec.mskTxFirst')}
+        </label>}
         {mode==='WSPR' && <label className="text-xs flex gap-2 items-center">
           <input type="checkbox" checked={beaconAuthorized} onChange={e=>setBeaconAuthorized(e.target.checked)}
             disabled={txPending}/>
