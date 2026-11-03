@@ -3,7 +3,7 @@ import { WSJTXEncodeWorkQueue, type EncodeResult } from '../WSJTXEncodeWorkQueue
 import type { MfskNativeModule } from '../MfskNativeAdapter.js';
 
 describe('experimental native TX compatibility adapter', () => {
-  it('emits the unchanged frame request for the existing physical TX safety coordinator', async () => {
+  it('emits the unchanged request for an explicitly isolated virtual simulation', async () => {
     const pcmF32Le = Buffer.alloc(4 * 1024);
     const native = { encodeSlotted: vi.fn(() => ({
       canonicalText: 'CQ K1ABC FN42', sampleRate: 12000,
@@ -15,7 +15,6 @@ describe('experimental native TX compatibility adapter', () => {
     const request = {
       operatorId:'simulation:peer-1',virtualSimulation:true,mode:'FT4' as const, message:'CQ K1ABC FN42',
       frequency:1500, slotStartMs:1800000000000,
-      frameId:'frame-1',frameRevision:3,decisionEpoch:7,
     };
     await queue.push(request);
     expect(native.encodeSlotted).toHaveBeenCalledWith('FT4',request.message,1500);

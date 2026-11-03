@@ -14,3 +14,6 @@ napi-derive = "2.16"
 mfsk-core = { version = "=0.15.0", default-features = false, features = [
   "std", "fft-rustfft", "ft8", "ft4", "wspr", "q65", "msk144", "jtty", "parallel"
 ] }
+
+[build-dependencies]
+napi-build = "2"
