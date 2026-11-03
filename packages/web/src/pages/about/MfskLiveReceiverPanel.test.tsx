@@ -109,7 +109,7 @@ it('MSK144 operator changes TX period and uses a fixed 1500 Hz modulator',async(
   selected.mode='MSK144';
   render(<MfskLiveReceiverPanel surface="operator"/>);
   await waitFor(()=>expect(screen.getByText('codec.mskFixedTxAf')).toBeTruthy());
-  fireEvent.click(screen.getByText('⋯'));
+  fireEvent.click(screen.getAllByText('⋯')[0]);
   fireEvent.change(screen.getByLabelText('codec.message'),{target:{value:'K1ABC W9XYZ -10'}});
   fireEvent.change(screen.getByLabelText('codec.mskPeriod'),{target:{value:'10'}});
   fireEvent.click(screen.getByText('codec.manualTx'));
@@ -138,7 +138,7 @@ it('JTTY presents the same operator TX and manual QSO logging without Q65 contro
   render(<MfskLiveReceiverPanel surface="operator"/>);
   await waitFor(()=>expect(screen.getByText('codec.logTitle')).toBeTruthy());
   expect(screen.queryByText('codec.logConfirm')).toBeNull();
-  fireEvent.click(screen.getAllByText('⋯')[1]);
+  fireEvent.click(screen.getByText('⋯'));
   expect(screen.getByText('codec.logConfirm')).toBeTruthy();
   expect(screen.queryByText('codec.q65TxFirst')).toBeNull();
   expect(screen.getByText('codec.manualTx')).toBeTruthy();
