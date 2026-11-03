@@ -196,6 +196,7 @@ export const MfskLiveRxStartSchema = z.object({
   mode: DigitalCodecModeSchema,
   q65Submode: Q65SubmodeSchema.optional(),
   frequencyHz: z.number().finite().min(100).max(5500).default(1500),
+  toleranceHz: z.number().finite().min(1).max(5000).default(200),
   depth: z.union([z.literal(1),z.literal(2),z.literal(3)]).default(3),
   averaging: z.boolean().default(false),
   emeDelay: z.boolean().default(false),

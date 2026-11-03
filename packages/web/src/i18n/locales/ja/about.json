@@ -142,6 +142,12 @@
     },
     "apApply": "Q65 APを受信中に更新",
     "apUpdated": "平均化を中断せずAPを更新しました",
-    "apUpdateFailed": "AP更新に失敗しました。コールサイン・グリッド・受信状態をご確認ください"
+    "apUpdateFailed": "AP更新に失敗しました。コールサイン・グリッド・受信状態をご確認ください",
+    "rxTolerance": "周波数許容差（Hz）",
+    "rxDepth": "復号深度",
+    "rxFast": "高速",
+    "rxNormal": "通常",
+    "rxDeep": "深い",
+    "rxInvalidTolerance": "周波数許容差は1〜5000 Hz"
   }
 }

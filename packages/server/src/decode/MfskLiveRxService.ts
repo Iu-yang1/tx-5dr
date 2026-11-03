@@ -15,6 +15,7 @@ export interface MfskLiveConfig {
   mode: DigitalCodecMode;
   q65Submode?: Q65Submode;
   frequencyHz?: number;
+  toleranceHz?: number;
   depth?: 1|2|3;
   averaging?: boolean;
   emeDelay?: boolean;
@@ -162,6 +163,8 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
     const definition=resolveDigitalSchedule(config.mode,config.q65Submode);
     const f=config.frequencyHz??1500;
     if(!Number.isFinite(f)||f<100||f>5500)throw new Error('Invalid receiver AF centre frequency');
+    if(config.toleranceHz!==undefined && (!Number.isFinite(config.toleranceHz)||
+      config.toleranceHz<1||config.toleranceHz>5000))throw new Error('Invalid receiver F Tol');
     if(config.depth!==undefined && ![1,2,3].includes(config.depth))throw new Error('Invalid decode depth');
     if(config.averaging && config.mode!=='Q65')throw new Error('Averaging only supported for Q65');
     if(config.emeDelay && config.mode!=='Q65')throw new Error('EME delay only supported for Q65');
@@ -197,7 +200,8 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
     });
     child.send({cmd:'start',generation,config:{
       sessionId:`live-${generation}`,mode:config.mode,q65Submode:config.q65Submode,
-      audioFrequencyHz:f,depth:config.depth??3,averaging:config.averaging??false,
+      audioFrequencyHz:f,toleranceHz:config.toleranceHz??200,
+      depth:config.depth??3,averaging:config.averaging??false,
       emeDelay:config.emeDelay??false,
       apContext:config.apContext,
     }});

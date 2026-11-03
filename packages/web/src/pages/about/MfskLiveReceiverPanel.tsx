@@ -35,6 +35,8 @@ export function MfskLiveReceiverPanel({
   const [apApplying,setApApplying] = useState(false);
   const [apNotice,setApNotice] = useState<string|null>(null);
   const [frequency,setFrequency] = useState('1500');
+  const [tolerance,setTolerance] = useState('200');
+  const [decodeDepth,setDecodeDepth] = useState<1|2|3>(3);
   const [txFrequency,setTxFrequency] = useState('1500');
   const [averaging,setAveraging] = useState(false);
   const [emeDelay,setEmeDelay] = useState(false);
@@ -182,9 +184,12 @@ export function MfskLiveReceiverPanel({
   const run=(start:boolean)=>{
     if(surface!=='receiver'||!maySwitchMode)return;
     setBusy(true);setError(null);
-    const hz=Number(frequency);
+    const hz=Number(frequency),tol=Number(tolerance);
     if(start && (!Number.isFinite(hz)||hz<100||hz>5500)){
       setBusy(false);setError(t('codec.liveInvalidFrequency'));return;
+    }
+    if(start && (!Number.isFinite(tol)||tol<1||tol>5000)){
+      setBusy(false);setError(t('codec.rxInvalidTolerance'));return;
     }
     const action=start
       ? api.startMfskLiveRx({
@@ -199,7 +204,7 @@ export function MfskLiveReceiverPanel({
               },
             }:{}),
           }:{}),
-          frequencyHz:hz,depth:3,
+          frequencyHz:hz,toleranceHz:tol,depth:decodeDepth,
         })
       : api.stopMfskLiveRx();
     void action.then(value=>{
@@ -294,6 +299,19 @@ export function MfskLiveReceiverPanel({
         <Input size="sm" className="max-w-[140px]" type="number"
           label={t('codec.afFrequency')} value={frequency} onValueChange={setFrequency}
           isDisabled={busy}/>
+        {mode!=='JTTY' && <Input size="sm" className="max-w-[130px]" type="number"
+          label={t('codec.rxTolerance')} value={tolerance} onValueChange={setTolerance}
+          isDisabled={busy}/>}
+        {mode!=='JTTY' && <label htmlFor="mfsk-depth" className="text-xs">
+          {t('codec.rxDepth')}
+          <select id="mfsk-depth" value={decodeDepth} disabled={busy}
+            onChange={e=>setDecodeDepth(Number(e.target.value) as 1|2|3)}
+            className="ml-2 rounded-md border border-default-300 bg-content1 px-2 py-2 text-sm">
+            <option value={1}>{t('codec.rxFast')}</option>
+            <option value={2}>{t('codec.rxNormal')}</option>
+            <option value={3}>{t('codec.rxDeep')}</option>
+          </select>
+        </label>}
       </div>
       {mode==='Q65' && <div className="flex flex-wrap gap-5 text-sm">
         <label><input type="checkbox" checked={averaging}

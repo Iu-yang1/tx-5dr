@@ -23,6 +23,16 @@ function setup(){
   return {audio,live,workers,at:(ms:number)=>{now=ms;}};
 }
 describe('live receiver protects the real AF ingestion and native session boundaries',()=>{
+  it('forwards selected RX frequency tolerance and decoding depth to the native worker',()=>{
+    const s=setup();
+    const state=s.live.start({mode:'MSK144',frequencyHz:1500,toleranceHz:75,depth:2});
+    expect(s.workers[0].messages[0]).toMatchObject({
+      cmd:'start',generation:state.generation,
+      config:{mode:'MSK144',audioFrequencyHz:1500,toleranceHz:75,depth:2},
+    });
+    s.live.stop();
+    expect(()=>s.live.start({mode:'MSK144',toleranceHz:5100})).toThrow(/F Tol/);
+  });
   it('rejects invalid protocols without creating a decode child',()=>{
     const s=setup();
     expect(()=>s.live.start({mode:'Q65',q65Submode:'Q65-60B',frequencyHz:90000})).toThrow();

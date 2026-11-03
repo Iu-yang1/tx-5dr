@@ -142,6 +142,12 @@
     },
     "apApply": "实时更新 Q65 AP",
     "apUpdated": "AP 已更新，不中断 Q65 多周期平均",
-    "apUpdateFailed": "AP 更新失败，请检查呼号、网格与接收状态"
+    "apUpdateFailed": "AP 更新失败，请检查呼号、网格与接收状态",
+    "rxTolerance": "频率容差（Hz）",
+    "rxDepth": "解码深度",
+    "rxFast": "快速",
+    "rxNormal": "普通",
+    "rxDeep": "深度",
+    "rxInvalidTolerance": "频率容差无效（1–5000 Hz）"
   }
 }

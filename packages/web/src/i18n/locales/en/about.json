@@ -142,6 +142,12 @@
     },
     "apApply": "Apply AP to live Q65 RX",
     "apUpdated": "AP updated without interrupting Q65 averaging",
-    "apUpdateFailed": "AP update failed; check callsign/grid and receiver status"
+    "apUpdateFailed": "AP update failed; check callsign/grid and receiver status",
+    "rxTolerance": "F Tol (Hz)",
+    "rxDepth": "Decode depth",
+    "rxFast": "Fast",
+    "rxNormal": "Normal",
+    "rxDeep": "Deep",
+    "rxInvalidTolerance": "Invalid F Tol (1–5000 Hz)"
   }
 }
