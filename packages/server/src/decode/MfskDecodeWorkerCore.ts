@@ -125,7 +125,8 @@ export class MfskDecodeWorkerCore {
     // The native FT8 front end recognises its own prefix checkpoints.
     // FT4 has no corresponding prefix API: a complete window is decoded whole.
     const earlyPrefix = mode === 'FT8' && request.decodeStage !== undefined
-      && !request.lateRetry;
+      && request.decodeStage !== 50
+      && !request.decodeFinalWindow && !request.lateRetry;
     const decoded = session.handle.decode(pcm, period, earlyPrefix);
     const nativeProcessingTimeMs = performance.now() - tNative;
     const frames: DecodeResult['frames'] = [];

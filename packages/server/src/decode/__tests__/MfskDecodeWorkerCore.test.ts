@@ -68,4 +68,23 @@ describe('isolated mfsk-native worker', () => {
     await expect(worker.decode(badPcm)).rejects.toThrow(/PCM/);
     expect(calls.decoded).toBe(0);
   });
+  it('uses a complete decode on FT8 stage 50, not only early prefix', async () => {
+    const prefixArgs: Array<boolean | undefined> = [];
+    const fake = {
+      SlottedSession: class {
+        decode(_pcm: Buffer, _period: number, prefix?: boolean) {
+          prefixArgs.push(prefix);
+          return [];
+        }
+        setParameters() {}
+        setApContext() {}
+        clear() {}
+      },
+    } as unknown as MfskNativeModule;
+    const worker = new MfskDecodeWorkerCore(fake);
+    await worker.decode(fakeRequest({decodeStage:41,decodeFinalWindow:false}));
+    await worker.decode(fakeRequest({decodeStage:50,decodeFinalWindow:true}));
+    expect(prefixArgs).toEqual([true,false]);
+  });
+
 });
