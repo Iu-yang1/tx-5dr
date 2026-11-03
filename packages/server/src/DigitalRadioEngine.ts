@@ -1586,7 +1586,7 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
     // already-serialized mode transaction settle before disconnecting CAT.
     await this.modeSwitchTail.catch(() => undefined);
     await this.stopTuneTone('engine stopped');
-    this.mfskNativeTxService.cancel();
+    this.mfskNativeTxService?.cancel();
     this.mfskLiveRxService.stop();
     try {
       return await this.engineLifecycle.stop();
@@ -1941,7 +1941,7 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
   }
 
   private async runWithModeChangeGate(operation: () => Promise<void>): Promise<void> {
-    this.mfskNativeTxService.cancel();
+    this.mfskNativeTxService?.cancel();
     this._operatorManager.enterTransmissionMaintenance('mode change');
     try {
       await this.stopTuneTone('mode changed');
