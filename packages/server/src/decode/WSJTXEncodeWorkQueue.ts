@@ -44,6 +44,36 @@ export interface EncodeWorkQueueEvents {
 }
 
 /**
+ * FT8/FT4 native codec admission before an existing digital frame lease.
+ * This does not grant PTT: DigitalFrameCoordinator still validates revision,
+ * decision epoch, owner and physical frame capacity downstream.
+ */
+export function assertNativeSlottedEncodeAdmission(
+  request: EncodeRequest,
+  rfEnabled: boolean,
+): void {
+  if(request.virtualSimulation === true) {
+    if(!request.operatorId.startsWith('simulation:') || request.frameId !== undefined) {
+      throw new Error('Invalid native simulation request provenance');
+    }
+    return;
+  }
+  // The new native implementation cannot borrow the legacy physical chain
+  // without an explicit product gate and complete frame identity.
+  if(!rfEnabled)throw new Error('mfsk-native RF transmission is disabled pending P9 acceptance');
+  const mode=request.mode==='FT4'?'FT4':'FT8';
+  const slotMs=mode==='FT4'?7500:15000;
+  if(!request.operatorId || request.operatorId.startsWith('simulation:')
+    || !request.frameId || request.frameId.length>256
+    || !Number.isSafeInteger(request.frameRevision) || (request.frameRevision??-1)<0
+    || !Number.isSafeInteger(request.decisionEpoch) || (request.decisionEpoch??-1)<0
+    || !Number.isSafeInteger(request.slotStartMs) || (request.slotStartMs??-1)<0
+    || (request.slotStartMs??-1)%slotMs!==0) {
+    throw new Error('Native RF transmission requires complete aligned digital frame identity');
+  }
+}
+
+/**
  * 使用 wsjtx-lib 进行FT8消息编码
  */
 export class WSJTXEncodeWorkQueue extends EventEmitter<EncodeWorkQueueEvents> {
@@ -114,13 +144,13 @@ export class WSJTXEncodeWorkQueue extends EventEmitter<EncodeWorkQueueEvents> {
 
       // Native mode is explicitly opted into; a missing module fails closed.
       if (this.native) {
-        // Native is experimental, unapproved for physical RF TX. Do not trust
-        // a caller-supplied operatorId alone; require the explicit simulator
-        // provenance and absence of a physical frame identity.
-        if (!request.virtualSimulation || !request.operatorId.startsWith('simulation:')
-          || request.frameId !== undefined) {
-          throw new Error('mfsk-native RF transmission is disabled pending P9 acceptance');
-        }
+        // An explicit, default-disabled RF gate may unlock the *existing*
+        // coordinator-owned frame flow for integration testing. A waveform
+        // emitted here is not a PTT request and still needs a valid lease.
+        assertNativeSlottedEncodeAdmission(
+          request,
+          process.env.TX5DR_ENABLE_MFSK_RF_TX === '1',
+        );
         const mode = request.mode === 'FT4' ? 'FT4' : 'FT8';
         const waveform = this.native.encodeSlotted(mode, request.message, request.frequency);
         const samples = verifyNativeWaveform(waveform, request.message, mode);

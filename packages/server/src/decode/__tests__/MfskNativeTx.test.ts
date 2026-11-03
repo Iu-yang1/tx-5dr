@@ -52,4 +52,36 @@ describe('experimental native TX compatibility adapter', () => {
     await queue.destroy();
   });
 
+  it('accepts a fully identified native physical frame only when the explicit RF gate is on',async()=>{
+    const current=process.env.TX5DR_ENABLE_MFSK_RF_TX;
+    const wave=Buffer.alloc(12_000*4);
+    const native={encodeSlotted:vi.fn(()=>({
+      canonicalText:'CQ K1ABC FN42',sampleRate:12000,sampleCount:12000,pcmF32Le:wave,
+    }))} as unknown as MfskNativeModule;
+    const q=new WSJTXEncodeWorkQueue(1,native);
+    const received:Array<EncodeResult & {request?:{frameId?:string}}>=[],failed=vi.fn();
+    q.on('encodeComplete',r=>received.push(r as EncodeResult & {request?:{frameId?:string}}));
+    q.on('encodeError',failed);
+    const frame={
+      operatorId:'op1',mode:'FT8' as const,message:'CQ K1ABC FN42',
+      frequency:1500,slotStartMs:1_800_000_000_000,
+      frameId:'frame-1',frameRevision:3,decisionEpoch:7,
+    };
+    try{
+      process.env.TX5DR_ENABLE_MFSK_RF_TX='1';
+      await q.push(frame);
+      expect(failed).not.toHaveBeenCalled();
+      expect(received).toHaveLength(1);
+      expect(received[0].request?.frameId).toBe('frame-1');
+      // Even with the RF gate on, a forged or unaligned lease is rejected.
+      await q.push({...frame,slotStartMs:frame.slotStartMs+1});
+      expect(failed).toHaveBeenCalledTimes(1);
+      expect(received).toHaveLength(1);
+    }finally{
+      if(current===undefined)delete process.env.TX5DR_ENABLE_MFSK_RF_TX;
+      else process.env.TX5DR_ENABLE_MFSK_RF_TX=current;
+      await q.destroy();
+    }
+  });
+
 });
