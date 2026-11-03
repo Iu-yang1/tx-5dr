@@ -1,0 +1,37 @@
+name: MFSK weak-signal sensitivity study (on demand)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  sensitivity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build the pinned Rust addon
+        run: |
+          cargo build --manifest-path packages/mfsk-native/Cargo.toml --release
+          cp packages/mfsk-native/target/release/libtx5dr_mfsk_native.so packages/mfsk-native/mfsk-native.node
+          node packages/mfsk-native/smoke.cjs
+      - name: FT8 Monte Carlo with Wilson confidence intervals
+        env:
+          MFSK_MODE: FT8
+          MFSK_TRIALS: '20'
+        run: node packages/mfsk-native/sensitivity-monte-carlo.cjs
+      - name: FT4 Monte Carlo with Wilson confidence intervals
+        env:
+          MFSK_MODE: FT4
+          MFSK_TRIALS: '20'
+        run: node packages/mfsk-native/sensitivity-monte-carlo.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mfsk-weak-signal-sensitivity
+          path: packages/mfsk-native/sensitivity-*.json
+          retention-days: 30
+          if-no-files-found: warn
