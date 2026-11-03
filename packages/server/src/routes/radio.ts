@@ -1,3 +1,4 @@
+import { assertRadioExecution } from '../radio/RadioExecutionPolicy.js';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // RadioRoutes - FastifyRequest处理需要使用any
 
@@ -287,6 +288,8 @@ function createCWKeyerBusyWithDifferentSettingsError(
 function isHardwareSameTarget(a: HamlibConfig, b: HamlibConfig): boolean {
   if (a.type !== b.type) return false;
   switch (a.type) {
+    case 'none': return (a.pttMethod === 'dtr' || a.pttMethod === 'rts')
+      && a.pttMethod === b.pttMethod && Boolean(a.pttPort) && a.pttPort === b.pttPort;
     case 'serial': return a.serial?.path === b.serial?.path;
     case 'network': return a.network?.host === b.network?.host && a.network?.port === b.network?.port;
     case 'icom-wlan': return a.icomWlan?.ip === b.icomWlan?.ip && a.icomWlan?.port === b.icomWlan?.port;
@@ -301,6 +304,10 @@ function isHardwareSameTarget(a: HamlibConfig, b: HamlibConfig): boolean {
 
 /** 判断测试配置是否与已有连接存在硬件冲突（串口独占 / ICOM WLAN/TCI 单客户端） */
 function isHardwareConflict(active: HamlibConfig, test: HamlibConfig): boolean {
+  // A standalone PTT port cannot be reopened to test a different pin.
+  if (active.type === 'none' && test.type === 'none'
+      && (active.pttMethod === 'dtr' || active.pttMethod === 'rts')
+      && active.pttPort && active.pttPort === test.pttPort) return true;
   // 串口：同一 path 就冲突（OS 独占）
   if (test.type === 'serial' && active.type === 'serial'
       && active.serial?.path === test.serial?.path) return true;
@@ -319,6 +326,7 @@ function isHardwareConflict(active: HamlibConfig, test: HamlibConfig): boolean {
 /** 返回硬件描述文本（用于冲突提示消息） */
 function describeHardware(config: HamlibConfig): string {
   switch (config.type) {
+    case 'none': return `PTT ${config.pttPort || ''} (${config.pttMethod || 'none'})`;
     case 'serial': return `Serial ${config.serial?.path || ''}`;
     case 'network': return `Network ${config.network?.host || ''}:${config.network?.port || ''}`;
     case 'icom-wlan': return `ICOM WLAN ${config.icomWlan?.ip || ''}`;
@@ -926,7 +934,7 @@ export async function radioRoutes(fastify: FastifyInstance) {
     return reply.send({
       success: true,
       frequency,
-      radioMode: effectiveRadioMode,
+      radioMode: applyResult.modeError ? lastFrequency?.radioMode : effectiveRadioMode,
       repeaterShift: repeaterDuplexToApply?.repeaterShift,
       repeaterOffsetHz: repeaterDuplexToApply?.repeaterOffsetHz,
       toneMode: toneSquelchToApply?.toneMode,
@@ -934,7 +942,7 @@ export async function radioRoutes(fastify: FastifyInstance) {
       dcsCode: toneSquelchToApply?.dcsCode,
       message: applyResult.frequencyConfirmed === false
         ? 'Frequency write sent but physical readback did not confirm the target'
-        : effectiveRadioMode ? `Frequency and mode set successfully (${effectiveRadioMode})` : 'Frequency set successfully',
+        : effectiveRadioMode && !applyResult.modeError ? `Frequency and mode set successfully (${effectiveRadioMode})` : 'Frequency set successfully',
       confirmation: applyResult.frequencyConfirmed === false ? 'mismatch' : 'confirmed',
       ...(applyResult.observedFrequency !== undefined ? { observedFrequency: applyResult.observedFrequency } : {}),
       ...(applyResult.operationId ? { operationId: applyResult.operationId } : {}),
@@ -1102,6 +1110,7 @@ export async function radioRoutes(fastify: FastifyInstance) {
 
   // CW 键控端口测试
   fastify.post('/test-cw-keyer', { schema: { body: zodToJsonSchema(HamlibConfigSchema) }, onRequest: adminOnly }, async (req, reply) => {
+    assertRadioExecution({ kind: 'transmit', source: 'cw-keyer-test' });
     const config = normalizeHamlibConfig(HamlibConfigSchema.parse(req.body));
 
     const cwKeyPort = config.cwKeyPort?.trim();

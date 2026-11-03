@@ -107,6 +107,7 @@ export * from './schema/pskreporter.schema.js';
 
 // Radio Profile Schema
 export * from './schema/radio-profile.schema.js';
+export * from './schema/station-test.schema.js';
 export * from './schema/tx-audio-input.schema.js';
 
 // Ability Schema (must be before auth.schema which imports from it)
@@ -169,6 +170,7 @@ export * from './schema/device-ui.schema.js';
 
 // Plugin Schema
 export * from './schema/plugin.schema.js';
+export * from './schema/logbook-sync.schema.js';
 export * from './schema/update.schema.js';
 export * from './schema/observability.schema.js';
 export * from './schema/diagnostics.schema.js';
