@@ -16,6 +16,8 @@ export class MfskRfArmGate {
   }) {}
 
   arm(acknowledged: boolean, validityMs = 600_000): MfskRfArmStatus {
+    // An invalid re-arm request must never leave a previous approval active.
+    this.revoke();
     if (acknowledged !== true) throw new Error('RF safety acknowledgement is required');
     if (!Number.isSafeInteger(validityMs) || validityMs <= 0 || validityMs > 600_000) {
       throw new Error('Invalid RF authorization duration');
@@ -35,6 +37,7 @@ export class MfskRfArmGate {
     const enabled = Boolean(this.armed && identity &&
       this.armed.identity === identity && Number.isFinite(now) &&
       now < this.armed.until);
+    if(!enabled)this.revoke(); // Sticky fail-closed: never revive after a disconnect.
     return { rfEnabled: enabled, remainingMs: enabled
       ? Math.max(0, Math.ceil(this.armed!.until - now)) : 0 };
   }

@@ -24,10 +24,8 @@ describe('native RF operator admission (no physical PTT)', () => {
     identity='rig=2;mode=Q65;rx=9';
     expect(gate.allowed()).toBe(false);
     identity='rig=2;mode=Q65;rx=8';
-    // Returning to the exact identity is not expected in production: the
-    // rig and decoder generation counters are monotonic. Explicit revoke
-    // at every mode-switch boundary independently blocks restoration.
-    gate.revoke();
+    // A transient identity failure must permanently disarm, even if the
+    // external connection layer accidentally reuses a generation number.
     expect(gate.allowed()).toBe(false);
     identity='rig=3;mode=JTTY;rx=10';
     gate.arm(true,1000);
@@ -44,6 +42,11 @@ describe('native RF operator admission (no physical PTT)', () => {
     expect(()=>gate.arm(true,600_001)).toThrow(/duration/);
     gate.arm(true);
     identity=null;
+    expect(gate.allowed()).toBe(false);
+    identity='real:3:Q65:10';
+    expect(gate.allowed()).toBe(false);
+    gate.arm(true);
+    expect(()=>gate.arm(false)).toThrow(/acknowledgement/);
     expect(gate.allowed()).toBe(false);
   });
 });
