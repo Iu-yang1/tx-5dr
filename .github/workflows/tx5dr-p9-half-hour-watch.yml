@@ -6,6 +6,19 @@ on:
   schedule:
     - cron: '0,30 * * * *'
   workflow_dispatch:
+  # Also advance immediately when a P9 check completes. The script below
+  # still requires ALL checks on the current PR SHA and is concurrency-guarded.
+  workflow_run:
+    workflows:
+      - Focused Radio Regression Tests
+      - Full Dynamic Radio and Performance Validation
+      - P0 Native Addon Fork Isolation Acceptance
+      - Experimental mfsk-native six-mode smoke build
+      - MFSK weak-signal sensitivity study (on demand)
+      - Build and Release Electron App
+      - Build and Release Linux Server
+      - Build and Release Docker Image
+    types: [completed]
 
 permissions:
   contents: write
