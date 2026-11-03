@@ -73,8 +73,12 @@ jobs:
               const {data}=await github.rest.actions.listWorkflowRunsForRepo({
                 owner,repo,branch:'main',per_page:100,
               });
+              // release/official-version.txt also triggers this controller on
+              // the merge push. Do not dispatch it again just because its
+              // event is "push" rather than "workflow_dispatch".
               const prior=data.workflow_runs.find(r=>r.head_sha===sha &&
-                r.name==='Dispatch validated official TX-5DR platform releases');
+                r.name==='Dispatch validated official TX-5DR platform releases' &&
+                ['push','workflow_dispatch'].includes(r.event));
               if(prior)return ['RC dispatch already exists: '+prior.html_url];
               await github.rest.actions.createWorkflowDispatch({
                 owner,repo,workflow_id:'official-release-dispatch.yml',ref:'main',
