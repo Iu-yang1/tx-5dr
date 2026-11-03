@@ -64,8 +64,8 @@
     "samples": "模拟样本数",
     "failed": "模拟执行失败：请检查服务端原生模块与诊断日志",
     "simNote": "使用固定种子的 AWGN 生成接收音频；结果仅用于协议功能验证，不代表弱信号门限或实际电台性能。",
-    "liveTitle": "实时六模式 AF 接收（实验）",
-    "liveSubtitle": "接入当前电台的解调后 AF 音频；原生子进程单独解码，运行现有 FT8/FT4 调度器时可并行监测。",
+    "liveTitle": "数字模式接收",
+    "liveSubtitle": "沿用现有电台接收机、模式选择器与频谱显示，在原有主界面内完成解码。",
     "afFrequency": "AF 中心频率 (Hz)",
     "averaging": "Q65 周期平均",
     "emeDelay": "EME 延迟补偿",
@@ -123,6 +123,8 @@
     "wsprNoSpots": "尚无可解析的标准 WSPR 消息。",
     "mskTxFirst": "MSK144 本方先发（UTC 偶周期）",
     "q65TxFirst": "Q65 本方先发（UTC 偶周期）",
-    "mskFixedTxAf": "MSK144 发射 AF 固定为 1500 Hz（WSJT-X 标准），与可调的接收中心频率独立。消息格式：呼号1 呼号2 报告。"
+    "mskFixedTxAf": "MSK144 发射 AF 固定为 1500 Hz（WSJT-X 标准），与可调的接收中心频率独立。消息格式：呼号1 呼号2 报告。",
+    "operatorSelect": "操作员",
+    "operatorRequired": "请选择操作员"
   }
 }

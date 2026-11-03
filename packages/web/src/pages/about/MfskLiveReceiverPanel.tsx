@@ -3,19 +3,27 @@ import { Button, Card, CardBody, Input } from '@heroui/react';
 import { useTranslation } from 'react-i18next';
 import { useCan } from '../../store/authStore';
 import { api } from '@tx5dr/core';
-import { useCurrentOperatorId, useRadioModeState } from '../../store/radioStore';
+import { useCurrentOperatorId, useRadioModeState, useOperators } from '../../store/radioStore';
 import { Q65SubmodeSchema, type DigitalCodecMode, type DigitalRxEvent,
   type MfskLiveRxStatus, type Q65Submode, type WsprDecodedSpot } from '@tx5dr/contracts';
 
 /** First-class operator workbench for post-demodulated AF and guarded
  * native-mode manual TX; physical PTT is always owned by the server lease. */
-export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecMode} = {}) {
+export function MfskLiveReceiverPanel({
+  initialMode, surface = 'receiver',
+}: {initialMode?:DigitalCodecMode;surface?:'receiver'|'operator'} = {}) {
   const { t } = useTranslation('about');
-  const { currentOperatorId } = useCurrentOperatorId();
+  const { currentOperatorId, setCurrentOperatorId } = useCurrentOperatorId();
+  const { operators } = useOperators();
   const radioMode = useRadioModeState();
   const maySwitchMode = useCan('execute','ModeSwitch');
   const [status,setStatus] = useState<MfskLiveRxStatus | null>(null);
-  const [mode,setMode] = useState<DigitalCodecMode>(initialMode??'Q65');
+  // The existing RadioControl mode selector owns both workspace panes.
+  const selected = radioMode.currentMode?.name ?? '';
+  const mode: DigitalCodecMode = initialMode ?? (
+    ['Q65','WSPR','MSK144','JTTY'].includes(selected)
+      ? selected as DigitalCodecMode : 'Q65'
+  );
   const [submode,setSubmode] = useState<Q65Submode>('Q65-60B');
   const [frequency,setFrequency] = useState('1500');
   const [averaging,setAveraging] = useState(false);
@@ -70,11 +78,15 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
     return ()=>{active=false;clearInterval(timer);};
   },[]);
 
+  // Receiver settings live in the left pane. The right pane must use
+  // the server-confirmed Q65 submode rather than its own initial state.
+  const activeSubmode = surface==='operator'
+    ? status?.q65Submode ?? 'Q65-60B' : submode;
   const receiverMatches=Boolean(status?.ready && status.mode===mode &&
-    (mode!=='Q65'||status.q65Submode===submode));
+    (mode!=='Q65'||status.q65Submode===activeSubmode));
 
   const run=(start:boolean)=>{
-    if(!maySwitchMode)return;
+    if(surface!=='receiver'||!maySwitchMode)return;
     setBusy(true);setError(null);
     const hz=Number(frequency);
     if(start && (!Number.isFinite(hz)||hz<100||hz>5500)){
@@ -129,7 +141,7 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
       startTime:contactStartMs,endTime:Date.now(),
       ...(txReport.trim()?{reportSent:txReport.trim()}:{}),
       ...(rxReport.trim()?{reportReceived:rxReport.trim()}:{}),
-      ...(mode==='Q65'?{q65Submode:submode}:{}),
+      ...(mode==='Q65'?{q65Submode:activeSubmode}:{}),
       messageHistory:matched,
     }).then(value=>{
       setQsoNotice(value.success?t('codec.logSaved'):t('codec.logFailed'));
@@ -149,7 +161,7 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
     void api.transmitMfsk({
       mode,operatorId:currentOperatorId,text:text.trim(),
       audioHz:mode==='MSK144'?1500:hz,
-      ...(mode==='Q65'?{q65Submode:submode,q65TxFirst}:{}),
+      ...(mode==='Q65'?{q65Submode:activeSubmode,q65TxFirst}:{}),
       ...(mode==='WSPR'?{beaconAuthorized}:{}),
       ...(mode==='MSK144'?{mskPeriodSeconds:mskPeriod,mskTxFirst}:{}),
     }).then(()=>setTxNotice(t('codec.txComplete')))
@@ -157,18 +169,13 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
       .finally(()=>setTxPending(false));
   };
 
-  return <Card shadow="none">
-    <CardBody className="gap-3 px-6 py-5">
+  return <Card shadow="none" className="h-full overflow-y-auto">
+    <CardBody className="gap-3 px-3 py-3">
+      {surface==='receiver' && <>
       <h2 className="text-base font-semibold">{t('codec.liveTitle')}</h2>
       <p className="text-xs text-default-500">{t('codec.liveSubtitle')}</p>
       <div className="flex flex-wrap gap-3 items-center">
-        <label htmlFor="mfsk-live-mode" className="text-sm">{t('codec.mode')}</label>
-        <select id="mfsk-live-mode" value={mode} onChange={e=>setMode(e.target.value as DigitalCodecMode)}
-          className="rounded-md border border-default-300 bg-content1 px-3 py-2 text-sm"
-          disabled={busy||status?.running||Boolean(initialMode)}>
-          {(['FT8','FT4','Q65','WSPR','MSK144','JTTY'] as const).map(m=>
-            <option key={m} value={m}>{m}</option>)}
-        </select>
+        <span className="rounded-md bg-default-100 px-3 py-2 text-sm font-semibold">{mode}</span>
         {mode==='Q65' && <>
           <label htmlFor="mfsk-live-q65" className="text-sm">{t('codec.submode')}</label>
           <select id="mfsk-live-q65" value={submode} onChange={e=>setSubmode(e.target.value as Q65Submode)}
@@ -228,7 +235,7 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
       </p>}
       {status?.lastError && <p role="alert" className="text-xs text-danger">{status.lastError}</p>}
       {error && <p role="alert" className="text-xs text-danger">{error}</p>}
-      <div className="max-h-64 overflow-y-auto rounded-md border border-default-200">
+      <div className="min-h-40 max-h-[50vh] overflow-y-auto rounded-md border border-default-200">
         {events.length===0 ?
           <p className="p-3 text-sm text-default-500">{t('codec.liveNoEvents')}</p>
           : <table className="w-full text-left text-xs">
@@ -261,8 +268,21 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
             </table>
           </div>}
       </section>}
+      </>}
+      {surface==='operator' && <>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-sm font-semibold">{t('codec.operatorSelect')}</span>
+        <select aria-label={t('codec.operatorSelect')} className="rounded-md border border-default-300 bg-content1 px-2 py-1 text-sm"
+          value={currentOperatorId??''}
+          onChange={e=>setCurrentOperatorId(e.target.value)}>
+          <option value="" disabled>{t('codec.operatorRequired')}</option>
+          {operators.map(operator=><option key={operator.id} value={operator.id}>
+            {operator.context?.myCall || operator.id}
+          </option>)}
+        </select>
+      </div>
       <div className="rounded-md border border-default-200 p-3 space-y-3">
-        <p className="text-sm font-medium">{t('codec.txTitle')}</p>
+        <p className="text-sm font-medium">{t('codec.txTitle')} · {mode}{mode==='Q65'? ` (${activeSubmode})`:''}</p>
         {mode==='MSK144' && <p className="text-xs text-default-500">{t('codec.mskFixedTxAf')}</p>}
         <Input size="sm" label={t('codec.message')} value={text} onValueChange={setText}
           isDisabled={txPending} maxLength={64}/>
@@ -326,6 +346,7 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
         {qsoNotice && <p className="text-xs" role="status">{qsoNotice}</p>}
       </section>}
       <p className="text-xs text-default-500">{t('codec.liveNoTx')}</p>
+      </>}
     </CardBody>
   </Card>;
 }

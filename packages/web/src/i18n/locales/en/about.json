@@ -64,8 +64,8 @@
     "samples": "Simulated samples",
     "failed": "Simulation failed: inspect native module and server diagnostics",
     "simNote": "Uses seeded AWGN and synthetic receiver PCM for functional testing only; not an RF or sensitivity acceptance test.",
-    "liveTitle": "Live six-mode AF reception (experimental)",
-    "liveSubtitle": "Uses the current radio's demodulated AF audio with an isolated native decoder; RX can monitor alongside the legacy FT8/FT4 scheduler.",
+    "liveTitle": "Digital RX",
+    "liveSubtitle": "Decoding in the existing radio workspace with the shared mode selector and spectrum.",
     "afFrequency": "AF centre (Hz)",
     "averaging": "Q65 period averaging",
     "emeDelay": "EME propagation delay",
@@ -123,6 +123,8 @@
     "wsprNoSpots": "No recognized standard WSPR messages yet.",
     "mskTxFirst": "MSK144 TX First (even UTC periods)",
     "q65TxFirst": "Q65 TX First (even UTC periods)",
-    "mskFixedTxAf": "MSK144 transmit audio is fixed at 1500 Hz (WSJT-X standard); RX AF centre can differ. Message format: CALL1 CALL2 REPORT."
+    "mskFixedTxAf": "MSK144 transmit audio is fixed at 1500 Hz (WSJT-X standard); RX AF centre can differ. Message format: CALL1 CALL2 REPORT.",
+    "operatorSelect": "Operator",
+    "operatorRequired": "Select operator"
   }
 }

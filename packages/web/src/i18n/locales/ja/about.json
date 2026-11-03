@@ -64,8 +64,8 @@
     "samples": "シミュレーションサンプル数",
     "failed": "シミュレーション失敗：サーバー診断をご確認ください",
     "simNote": "シード固定のAWGNで機能検証します。実機の性能や受信感度を保証するものではありません。",
-    "liveTitle": "6モードAFライブ受信（実験）",
-    "liveSubtitle": "現在の無線機の復調AFを独立したネイティブ受信プロセスで処理します。",
+    "liveTitle": "デジタル受信",
+    "liveSubtitle": "既存の無線機の受信経路、モード選択、スペクトラムを使用してデコードします。",
     "afFrequency": "AF中心周波数 (Hz)",
     "averaging": "Q65周期平均",
     "emeDelay": "EME遅延補正",
@@ -123,6 +123,8 @@
     "wsprNoSpots": "標準WSPRメッセージはまだありません。",
     "mskTxFirst": "MSK144 TX先行（UTC偶数周期）",
     "q65TxFirst": "Q65 TX先行（UTC偶数周期）",
-    "mskFixedTxAf": "MSK144送信AFはWSJT-X準拠で1500 Hz固定です。受信AF中心は別に設定できます。形式：CALL1 CALL2 REPORT。"
+    "mskFixedTxAf": "MSK144送信AFはWSJT-X準拠で1500 Hz固定です。受信AF中心は別に設定できます。形式：CALL1 CALL2 REPORT。",
+    "operatorSelect": "オペレーター",
+    "operatorRequired": "オペレーターを選択"
   }
 }

@@ -7,9 +7,6 @@ import {
   DropdownItem,
   DropdownMenu,
   DropdownTrigger,
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
 } from '@heroui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
@@ -28,7 +25,7 @@ import { ClockDisplay } from '../components/system/ClockDisplay';
 import { StationInfoPopover } from '../components/station/StationInfoPopover';
 import { AppBrandAboutLink } from '../components/common/AppBrandAboutLink';
 import { useRadioActions, useConnection, useStationInfo, useRadioModeState } from '../store/radioStore';
-import { useHasMinRole, useCan } from '../store/authStore';
+import { useHasMinRole } from '../store/authStore';
 import { UserRole } from '@tx5dr/contracts';
 import { isElectron, isMacOS } from '../utils/config';
 import { useTranslation } from 'react-i18next';
@@ -36,7 +33,6 @@ import { useTranslation } from 'react-i18next';
 export const LeftLayout: React.FC = React.memo(() => {
   const { t } = useTranslation('common');
   const isAdmin = useHasMinRole(UserRole.ADMIN);
-  const canSwitchDigitalMode = useCan('execute','ModeSwitch');
   const { currentMode } = useRadioModeState();
   const activeNativeMode = currentMode && ['Q65','WSPR','MSK144','JTTY'].includes(currentMode.name)
     ? currentMode.name as 'Q65'|'WSPR'|'MSK144'|'JTTY'
@@ -200,21 +196,6 @@ export const LeftLayout: React.FC = React.memo(() => {
               </DropdownItem>
             </DropdownMenu>
           </Dropdown>
-          {/* Existing FT8/FT4 main QSO UI stays intact; operators granted
-              mode-switch authority can open the native AF workbench. */}
-          {canSwitchDigitalMode && !activeNativeMode && (
-            <Popover placement="bottom-end">
-              <PopoverTrigger>
-                <Button size="sm" variant="flat" title="Six-mode AF receive console"
-                  className="min-w-0 px-2 text-xs" aria-label="MFSK receive console">
-                  MFSK RX
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-[min(92vw,620px)] max-h-[76vh] overflow-auto p-2">
-                <MfskLiveReceiverPanel />
-              </PopoverContent>
-            </Popover>
-          )}
           {/* 网络访问入口（Admin 可点击查看远程访问信息） */}
           {isAdmin && (
             <RemoteAccessPopover clientCount={clientCount} />
@@ -228,7 +209,7 @@ export const LeftLayout: React.FC = React.memo(() => {
       <div className="flex-1 px-2 pb-2 md:px-5 md:pb-5 min-h-0 flex flex-col gap-2 md:gap-4">
         {activeNativeMode
           ? <div className="flex-1 min-h-0 overflow-y-auto">
-              <MfskLiveReceiverPanel key={activeNativeMode} initialMode={activeNativeMode}/>
+              <MfskLiveReceiverPanel key={activeNativeMode} initialMode={activeNativeMode} surface="receiver"/>
             </div>
           : <div className="flex-1 min-h-0">
               <SlotPacksMessageDisplay

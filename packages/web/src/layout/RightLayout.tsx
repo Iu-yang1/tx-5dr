@@ -11,6 +11,7 @@ import { AuthLoginForm } from '../components/auth/AuthLoginForm';
 import { RadioControl } from '../components/radio/control/RadioControl';
 import { RadioOperatorList } from '../components/radio/operators/RadioOperatorList';
 import { MyRelatedFramesTable } from '../components/radio/digital/MyRelatedFramesTable';
+import { MfskLiveReceiverPanel } from '../pages/about/MfskLiveReceiverPanel';
 import { HorizontalPaneDivider } from '../components/common/HorizontalPaneDivider';
 import { ThemeToggle } from '../components/common/ThemeToggle';
 import { ClientNotificationButton } from '../components/common/ClientNotificationButton';
@@ -392,7 +393,9 @@ export const RightLayout: React.FC = () => {
                   className="relative z-0 min-h-0 overflow-hidden px-2 md:px-4"
                   style={workspaceHeight > 0 ? { height: `${desktopPaneHeights.topPaneHeightPx}px` } : { height: `${splitPercent}%` }}
                 >
-                  <MyRelatedFramesTable className="h-full" />
+                  {nativeDigitalOperating
+                    ? <MfskLiveReceiverPanel surface="operator" key={currentMode?.name}/>
+                    : <MyRelatedFramesTable className="h-full" />}
                 </div>
                 <HorizontalPaneDivider
                   heightPx={RIGHT_LAYOUT_SPLIT_DIVIDER_HEIGHT_PX}
@@ -402,7 +405,7 @@ export const RightLayout: React.FC = () => {
                   resetHint={t('rightLayout.resetSplitToAuto')}
                 />
                 <div className="relative z-10 min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 md:px-4 pt-2 pb-4 [scrollbar-gutter:stable]">
-                  <RadioOperatorList onCreateOperator={handleCreateOperator} />
+                  {!nativeDigitalOperating && <RadioOperatorList onCreateOperator={handleCreateOperator} />}
                 </div>
                 <div className="relative z-10 flex-shrink-0 px-2 md:px-4">
                   <RadioControl onOpenRadioSettings={handleOpenRadioSettings} />
@@ -412,7 +415,9 @@ export const RightLayout: React.FC = () => {
               <>
                 {/* 默认自适应布局：表格占据剩余空间，底部容器（操作员区 + RadioControl）跟随内容自然高度（上限 70%），同 main 经典行为 */}
                 <div ref={topPaneRef} className="relative z-0 flex-1 min-h-0 overflow-hidden px-2 md:px-4">
-                  <MyRelatedFramesTable className="h-full" />
+                  {nativeDigitalOperating
+                    ? <MfskLiveReceiverPanel surface="operator" key={currentMode?.name}/>
+                    : <MyRelatedFramesTable className="h-full" />}
                 </div>
                 <HorizontalPaneDivider
                   heightPx={RIGHT_LAYOUT_SPLIT_DIVIDER_HEIGHT_PX}
@@ -424,7 +429,7 @@ export const RightLayout: React.FC = () => {
                 <div className="relative z-10 flex-shrink-0 min-h-0 max-h-[70%] flex flex-col overflow-hidden">
                   {/* 间距与 main 对齐：分割条 8px + pt-2 8px = 16px（原 gap-4）；pb-4 16px 同理 */}
                   <div className="min-h-0 overflow-y-auto overscroll-contain px-2 md:px-4 pt-2 pb-4 [scrollbar-gutter:stable]">
-                    <RadioOperatorList onCreateOperator={handleCreateOperator} />
+                    {!nativeDigitalOperating && <RadioOperatorList onCreateOperator={handleCreateOperator} />}
                   </div>
                   <div className="relative z-10 flex-shrink-0 px-2 md:px-4">
                     <RadioControl onOpenRadioSettings={handleOpenRadioSettings} />
