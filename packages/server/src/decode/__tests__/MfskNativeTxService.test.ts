@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { MfskNativeTxService, type MfskTxAdmission } from '../MfskNativeTxService.js';
+import { MfskNativeTxService, isMfskPhysicalTxConfirmed, type MfskTxAdmission } from '../MfskNativeTxService.js';
 import type { PhysicalAudioTransmissionRequest } from '../../transmission/PhysicalTxCoordinator.js';
 
 function context(mode='Q65'){
@@ -21,6 +21,15 @@ function context(mode='Q65'){
   return {deps,encoded,sent,now:()=>now};
 }
 describe('native six-mode transmit protocol and physical lease boundaries',()=>{
+  it('never reports a denied or unconfirmed physical lease as transmitted',()=>{
+    const outcome={mode:'Q65' as const,scheduledStartMs:1800000000000,durationMs:50000,
+      result:{leaseId:'lease1',source:'digital' as const,operatorIds:['op1'],
+        success:true,reason:'simulated',physicalConfirmed:false}};
+    expect(isMfskPhysicalTxConfirmed(outcome)).toBe(false);
+    expect(isMfskPhysicalTxConfirmed({...outcome,result:{...outcome.result,success:false,physicalConfirmed:true}})).toBe(false);
+    expect(isMfskPhysicalTxConfirmed({...outcome,result:{...outcome.result,success:true,physicalConfirmed:true}})).toBe(true);
+  });
+
   it('requires explicit product RF admission even if a native addon works',async()=>{
     const c=context();
     const service=new MfskNativeTxService({...c.deps,rfAllowed:()=>false});

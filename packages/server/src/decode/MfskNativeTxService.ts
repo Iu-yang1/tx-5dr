@@ -50,6 +50,12 @@ export interface MfskTxOutcome {
   result:PhysicalTxResult;
 }
 
+/** RF success requires both lease success and physical confirmation. */
+export function isMfskPhysicalTxConfirmed(outcome:MfskTxOutcome):boolean {
+  return outcome.result.success===true && outcome.result.physicalConfirmed===true;
+}
+
+
 /**
  * Physical TX cannot be entered by merely having an mfsk-core addon loaded.
  * Require mode ownership, PTT/physical lease, operator auth (checked by route)

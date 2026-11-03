@@ -12,6 +12,7 @@ import { requireAbility } from '../auth/authPlugin.js';
 import { MFSK_NATIVE_MODULE_PATH } from '../decode/MfskNativeAdapter.js';
 import { MfskCodecSimulationRequestSchema, MfskCodecSimulationResponseSchema } from '@tx5dr/contracts';
 import { fileURLToPath } from 'node:url';
+import { isMfskPhysicalTxConfirmed } from '../decode/MfskNativeTxService.js';
 import { DigitalRadioEngine } from '../DigitalRadioEngine.js';
 import { requireOperatorAbility } from '../auth/authPlugin.js';
 import { MfskPhysicalTxRequestSchema, MfskManualQsoSchema, WsprSpotsResponseSchema } from '@tx5dr/contracts';
@@ -148,6 +149,15 @@ export async function mfskCapabilityRoutes(fastify:FastifyInstance):Promise<void
       });
     }
     const result=await service.send(payload);
+    if(!isMfskPhysicalTxConfirmed(result)){
+      // A denied/rolled-back PTT lease is NOT a completed transmission.
+      // Return a non-2xx response so every client reports failure rather
+      // than treating the finished HTTP request as successful RF TX.
+      return reply.code(409).send({
+        success:false,error:'Native RF transmission was not physically confirmed',
+        leaseId:result.result.leaseId,
+      });
+    }
     return reply.send(result);
   });
 
