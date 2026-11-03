@@ -316,7 +316,10 @@ async function main() {
         manifest[`latest_sha256_${asset.arch}_${asset.package_type}`] = asset.sha256;
       }
       if (asset.name === 'install-online.sh') {
-        const stableUrl = joinUrl(baseUrl, 'tx-5dr/server/latest/install-online.sh');
+        const isGitHubReleaseBase = /^https:\/\/github\.com\/[^/]+\/[^/]+\/releases\/download$/i.test(baseUrl);
+        const stableUrl = isGitHubReleaseBase
+          ? joinUrl(baseUrl, `${objectPrefix}/install-online.sh`)
+          : joinUrl(baseUrl, 'tx-5dr/server/latest/install-online.sh');
         manifest.latest_url_install_online = stableUrl;
         manifest.latest_sha256_install_online = asset.sha256;
       }
