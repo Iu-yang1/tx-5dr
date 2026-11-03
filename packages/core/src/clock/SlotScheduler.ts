@@ -231,6 +231,7 @@ export class SlotScheduler {
         decodeFinalWindow: windowIdx >= windowCount - 1,
         decodeStage: stage,
         slotUtcSeconds: slotInfo.utcSeconds,
+        slotStartMs: slotInfo.startMs,
         decisionDeadlineMs,
         lateRetry: false,
         nagain: false,

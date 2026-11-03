@@ -2,6 +2,7 @@ import type { DecodeRequest, DecodeResult } from '@tx5dr/core';
 import type { DecodeWorkerCurrentJob, ProcessCpu, ProcessMemory } from '@tx5dr/contracts';
 import { createLogger } from '../utils/logger.js';
 import { WSJTXDecodeWorkerCore } from './WSJTXDecodeWorkerCore.js';
+import { MfskDecodeWorkerCore } from './MfskDecodeWorkerCore.js';
 import { DecodeWorkerCommandSchema } from './decode-worker-protocol.js';
 
 const logger = createLogger('DecodeWorker');
@@ -14,7 +15,10 @@ const telemetryIntervalMs = Number.isFinite(configuredTelemetryIntervalMs) && co
   ? configuredTelemetryIntervalMs
   : 2000;
 const MIN_CPU_SAMPLE_INTERVAL_MS = 250;
-const decoder = new WSJTXDecodeWorkerCore();
+// Experimental backend is an explicit opt-in. Missing native binding fails
+// closed at worker startup; no silent fallback or cross-backend mixing.
+const decoder = process.env.TX5DR_CODEC_BACKEND === 'mfsk-native'
+  ? new MfskDecodeWorkerCore() : new WSJTXDecodeWorkerCore();
 let busy = false;
 let shuttingDown = false;
 let currentJob: DecodeWorkerCurrentJob | undefined;

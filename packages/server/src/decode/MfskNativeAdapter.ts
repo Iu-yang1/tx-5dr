@@ -32,7 +32,12 @@ export interface MfskNativeModule {
   decodeSlotted(mode: string, pcmF32Le: Buffer): MfskNativeRow[];
   encodeJtty(text: string, audioHz: number): MfskNativeWaveform;
   encodeMsk144Standard(call1: string, call2: string, report: string, periodSeconds: number): MfskNativeWaveform;
-  SlottedSession: new (mode: string) => unknown;
+  SlottedSession: new (mode: string) => {
+    decode(pcmF32Le: Buffer, periodIndex?: number, earlyPrefix?: boolean): MfskNativeRow[];
+    setParameters(depth: number, averaging: boolean, rxHz?: number, toleranceHz?: number): void;
+    setApContext(myCall: string, myGrid: string, dxCall: string, dxGrid: string, progress: number, enabled: boolean): void;
+    clear(): void;
+  };
   JttySession: new (audioHz: number) => unknown;
   Msk144Session: new (audioHz: number, toleranceHz: number) => unknown;
 }

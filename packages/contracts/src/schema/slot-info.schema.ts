@@ -145,6 +145,8 @@ export const DecodeRequestSchema = z.object({
   ]).optional(),
   /** UTC slot timestamp in Unix seconds, when known. */
   slotUtcSeconds: z.number().int().nonnegative().optional(),
+  /** Exact UTC slot boundary, preserves FT4 half-second alignment. */
+  slotStartMs: z.number().int().nonnegative().optional(),
   /** Absolute decision deadline used for observability and late-result policy. */
   decisionDeadlineMs: z.number().finite().optional(),
   /** Optional explicit post-cycle retry request. */
