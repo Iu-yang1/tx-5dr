@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SpectrumKind, SpectrumViewport } from '@tx5dr/contracts';
 import { RadioService } from './radioService';
+import { CLIENT_BUILD_VERSION } from '../utils/clientBuildVersion';
 
 const mockState = vi.hoisted(() => ({
   clients: [] as Array<{
@@ -91,7 +92,10 @@ describe('RadioService spectrum subscription reliability', () => {
     const service = new RadioService();
     const client = mockState.clients[0]!;
 
-    expect(client.config.clientVersion).toBe('1.0.0');
+    // Versioned RC and stable builds must advertise the injected web build
+    // version, never a stale literal carried over from the 1.0.0 release.
+    expect(CLIENT_BUILD_VERSION).toMatch(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/);
+    expect(client.config.clientVersion).toBe(CLIENT_BUILD_VERSION);
 
     service.subscribeSpectrum('audio');
 
