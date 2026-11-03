@@ -86,10 +86,11 @@ function slotted(name,filename,expected,minRecall,maxExtra){
   const decoder=new native.SlottedSession(name);
   decoder.setParameters(3,false);
   const rows=decoder.decode(pcm,0,false);
-  // WSJT-X FT4 oracle was explicitly -L 300 -H 2700; the corpus
-  // includes five real signals above 2700 Hz. Compare exactly the
-  // same passband, report outside-band rows without whitelisting them.
-  const band=name==='FT4'?[300,2700]:null;
+  // WSJT-X FT4 oracle used -L 300 -H 2700, while one of its genuine
+  // reference decodes is measured at 297 Hz. Allow the upstream
+  // documented ±12 Hz frequency tolerance at each band edge; still
+  // report all out-of-band detections and reject every in-band phantom.
+  const band=name==='FT4'?[300-12,2700+12]:null;
   score(name,rows,expected,minRecall,maxExtra,band);
 }
 // Reference lists transcribed from upstream mfsk-core/tests/{ft4,wspr,
@@ -103,7 +104,7 @@ slotted('FT4','ft4/000000_000002.wav',[
   exp('NI6G W7DRW 569 AZ',2567),exp('NZ7P WA7JAY 589 CA',727),
   exp('VE3LON K7RL R 549 WA',2067),exp('W7BOB KJ7G RR73',2413),
   exp('W9JA PY2APK RRR',520),exp('WD9IGY KX1X 73',2310),
-],11,0);
+],14,0);
 slotted('WSPR','wspr/150426_0918.wav',[
   exp('ND6P DM04 30',1446,4),exp('W5BIT EL09 17',1460,4),
   exp('WD4LHT EL89 30',1489,4),exp('NM7J DM26 30',1503,4),
