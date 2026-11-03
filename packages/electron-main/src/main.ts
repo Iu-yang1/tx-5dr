@@ -1187,6 +1187,11 @@ async function applyDesktopHttpsSettings(update: Partial<PersistentDesktopHttpsC
   return persistDesktopHttpsConfig(next);
 }
 
+// ===== Linux GTK 兼容性 =====
+// 上游 boybook/tx-5dr PR #107：Linux GNOME 下强制使用 Electron GTK 3
+if (process.platform === 'linux') {
+  app.commandLine.appendSwitch('gtk-version', '3');
+}
 // ===== macOS 后台节流防护 =====
 // 必须在 app.whenReady() 之前调用，阻止 App Nap 降低渲染进程定时器精度
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
