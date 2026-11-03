@@ -34,6 +34,7 @@ import {
   resolveWindowTiming,
 } from '@tx5dr/contracts';
 import { EventEmitter } from 'eventemitter3';
+import { MfskLiveRxService } from './decode/MfskLiveRxService.js';
 import {
   AudioStreamManager,
   CW_INPUT_PROCESSING_SAMPLE_RATE,
@@ -250,6 +251,7 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
   private clockSource: ClockSourceSystem;
   private currentMode: ModeDescriptor = MODES.FT8;
   private audioStreamManager: AudioStreamManager;
+  private mfskLiveRxService: MfskLiveRxService;
   private physicalTxAudioBackend: PhysicalTxAudioBackend;
   private realDecodeQueue: WSJTXDecodeWorkQueue;
   private realEncodeQueue: WSJTXEncodeWorkQueue;
@@ -333,6 +335,7 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
       },
     );
     this.audioStreamManager = new AudioStreamManager({ now: () => this.clockSource.now() });
+    this.mfskLiveRxService = new MfskLiveRxService(this.audioStreamManager, () => this.clockSource.now());
     this.physicalTxAudioBackend = this.audioStreamManager;
     this.realDecodeQueue = new WSJTXDecodeWorkQueue();
     const decodeWorkerEvents = this as unknown as DecodeWorkerEngineEmitter;
@@ -855,6 +858,10 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
 
   public getEngineLifecycle(): EngineLifecycle {
     return this.engineLifecycle;
+  }
+
+  public getMfskLiveRxService(): MfskLiveRxService {
+    return this.mfskLiveRxService;
   }
 
   public getAudioStreamManager(): AudioStreamManager {
@@ -1556,6 +1563,7 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
     // already-serialized mode transaction settle before disconnecting CAT.
     await this.modeSwitchTail.catch(() => undefined);
     await this.stopTuneTone('engine stopped');
+    this.mfskLiveRxService.stop();
     try {
       return await this.engineLifecycle.stop();
     } finally {
@@ -1634,6 +1642,7 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
 
   async destroy(): Promise<void> {
     logger.info('Destroying...');
+    this.mfskLiveRxService.stop();
     this.operatorManager.qsoCompletions.stopAccepting();
     try {
       await this.stopTuneTone('engine destroyed');
