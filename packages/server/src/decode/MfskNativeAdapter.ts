@@ -36,10 +36,25 @@ export interface MfskNativeModule {
     decode(pcmF32Le: Buffer, periodIndex?: number, earlyPrefix?: boolean): MfskNativeRow[];
     setParameters(depth: number, averaging: boolean, rxHz?: number, toleranceHz?: number): void;
     setApContext(myCall: string, myGrid: string, dxCall: string, dxGrid: string, progress: number, enabled: boolean): void;
+    setEmeDelay(enabled: boolean): void;
     clear(): void;
   };
-  JttySession: new (audioHz: number) => unknown;
-  Msk144Session: new (audioHz: number, toleranceHz: number) => unknown;
+  JttySession: new (audioHz: number) => {
+    push(pcmF32Le: Buffer): Array<{
+      id: string; text: string; state: string; frequencyHz: number;
+      startSeconds: number; endSeconds: number; snrDb: number;
+    }>;
+    finish(): Array<{
+      id: string; text: string; state: string; frequencyHz: number;
+      startSeconds: number; endSeconds: number; snrDb: number;
+    }>;
+    reset(): void;
+  };
+  Msk144Session: new (audioHz: number, toleranceHz: number) => {
+    push(pcmF32Le: Buffer): MfskNativeRow[];
+    newPeriod(): void;
+    reset(): void;
+  };
 }
 
 export type MfskNativeLoadResult =

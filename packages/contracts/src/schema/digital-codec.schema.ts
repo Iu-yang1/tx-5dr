@@ -90,7 +90,10 @@ export const DigitalRxEventSchema = z.discriminatedUnion('kind', [
   z.object({
     ...RxBase,
     kind: z.literal('burst-decode'),
-    durationMs: z.number().positive(),
+    /** Known burst duration, if the native decoder reports it. */
+    durationMs: z.number().positive().optional(),
+    /** Length of the observed stream chunk; not necessarily burst duration. */
+    observationWindowMs: z.number().positive(),
     text: z.string(),
     snrDb: z.number().finite(),
   }),

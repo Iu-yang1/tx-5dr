@@ -257,6 +257,14 @@ impl SlottedSession {
         Ok(())
     }
 
+    /// Affects Q65/JT65 emedelay only when the caller explicitly enables it.
+    #[napi]
+    pub fn set_eme_delay(&self, enabled: bool) -> Result<()> {
+        self.inner.lock().map_err(|_| invalid("decoder lock poisoned"))?
+            .params_mut().eme_delay = enabled;
+        Ok(())
+    }
+
     /// Transmit/QSO context is explicit and is cleared when absent by the host.
     /// This mirrors the station and QSO hypothesis fields of DecodeParams.
     #[napi]
