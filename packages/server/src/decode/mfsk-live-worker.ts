@@ -43,6 +43,7 @@ function processCommand(message: RxCommand): void {
     if(message.cmd === 'shutdown') {
       if(active && decoder) decoder.stop(active.id);
       process.exit(0);
+      return;
     }
     if (message.cmd==='stop') {
       if(active && decoder) decoder.stop(active.id);
@@ -58,6 +59,9 @@ function processCommand(message: RxCommand): void {
       active={id:message.config.sessionId,generation:message.generation,mode:message.config.mode};
       send({type:'started',generation:message.generation});
       return;
+    }
+    if(message.cmd !== 'slot' && message.cmd !== 'audio') {
+      throw new Error('Unknown codec worker command');
     }
     if(!active || !decoder || message.generation !== active.generation){
       send({type:'ack',generation:message.generation,dropped:true});
