@@ -12,6 +12,10 @@ import { requireAbility } from '../auth/authPlugin.js';
 import { MFSK_NATIVE_MODULE_PATH } from '../decode/MfskNativeAdapter.js';
 import { MfskCodecSimulationRequestSchema, MfskCodecSimulationResponseSchema } from '@tx5dr/contracts';
 import { fileURLToPath } from 'node:url';
+import { DigitalRadioEngine } from '../DigitalRadioEngine.js';
+import {
+  MfskLiveRxStartSchema, MfskLiveRxStatusSchema, MfskLiveRxEventsSchema,
+} from '@tx5dr/contracts';
 
 const execAsync = promisify(execFile);
 const MODES: DigitalCodecMode[] = ['FT8','FT4','Q65','WSPR','MSK144','JTTY'];
@@ -79,6 +83,40 @@ export async function mfskCapabilityRoutes(fastify:FastifyInstance):Promise<void
     }
     return reply.send(cached);
   });
+
+
+  // This receiver is attached to the existing post-demodulated AF audioData
+  // stream, but runs the native DSP exclusively in a dedicated child process.
+  // Admin-only, receive-only; starting it does NOT switch the host's
+  // FT8/FT4 transmit scheduler, allocate PTT, or write a logbook QSO.
+  fastify.post('/live/start',{preHandler:[requireAbility('manage','all')]},
+    async(request,reply)=>{
+      const cfg=MfskLiveRxStartSchema.parse(request.body);
+      const live=DigitalRadioEngine.getInstance().getMfskLiveRxService();
+      return reply.send(MfskLiveRxStatusSchema.parse(live.start(cfg)));
+    });
+  fastify.post('/live/stop',{preHandler:[requireAbility('manage','all')]},
+    async(_request,reply)=>{
+      const live=DigitalRadioEngine.getInstance().getMfskLiveRxService();
+      return reply.send(MfskLiveRxStatusSchema.parse(live.stop()));
+    });
+  fastify.get('/live/status',{preHandler:[requireAbility('manage','all')]},
+    async(_request,reply)=>{
+      const live=DigitalRadioEngine.getInstance().getMfskLiveRxService();
+      return reply.send(MfskLiveRxStatusSchema.parse(live.status()));
+    });
+  fastify.get('/live/events',{preHandler:[requireAbility('manage','all')]},
+    async(request,reply)=>{
+      const query=request.query as {afterMs?:string};
+      const afterMs=Number(query.afterMs??0);
+      if(!Number.isFinite(afterMs)||afterMs<0){
+        return reply.code(400).send({error:'invalid afterMs'});
+      }
+      const live=DigitalRadioEngine.getInstance().getMfskLiveRxService();
+      return reply.send(MfskLiveRxEventsSchema.parse({
+        events:live.recent(afterMs),status:live.status(),
+      }));
+    });
 
   // Only one CPU-intensive native simulation at a time per server process.
   // Runs in a disposable child; malformed native code cannot crash Fastify.

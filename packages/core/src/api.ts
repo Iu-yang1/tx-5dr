@@ -569,6 +569,24 @@ function normalizeOperatorRequest<T extends CreateRadioOperatorRequest | UpdateR
 
 export const api = {
   /** Isolated probe only; cannot authorize real RF transmissions. */
+  async startMfskLiveRx(
+    cfg: import('@tx5dr/contracts').MfskLiveRxStart,
+  ): Promise<import('@tx5dr/contracts').MfskLiveRxStatus> {
+    return apiRequest<import('@tx5dr/contracts').MfskLiveRxStatus>('/mfsk/live/start',{
+      method:'POST',body:JSON.stringify(cfg),
+    });
+  },
+  async stopMfskLiveRx(): Promise<import('@tx5dr/contracts').MfskLiveRxStatus> {
+    return apiRequest<import('@tx5dr/contracts').MfskLiveRxStatus>('/mfsk/live/stop',{
+      method:'POST',
+    });
+  },
+  async getMfskLiveRxStatus(): Promise<import('@tx5dr/contracts').MfskLiveRxStatus> {
+    return apiRequest<import('@tx5dr/contracts').MfskLiveRxStatus>('/mfsk/live/status');
+  },
+  async getMfskLiveRxEvents(afterMs = 0): Promise<import('@tx5dr/contracts').MfskLiveRxEvents> {
+    return apiRequest<import('@tx5dr/contracts').MfskLiveRxEvents>(`/mfsk/live/events?afterMs=${Math.max(0,Math.floor(afterMs))}`);
+  },
   async simulateMfskCodec(
     payload: import('@tx5dr/contracts').MfskCodecSimulationRequest,
   ): Promise<import('@tx5dr/contracts').MfskCodecSimulationResponse> {

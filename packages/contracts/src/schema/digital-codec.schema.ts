@@ -172,3 +172,40 @@ export const MfskCodecSimulationResponseSchema = z.object({
   simulationOnly: z.literal(true),
 });
 export type MfskCodecSimulationResponse = z.infer<typeof MfskCodecSimulationResponseSchema>;
+
+/** Separate live RX process. This API NEVER requests physical PTT. */
+export const MfskLiveRxStartSchema = z.object({
+  mode: DigitalCodecModeSchema,
+  q65Submode: Q65SubmodeSchema.optional(),
+  frequencyHz: z.number().finite().min(100).max(5500).default(1500),
+  depth: z.union([z.literal(1),z.literal(2),z.literal(3)]).default(3),
+  averaging: z.boolean().default(false),
+  emeDelay: z.boolean().default(false),
+}).superRefine((value,ctx)=>{
+  if(value.q65Submode && value.mode!=='Q65'){
+    ctx.addIssue({code:z.ZodIssueCode.custom,path:['q65Submode'],message:'Q65 submode is only for Q65'});
+  }
+  if((value.averaging||value.emeDelay)&&value.mode!=='Q65'){
+    ctx.addIssue({code:z.ZodIssueCode.custom,path:['averaging'],message:'EME settings are only for Q65'});
+  }
+});
+export type MfskLiveRxStart = z.infer<typeof MfskLiveRxStartSchema>;
+
+export const MfskLiveRxStatusSchema = z.object({
+  running:z.boolean(),ready:z.boolean(),physicalTxEnabled:z.literal(false),
+  mode:DigitalCodecModeSchema.optional(),
+  q65Submode:Q65SubmodeSchema.optional(),
+  generation:z.number().int().nonnegative(),
+  received:z.number().int().nonnegative(),
+  droppedAudioChunks:z.number().int().nonnegative(),
+  rejectedSlots:z.number().int().nonnegative(),
+  workerFaults:z.number().int().nonnegative(),
+  lastError:z.string().optional(),
+});
+export type MfskLiveRxStatus = z.infer<typeof MfskLiveRxStatusSchema>;
+
+export const MfskLiveRxEventsSchema = z.object({
+  events:z.array(DigitalRxEventSchema).max(200),
+  status:MfskLiveRxStatusSchema,
+});
+export type MfskLiveRxEvents = z.infer<typeof MfskLiveRxEventsSchema>;
