@@ -1149,6 +1149,11 @@ jobs:
             - Native manual TX requires an explicit expiring operator/session RF authorization and a host-controlled physical PTT lease. RX never keys PTT.
             - WSPR spots are local observations, not completed QSOs.
 
+            ### Release Candidate fixes (rc.2)
+            - Fixed the packaged Windows server crash: DigitalMessagePreflightService no longer imports unavailable wsjtx-lib.
+            - Production FT8/FT4 preflight now uses the same mfsk-native Rust encoder.
+            - Packaged Windows/Linux server preflight is exercised by CI before publishing.
+
             ### Release Candidate limitations
             - Windows x64 and Linux x64/ARM64 only; no macOS packages.
             - Hardware-specific CAT, AF, PTT and on-air QSO timing must be validated at each station.
@@ -1173,6 +1178,26 @@ jobs:
           draft: false
           prerelease: ${{ contains(github.event.inputs.version, '-rc.') }}
           makeLatest: ${{ !contains(github.event.inputs.version, '-rc.') }}
+
+      - name: Correct and verify RC prerelease metadata
+        if: contains(github.event.inputs.version, '-rc.')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Fix the already-published broken rc.1 listing, and enforce that
+          # rc.2 is not listed as stable even if another action touched it.
+          for tag in v1.0.1-rc.1 "${{ github.event.inputs.version }}"; do
+            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq .id)
+              gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+                -F prerelease=true -f make_latest=false >/dev/null
+              is_rc=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq .prerelease)
+              test "$is_rc" = true || { echo "GitHub release $tag is not marked prerelease"; exit 1; }
+              echo "GitHub release $tag confirmed prerelease"
+            fi
+          done
 
       - name: Install ossutil
         if: env.OSS_ACCESS_KEY_ID != '' && env.OSS_ACCESS_KEY_SECRET != '' && env.OSS_BUCKET != '' && env.OSS_ENDPOINT != '' && env.OSS_BASE_URL != ''
