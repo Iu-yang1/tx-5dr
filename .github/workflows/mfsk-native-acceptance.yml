@@ -20,13 +20,29 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-2022, ubuntu-24.04-arm]
+        # Five distinct Node-API ABIs; macOS here is validation-only and does
+        # not change the three-platform production Electron release matrix.
+        include:
+          - { os: ubuntu-24.04, node_arch: x64 }
+          - { os: ubuntu-24.04-arm, node_arch: arm64 }
+          - { os: windows-2022, node_arch: x64 }
+          - { os: macos-15-intel, node_arch: x64 }
+          - { os: macos-15, node_arch: arm64 }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
       - uses: dtolnay/rust-toolchain@stable
+      - name: Assert actual Node.js architecture for this matrix entry
+        shell: bash
+        env:
+          EXPECTED_NODE_ARCH: ${{ matrix.node_arch }}
+        run: |
+          set -euo pipefail
+          ACTUAL_NODE_ARCH="$(node -p 'process.arch')"
+          echo "Expected Node-API arch: $EXPECTED_NODE_ARCH; actual: $ACTUAL_NODE_ARCH"
+          test "$ACTUAL_NODE_ARCH" = "$EXPECTED_NODE_ARCH"
       - name: Build Rust Node-API addon (fixed mfsk-core v0.15.0)
         shell: bash
         run: |
