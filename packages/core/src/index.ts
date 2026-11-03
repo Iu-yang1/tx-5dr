@@ -45,3 +45,6 @@ export * from './callsign-filter/callsign-filter-rules.js';
 // 日志系统导出
 export * from './log/index.js';
 export * from './lotwStationLocation.js';
+
+// Multimode clock-pure scheduler (P1)
+export * from './clock/DigitalModeSchedule.js';
