@@ -8,7 +8,7 @@ import { digitalMessageTextsMatch, normalizeDigitalMessageText } from './digital
 /**
  * A production message preflight must use the SAME native Rust encoder as
  * actual FT8/FT4 transmissions. In particular, do not eagerly import the
- * test-only wsjtx-lib binding: it is intentionally absent in packaged apps.
+ * obsolete reference binary: it is intentionally absent in packaged apps.
  */
 export class DigitalMessagePreflightService {
   constructor(private readonly loadCodec: () => MfskNativeLoadResult = loadMfskNative) {}
