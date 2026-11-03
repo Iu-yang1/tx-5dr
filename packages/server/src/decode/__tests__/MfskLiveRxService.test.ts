@@ -119,6 +119,30 @@ describe('live receiver protects the real AF ingestion and native session bounda
     s.live.stop();
   });
 
+  it('updates the live Q65 AP hypothesis without restarting the native worker',async()=>{
+    const s=setup();
+    const state=s.live.start({mode:'Q65',q65Submode:'Q65-60B'});
+    const w=s.workers[0];
+    w.emit('message',{type:'started',generation:state.generation});
+    const ap={myCall:'K1ABC',myGrid:'FN42',dxCall:'W9XYZ',dxGrid:'EN37',progress:2 as const};
+    const pending=s.live.updateApContext(ap);
+    expect(w.messages.at(-1)).toMatchObject({
+      cmd:'ap-context',generation:state.generation,apContext:ap,
+    });
+    w.emit('message',{type:'ap-context-updated',generation:state.generation});
+    await expect(pending).resolves.toMatchObject({running:true,ready:true,generation:state.generation});
+    expect(s.workers).toHaveLength(1);
+    expect(s.live.status().generation).toBe(state.generation);
+    s.live.stop();
+  });
+  it('refuses Q65 AP updates on another mode or stale generation',async()=>{
+    const s=setup();
+    const state=s.live.start({mode:'MSK144'});
+    s.workers[0].emit('message',{type:'started',generation:state.generation});
+    await expect(s.live.updateApContext()).rejects.toThrow(/ready Q65/);
+    s.live.stop();
+  });
+
   it('retains the final JTTY reception-ended update before terminating its worker',async()=>{
     const s=setup();
     const active=s.live.start({mode:'JTTY'});

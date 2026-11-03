@@ -81,6 +81,55 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
 
   wsprSpots():WsprDecodedSpot[] {return this.wsprSpotStore.list();}
 
+  /** Apply Q65 QSO/AP hypotheses without restarting its averaging state. */
+  async updateApContext(apContext?:MfskApContext):Promise<MfskLiveStatus>{
+    const child=this.child, generation=this.generation;
+    if(!child || !this.ready || this.config?.mode!=='Q65'){
+      throw new Error('Q65 AP update requires a ready Q65 receiver');
+    }
+    return new Promise((resolve,reject)=>{
+      let done=false;
+      const cleanup=()=>{
+        if(done)return false;
+        done=true;
+        clearTimeout(timer);
+        child.off('message',onMessage);
+        this.off('status',onStatus);
+        return true;
+      };
+      const onMessage=(payload:unknown)=>{
+        if(!payload || typeof payload!=='object')return;
+        const msg=payload as {type?:string;generation?:number};
+        if(msg.generation!==generation)return;
+        if(msg.type==='ap-context-updated'){
+          if(!cleanup())return;
+          if(this.child!==child || this.generation!==generation){
+            reject(new Error('Q65 AP update superseded by a newer receiver'));return;
+          }
+          if(this.config)this.config.apContext=apContext;
+          resolve(this.status());
+        }else if(msg.type==='ap-context-rejected'){
+          if(cleanup())reject(new Error('Q65 AP update rejected by worker'));
+        }
+      };
+      const onStatus=(state:MfskLiveStatus)=>{
+        if((!state.running || !state.ready || state.generation!==generation) && cleanup()){
+          reject(new Error('Q65 AP update cancelled by receiver transition'));
+        }
+      };
+      const timer=setTimeout(()=>{
+        if(cleanup())reject(new Error('Q65 AP update acknowledgement timed out'));
+      },2500);
+      child.on('message',onMessage);
+      this.on('status',onStatus);
+      try {
+        child.send({cmd:'ap-context',generation,apContext});
+      }catch(error){
+        if(cleanup())reject(error);
+      }
+    });
+  }
+
   recent(afterTimestampMs=0):DigitalRxEvent[] {
     if(!Number.isFinite(afterTimestampMs)||afterTimestampMs<0)throw new Error('Invalid event cursor');
     return this.history.filter(e=>e.timestampMs>afterTimestampMs).slice(-200);

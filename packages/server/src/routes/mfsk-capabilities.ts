@@ -19,6 +19,7 @@ import { MfskPhysicalTxRequestSchema, MfskManualQsoSchema, WsprSpotsResponseSche
 import { randomUUID } from 'node:crypto';
 import {
   MfskLiveRxStartSchema, MfskLiveRxStatusSchema, MfskLiveRxEventsSchema,
+  MfskLiveRxApContextUpdateSchema,
 } from '@tx5dr/contracts';
 
 const execAsync = promisify(execFile);
@@ -98,6 +99,13 @@ export async function mfskCapabilityRoutes(fastify:FastifyInstance):Promise<void
       const cfg=MfskLiveRxStartSchema.parse(request.body);
       const live=DigitalRadioEngine.getInstance().getMfskLiveRxService();
       return reply.send(MfskLiveRxStatusSchema.parse(live.start(cfg)));
+    });
+  fastify.post('/live/ap-context',{preHandler:[requireAbility('execute','ModeSwitch')]},
+    async(request,reply)=>{
+      const payload=MfskLiveRxApContextUpdateSchema.parse(request.body);
+      const live=DigitalRadioEngine.getInstance().getMfskLiveRxService();
+      return reply.send(MfskLiveRxStatusSchema.parse(
+        await live.updateApContext(payload.apContext??undefined)));
     });
   fastify.post('/live/stop',{preHandler:[requireAbility('execute','ModeSwitch')]},
     async(_request,reply)=>{

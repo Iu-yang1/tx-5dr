@@ -188,6 +188,10 @@ export const MfskApContextSchema = z.object({
 });
 export type MfskApContext=z.infer<typeof MfskApContextSchema>;
 
+export const MfskLiveRxApContextUpdateSchema = z.object({
+  apContext: MfskApContextSchema.nullable(),
+});
+
 export const MfskLiveRxStartSchema = z.object({
   mode: DigitalCodecModeSchema,
   q65Submode: Q65SubmodeSchema.optional(),

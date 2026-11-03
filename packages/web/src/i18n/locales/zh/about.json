@@ -139,6 +139,9 @@
       "report": "信号报告",
       "roger": "确认报告",
       "rr73": "RR73"
-    }
+    },
+    "apApply": "实时更新 Q65 AP",
+    "apUpdated": "AP 已更新，不中断 Q65 多周期平均",
+    "apUpdateFailed": "AP 更新失败，请检查呼号、网格与接收状态"
   }
 }

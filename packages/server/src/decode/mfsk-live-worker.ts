@@ -9,7 +9,8 @@ type StartMessage = { cmd: 'start'; generation: number; config: MfskSessionConfi
 type SlotMessage = { cmd: 'slot'; generation: number; utcStartMs: number; timestampMs: number; pcm: Buffer };
 type StreamMessage = { cmd: 'audio'; generation: number; startSample: number; timestampMs: number; pcm: Buffer };
 type StopMessage = { cmd: 'stop' | 'shutdown'; generation: number };
-type RxCommand = StartMessage | SlotMessage | StreamMessage | StopMessage;
+type ApMessage = { cmd: 'ap-context'; generation: number; apContext?: MfskApContext };
+type RxCommand = StartMessage | SlotMessage | StreamMessage | StopMessage | ApMessage;
 
 let decoder: MfskMultimodeRuntime | null = null;
 let active: { id: string; generation: number; mode: MfskSessionConfig['mode']; ap?: MfskApContext } | null = null;
@@ -67,6 +68,16 @@ function processCommand(message: RxCommand): void {
       active={id:message.config.sessionId,generation:message.generation,
         mode:message.config.mode,ap:(message.config as MfskSessionConfig & {apContext?:MfskApContext}).apContext};
       send({type:'started',generation:message.generation});
+      return;
+    }
+    if(message.cmd==='ap-context'){
+      if(!active || !decoder || active.generation!==message.generation || active.mode!=='Q65'){
+        send({type:'ap-context-rejected',generation:message.generation});return;
+      }
+      // Command ordering: the next complete Q65 slot sees this new AP
+      // hypothesis. This changes no RX generation, averaging or PTT state.
+      active.ap=message.apContext;
+      send({type:'ap-context-updated',generation:message.generation});
       return;
     }
     if(message.cmd !== 'slot' && message.cmd !== 'audio') {

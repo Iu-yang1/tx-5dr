@@ -597,6 +597,13 @@ export const api = {
       method:'POST',body:JSON.stringify(cfg),
     });
   },
+  async updateMfskLiveRxApContext(
+    apContext: import('@tx5dr/contracts').MfskApContext | null,
+  ): Promise<import('@tx5dr/contracts').MfskLiveRxStatus> {
+    return apiRequest('/mfsk/live/ap-context',{
+      method:'POST',body:JSON.stringify({apContext}),
+    });
+  },
   async stopMfskLiveRx(): Promise<import('@tx5dr/contracts').MfskLiveRxStatus> {
     return apiRequest<import('@tx5dr/contracts').MfskLiveRxStatus>('/mfsk/live/stop',{
       method:'POST',

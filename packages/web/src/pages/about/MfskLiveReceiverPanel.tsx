@@ -31,6 +31,9 @@ export function MfskLiveReceiverPanel({
       ? selected as DigitalCodecMode : 'Q65'
   );
   const [submode,setSubmode] = useState<Q65Submode>('Q65-60B');
+  const [submodeDirty,setSubmodeDirty] = useState(false);
+  const [apApplying,setApApplying] = useState(false);
+  const [apNotice,setApNotice] = useState<string|null>(null);
   const [frequency,setFrequency] = useState('1500');
   const [txFrequency,setTxFrequency] = useState('1500');
   const [averaging,setAveraging] = useState(false);
@@ -101,6 +104,14 @@ export function MfskLiveReceiverPanel({
     return ()=>{active=false;clearInterval(timer);};
   },[]);
 
+  // Keep the Q65 selector aligned with the receiver after a page reload,
+  // unless the operator is intentionally editing the next submode.
+  useEffect(()=>{
+    if(surface==='receiver' && !submodeDirty && status?.mode==='Q65' && status.q65Submode){
+      setSubmode(status.q65Submode);
+    }
+  },[surface,submodeDirty,status?.mode,status?.q65Submode]);
+
   // Receiver settings live in the left pane. The right pane must use
   // the server-confirmed Q65 submode rather than its own initial state.
   const activeSubmode = surface==='operator'
@@ -120,6 +131,10 @@ export function MfskLiveReceiverPanel({
   },[mode,surface]);
 
   const selectReceived=(event:DigitalRxEvent)=>{
+    if(mode==='Q65'){
+      const call=extractCqCallsign(event.text);
+      if(call)setApDxCall(call);
+    }
     window.dispatchEvent(new CustomEvent<NativeDigitalSelection>(
       NATIVE_DIGITAL_SELECTION_EVENT,{detail:{
         mode,text:event.text,audioHz:event.frequencyHz,
@@ -130,6 +145,26 @@ export function MfskLiveReceiverPanel({
   const selectedOperator=operators.find(item=>item.id===currentOperatorId);
   const ownCall=selectedOperator?.context?.myCall?.trim().toUpperCase()??'';
   const ownGrid=selectedOperator?.context?.myGrid?.trim().toUpperCase()??'';
+  useEffect(()=>{
+    if(surface!=='receiver')return;
+    if(ownCall)setApMyCall(old=>old||ownCall);
+    if(ownGrid)setApMyGrid(old=>old||ownGrid);
+  },[surface,ownCall,ownGrid]);
+  const updateAp=()=>{
+    if(!status?.ready || status.mode!=='Q65' || apApplying)return;
+    const ctx=apMyCall.trim()&&apMyGrid.trim()&&apDxCall.trim()?{
+      myCall:apMyCall.trim().toUpperCase(),
+      myGrid:apMyGrid.trim().toUpperCase(),
+      dxCall:apDxCall.trim().toUpperCase(),
+      ...(apDxGrid.trim()?{dxGrid:apDxGrid.trim().toUpperCase()}:{}),
+      progress:apProgress,
+    }:null;
+    setApApplying(true);setApNotice(null);
+    void api.updateMfskLiveRxApContext(ctx)
+      .then(()=>setApNotice(t('codec.apUpdated')))
+      .catch(()=>setApNotice(t('codec.apUpdateFailed')))
+      .finally(()=>setApApplying(false));
+  };
   const useTxTemplate=(kind:'cq'|'report'|'roger'|'rr73')=>{
     if(!ownCall)return;
     const dx=dxCall.trim().toUpperCase();
@@ -168,6 +203,7 @@ export function MfskLiveReceiverPanel({
         })
       : api.stopMfskLiveRx();
     void action.then(value=>{
+      if(start)setSubmodeDirty(false);
       setStatus(value);
       if(start){setEvents([]);setWsprSpots([]);}
       // Stop is graceful for JTTY: retain final reception-ended messages.
@@ -249,7 +285,7 @@ export function MfskLiveReceiverPanel({
         <span className="rounded-md bg-default-100 px-3 py-2 text-sm font-semibold">{mode}</span>
         {mode==='Q65' && <>
           <label htmlFor="mfsk-live-q65" className="text-sm">{t('codec.submode')}</label>
-          <select id="mfsk-live-q65" value={submode} onChange={e=>setSubmode(e.target.value as Q65Submode)}
+          <select id="mfsk-live-q65" value={submode} onChange={e=>{setSubmode(e.target.value as Q65Submode);setSubmodeDirty(true);}}
             className="rounded-md border border-default-300 bg-content1 px-3 py-2 text-sm"
             disabled={busy}>
             {Q65SubmodeSchema.options.map(m=><option key={m} value={m}>{m}</option>)}
@@ -285,6 +321,12 @@ export function MfskLiveReceiverPanel({
             {([0,1,2,3,4,5] as const).map(n=>
               <option key={n} value={n}>{t(`codec.apStage${n}`)}</option>)}
           </select>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" variant="flat" isLoading={apApplying}
+            isDisabled={apApplying||!status?.ready||status.mode!=='Q65'}
+            onPress={updateAp}>{t('codec.apApply')}</Button>
+          <span className="text-xs text-default-500">{apNotice}</span>
         </div>
         <p className="text-xs text-default-500">{t('codec.apGuide')}</p>
       </section>}
