@@ -386,6 +386,7 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
       mode:()=>this.currentMode.name,
       isRunning:()=>this.engineLifecycle?.getIsRunning()??false,
       operatorExists:(id)=>this._operatorManager.getOperatorById(id)!==undefined,
+      receiver:()=>this.mfskLiveRxService.status(),
       now:()=>this.clockSource.now(),
       transmitAudio:request=>this.physicalTxCoordinator.transmitAudio(request),
       stopTuneTone:()=>this.stopTuneTone('native digital transmitter started'),

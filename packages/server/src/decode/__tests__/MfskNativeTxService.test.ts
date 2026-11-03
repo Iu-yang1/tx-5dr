@@ -14,6 +14,7 @@ function context(mode='Q65'){
   }));
   const deps: MfskTxAdmission={
     mode:()=>mode,isRunning:()=>true,operatorExists:id=>id==='op1',
+    receiver:()=>({mode:mode as 'Q65',q65Submode:'Q65-60B',ready:true}),
     now:()=>now,stopTuneTone:async()=>{},rfAllowed:()=>true,
     sleep:async ms=>{now+=ms;},encode:encoded,transmitAudio:sent,
   };
@@ -94,6 +95,31 @@ describe('native six-mode transmit protocol and physical lease boundaries',()=>{
       .rejects.toThrow(/slot budget expired/);
     expect(callbacks).toHaveLength(1);
     expect(c.sent).not.toHaveBeenCalled();
+  });
+
+  it('will not key a Q65 waveform whose submode differs from the ready receiver',async()=>{
+    const c=context();
+    const service=new MfskNativeTxService({
+      ...c.deps,
+      receiver:()=>({mode:'Q65',q65Submode:'Q65-300A',ready:true}),
+    });
+    await expect(service.send({mode:'Q65',text:'CQ K1ABC FN42',
+      operatorId:'op1',audioHz:1500,q65Submode:'Q65-60B'}))
+      .rejects.toThrow(/submode differs/);
+    expect(c.encoded).not.toHaveBeenCalled();
+  });
+  it('will not key a waveform when live RX is stopped or switched modes',async()=>{
+    const c=context();
+    for(const receiver of [
+      {mode:'Q65' as const,q65Submode:'Q65-60B' as const,ready:false},
+      {mode:'JTTY' as const,ready:true},
+    ]){
+      const service=new MfskNativeTxService({...c.deps,receiver:()=>receiver});
+      await expect(service.send({mode:'Q65',text:'CQ K1ABC FN42',
+        operatorId:'op1',audioHz:1500,q65Submode:'Q65-60B'}))
+        .rejects.toThrow(/matching RX mode/);
+    }
+    expect(c.encoded).not.toHaveBeenCalled();
   });
 
 });

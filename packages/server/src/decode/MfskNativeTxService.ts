@@ -29,6 +29,8 @@ export interface MfskTxAdmission {
   mode(): string;
   isRunning(): boolean;
   operatorExists(id:string): boolean;
+  /** The exact active native RX protocol must match TX (including Q65). */
+  receiver(): { mode?: DigitalCodecMode; q65Submode?: Q65Submode; ready: boolean };
   now(): number;
   transmitAudio(request:PhysicalAudioTransmissionRequest):Promise<PhysicalTxResult>;
   stopTuneTone():Promise<void>;
@@ -144,6 +146,15 @@ export class MfskNativeTxService {
     }
     if(!this.deps.operatorExists(r.operatorId)){
       throw new Error('Operator no longer exists');
+    }
+    const rx=this.deps.receiver();
+    if(!rx.ready || rx.mode!==r.mode){
+      throw new Error('Native TX requires a ready matching RX mode');
+    }
+    if(r.mode==='Q65'){
+      const requested=r.q65Submode??'Q65-60B';
+      const active=rx.q65Submode??'Q65-60B';
+      if(requested!==active)throw new Error('Native TX Q65 submode differs from active receiver');
     }
   }
 }
