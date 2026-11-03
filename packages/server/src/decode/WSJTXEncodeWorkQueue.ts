@@ -1,5 +1,5 @@
 import { EventEmitter } from 'eventemitter3';
-import { WSJTXLib, WSJTXMode } from 'wsjtx-lib';
+import type { WSJTXLib } from 'wsjtx-lib';
 import { resampleAudioProfessional } from '../utils/audioUtils.js';
 import { createLogger } from '../utils/logger.js';
 import { WSJTXNativeGate } from './WSJTXNativeGate.js';
@@ -79,7 +79,10 @@ export function assertNativeSlottedEncodeAdmission(
  */
 export class WSJTXEncodeWorkQueue extends EventEmitter<EncodeWorkQueueEvents> {
   private readonly maxConcurrency: number;
-  private readonly lib: WSJTXLib | null;
+  private readonly lib: Promise<{
+    lib: WSJTXLib;
+    enums: typeof import('wsjtx-lib').WSJTXMode;
+  }> | null;
   private readonly native: MfskNativeModule | null;
   private activeCount = 0;
   private readonly pending: Array<{
@@ -99,7 +102,12 @@ export class WSJTXEncodeWorkQueue extends EventEmitter<EncodeWorkQueueEvents> {
       this.lib = null;
     } else {
       this.native = null;
-      this.lib = new WSJTXLib({ maxThreads: 4 });
+      // Only comparison and explicit compatibility runs import the legacy
+      // binary. The production Rust path never evaluates wsjtx-lib.
+      this.lib = import('wsjtx-lib').then(module=>({
+        lib:new module.WSJTXLib({maxThreads:4}),
+        enums:module.WSJTXMode,
+      }));
     }
     logger.info('encode work queue initialized', { maxConcurrency: this.maxConcurrency });
   }
@@ -168,8 +176,9 @@ export class WSJTXEncodeWorkQueue extends EventEmitter<EncodeWorkQueueEvents> {
         this.emit('encodeComplete', encodeResult);
         return;
       }
-      const lib = this.lib;
-      if (!lib) throw new Error('No codec backend configured');
+      const legacy = this.lib ? await this.lib : null;
+      if (!legacy) throw new Error('No codec backend configured');
+      const {lib,enums:WSJTXMode}=legacy;
 
       // 确定模式
       const mode = request.mode === 'FT4' ? WSJTXMode.FT4 : WSJTXMode.FT8;
