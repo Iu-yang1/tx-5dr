@@ -184,7 +184,7 @@ RUN mkdir -p /app/data/config /app/data/plugins /app/data/logs /app/data/cache /
 
 # 设置权限
 RUN chown -R www-data:www-data /app/data && \
-    chmod -R 755 /app/data
+    chmod -R u+rwX,go+rX,go-w /app/data
 
 # 暴露端口
 EXPOSE 80
