@@ -1,6 +1,6 @@
 {
   "name": "tx-5dr",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A modern digital radio station for amateur radio operators. Operate FT8, FT4, and voice modes from any web browser - anywhere, anytime.",
   "private": true,
   "main": "packages/electron-main/dist/main.js",
@@ -40,7 +40,8 @@
     "sync:cty": "node scripts/sync-cty-data.mjs",
     "make:autoupdate": "electron-builder --config electron-builder.config.cjs --publish never",
     "make:linux": "electron-builder --config electron-builder.config.cjs --linux --publish never",
-    "test:tci-controls-integration": "yarn workspace @tx5dr/server exec vitest run --root ../.. scripts/tests/tci-controls.integration.test.ts"
+    "test:tci-controls-integration": "yarn workspace @tx5dr/server exec vitest run --root ../.. scripts/tests/tci-controls.integration.test.ts",
+    "test:station": "node scripts/station-test.mjs"
   },
   "devDependencies": {
     "@electron/rebuild": "^4.0.1",

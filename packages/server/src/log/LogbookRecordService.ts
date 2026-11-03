@@ -1,3 +1,5 @@
+import { finishWork, finishWorkInSlices } from './cooperative-work.js';
+import { isDeepStrictEqual } from 'node:util';
 import {
   ContestQsoEnvelopeSchema,
   type ContestQsoEnvelope,
@@ -171,6 +173,7 @@ function matchesFilters(qso: QSORecord, options?: LogQueryOptions): boolean {
   if (options.band
     && getBandFromFrequency(qso.frequency).toUpperCase() !== options.band.toUpperCase()) return false;
   if (options.dxccStatus && qso.dxccStatus !== options.dxccStatus) return false;
+  if (options.dxccNeedsReview && !qso.dxccNeedsReview) return false;
   if (options.qslFlow) {
     const confirmed = isTwoWayConfirmed(qso);
     if (options.qslFlow === 'two_way_confirmed' ? !confirmed : confirmed) return false;
@@ -369,7 +372,14 @@ export function mergeImportedQso(existing: QSORecord, incoming: QSORecord): { ch
       changed = true;
     }
   }
-  return changed ? { changed, record: enrichQsoWithDxcc(merged) } : { changed: false, record: existing };
+  if (!changed) return { changed: false, record: existing };
+  const record = enrichQsoWithDxcc(merged);
+  // Resolution may discard unsupported incoming DXCC values. A refreshed
+  // resolution timestamp alone must not turn the same import into a rewrite.
+  return isDeepStrictEqual(
+    { ...record, dxccResolvedAt: undefined },
+    { ...existing, dxccResolvedAt: undefined },
+  ) ? { changed: false, record: existing } : { changed: true, record };
 }
 
 export class LogbookRecordService {
@@ -379,14 +389,24 @@ export class LogbookRecordService {
   private indexValid = true;
 
   constructor(records: Iterable<Readonly<QSORecord>>) {
-    const collected: QSORecord[] = [];
+    this.records = [];
+    finishWork(this.build(records));
+  }
+
+  static async createInSlices(records: Iterable<Readonly<QSORecord>>): Promise<LogbookRecordService> {
+    const service = new LogbookRecordService([]);
+    await finishWorkInSlices(service.build(records));
+    return service;
+  }
+
+  private *build(records: Iterable<Readonly<QSORecord>>): Generator<void, void> {
     for (const input of records) {
       const record = enrichQsoWithDxcc(cloneRecord(input));
-      collected.push(record);
+      this.records.push(record);
       this.byId.set(record.id, record);
       addToIndex(this.index, record);
+      yield;
     }
-    this.records = collected;
   }
 
   /** Append one committed record without rebuilding the complete projection. */
@@ -465,7 +485,9 @@ export class LogbookRecordService {
   }
 
   query(options?: LogQueryOptions): QSORecord[] {
-    let records = this.records.filter(record => matchesFilters(record, options));
+    const candidates = options?.ids === undefined ? this.records
+      : [...new Set(options.ids)].flatMap(id => this.byId.get(id) ?? []);
+    let records = candidates.filter(record => matchesFilters(record, options));
     if (options) {
       const orderBy = options.orderBy ?? 'time';
       const direction = options.orderDirection === 'asc' ? 1 : -1;
@@ -484,7 +506,9 @@ export class LogbookRecordService {
 
   count(options?: LogQueryOptions): number {
     let count = 0;
-    for (const record of this.records) if (matchesFilters(record, options)) count += 1;
+    const candidates = options?.ids === undefined ? this.records
+      : [...new Set(options.ids)].flatMap(id => this.byId.get(id) ?? []);
+    for (const record of candidates) if (matchesFilters(record, options)) count += 1;
     return count;
   }
 

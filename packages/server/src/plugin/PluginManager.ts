@@ -217,17 +217,20 @@ export class PluginManager {
         isCurrent: () => this.globalInstances.get(pluginName) === instance
           && instance.desiredLifecycle === 'active'
           && (instance.lifecycle === 'starting' || instance.lifecycle === 'active'),
-        invoke: (operation, callback) => this.invocationGuard.invokeData(
+        invoke: (operation, callback, options) => this.invocationGuard.invokeData(
           instance,
           operation,
           'json',
           callback,
+          options,
         ),
         invokeSync: (operation, callback) => this.invocationGuard.invokeSync(instance, operation, callback),
-      });
+      }, instance.plugin.definition.ui?.pages);
     };
     deps.listPluginPageSessions = (pluginName, instanceTarget, pageId) =>
       this.pageSessions.listByPluginInstance(pluginName, instanceTarget, pageId);
+    deps.pushPluginPageSession = (pluginName, pageId, sessionId, action, data) =>
+      this.pushPluginPageSession(pluginName, pageId, sessionId, action, data);
     deps.eventEmitter.on('pluginLog', this.recordPluginLogHistory);
     this.contextFactory = new PluginContextFactory(
       deps,

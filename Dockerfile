@@ -1,6 +1,6 @@
 # TX-5DR Docker Image - Multi-Architecture Support
 # 使用多阶段构建来减小最终镜像大小
-FROM node:22-slim AS builder
+FROM node:22-trixie-slim AS builder-base
 
 # 设置环境变量
 ENV YARN_VERSION=4.9.1
@@ -9,6 +9,8 @@ ENV NODE_ENV=production
 ARG VCS_REF=development
 ARG BUILD_DATE=development
 ARG BUILD_STAMP=docker
+ARG TX5DR_BUILD_CHANNEL=nightly
+ARG TX5DR_RELEASE_VERSION=
 ARG TX5DR_CLUBLOG_API_KEY=
 
 # 显示构建信息
@@ -19,6 +21,7 @@ RUN echo "Building for platform: $(uname -m)" && \
 # 安装构建依赖
 RUN apt-get update && apt-get install -y \
     build-essential \
+    cmake \
     python3 \
     python3-dev \
     pkg-config \
@@ -56,27 +59,49 @@ COPY .yarn/patches/ ./.yarn/patches/
 # 复制scripts目录（postinstall脚本需要）
 COPY scripts ./scripts/
 
-# 创建packages目录结构并复制package.json文件
-RUN mkdir -p packages/builtin-plugins packages/client-tools packages/contracts packages/core packages/create-tx5dr-plugin packages/electron-main packages/electron-preload packages/plugin-api packages/rigctld-server packages/server packages/shared-config packages/web
-COPY packages/builtin-plugins/package.json ./packages/builtin-plugins/
-COPY packages/client-tools/package.json ./packages/client-tools/
-COPY packages/contracts/package.json ./packages/contracts/
-COPY packages/core/package.json ./packages/core/
-COPY packages/create-tx5dr-plugin/package.json ./packages/create-tx5dr-plugin/
-COPY packages/electron-main/package.json ./packages/electron-main/
-COPY packages/electron-preload/package.json ./packages/electron-preload/
-COPY packages/plugin-api/package.json ./packages/plugin-api/
-COPY packages/rigctld-server/package.json ./packages/rigctld-server/
-COPY packages/server/package.json ./packages/server/
-COPY packages/shared-config/package.json ./packages/shared-config/
-COPY packages/web/package.json ./packages/web/
+# Keep the complete workspace manifests for the immutable lockfile check.
+# Desktop and scaffold workspaces are not build targets or runtime contents.
+COPY --parents \
+    packages/builtin-plugins/package.json \
+    packages/client-tools/package.json \
+    packages/contracts/package.json \
+    packages/core/package.json \
+    packages/create-tx5dr-plugin/package.json \
+    packages/electron-main/package.json \
+    packages/electron-preload/package.json \
+    packages/plugin-api/package.json \
+    packages/rigctld-server/package.json \
+    packages/server/package.json \
+    packages/shared-config/package.json \
+    packages/web/package.json \
+    ./
 
 # 安装依赖（多架构优化）
 RUN echo "Installing dependencies for $(uname -m)..." && \
+    if [ -n "$HTTP_PROXY" ]; then \
+        export YARN_HTTP_PROXY="$HTTP_PROXY"; \
+        export ELECTRON_GET_USE_PROXY=1; \
+    fi && \
+    if [ -n "$HTTPS_PROXY" ]; then \
+        export YARN_HTTPS_PROXY="$HTTPS_PROXY"; \
+        export ELECTRON_GET_USE_PROXY=1; \
+    fi && \
     YARN_HTTP_TIMEOUT=300000 yarn install --immutable
 
+FROM builder-base AS build-production
+
+RUN echo "Removing development dependencies ..." && \
+    yarn workspaces focus --production @tx5dr/server
+
+RUN node -e "const a=require('audify'); const e=new a.OpusEncoder(48000,1,a.OpusApplication.OPUS_APPLICATION_RESTRICTED_LOWDELAY); const d=new a.OpusDecoder(48000,1); const p=e.encode(Buffer.alloc(960*2),960); d.decode(p,960); console.log('audify Opus runtime ok');" \
+    && node -e "import('wsjtx-lib').then(()=>console.log('wsjtx-lib runtime ok'))" \
+    && node -e "const {PNG}=require('pngjs'); if(typeof PNG.sync.read!=='function') throw new Error('pngjs unavailable'); const r=require('rasterwave-node'); if(r.sstvModes().length!==31) throw new Error('rasterwave mode catalog incomplete'); Promise.all([new r.SstvDecoder(12000,{outputMode:'continuousPaper',fallbackMode:'robot36',queueCapacitySamples:24000},()=>{}).dispose(),new r.FaxDecoder(12000,{outputMode:'continuousPaper',continuousAuto:true,queueCapacitySamples:24000},()=>{}).dispose()]).then(()=>console.log('Image Radio runtime ok')).catch(e=>{console.error(e);process.exit(1)});"
+
+FROM builder-base AS builder
+
 # 复制源代码
-COPY . .
+COPY --exclude=packages/electron-main --exclude=packages/electron-preload --exclude=packages/create-tx5dr-plugin . .
+COPY --parents packages/electron-main/assets/AppIcon.* .
 
 # 生成ICO文件（如果需要）
 RUN node scripts/generate-ico.js || true
@@ -84,7 +109,7 @@ RUN node scripts/generate-ico.js || true
 # 生成服务端构建元数据
 RUN node scripts/check-version-consistency.mjs && \
     node scripts/prepare-server-build-info.mjs \
-    --channel nightly \
+    --channel "${TX5DR_BUILD_CHANNEL}" ${TX5DR_RELEASE_VERSION:+--version "$TX5DR_RELEASE_VERSION"} \
     --commit "${VCS_REF}" \
     --build-timestamp "${BUILD_DATE}" \
     --build-stamp "${BUILD_STAMP}" \
@@ -92,27 +117,22 @@ RUN node scripts/check-version-consistency.mjs && \
 
 # 构建应用
 RUN echo "Building application for $(uname -m)..." && \
-    TX5DR_CLUBLOG_API_KEY="$TX5DR_CLUBLOG_API_KEY" yarn build
+    TX5DR_CLUBLOG_API_KEY="$TX5DR_CLUBLOG_API_KEY" yarn exec turbo run build \
+    --filter=@tx5dr/server --filter=@tx5dr/web --filter=@tx5dr/client-tools
 
-# 清理不必要的文件但保留生产依赖
-RUN yarn cache clean && \
-    rm -rf .yarn/cache .yarn/unplugged && \
-    rm -rf packages/*/src packages/*/test && \
-    rm -rf scripts/generate-ico.js && \
-    rm -rf node_modules/.cache \
-    packages/*/node_modules/.cache
+RUN test -f resources/models/deepcw/model.onnx \
+    && test -f resources/models/deepcw/model.onnx.json
 
 # 运行时镜像
-FROM node:22-slim
+FROM node:22-trixie-slim
 
 # 设置环境变量
 ENV DEBIAN_FRONTEND=noninteractive
 ENV NODE_ENV=production
 
-# 运行共享安装脚本（--docker 模式）修复 GLIBCXX 等兼容性问题
-COPY linux/lib/ /tmp/tx5dr-linux/lib/
-COPY linux/install.sh /tmp/tx5dr-linux/install.sh
-RUN bash /tmp/tx5dr-linux/install.sh --docker
+# Prepare native runtime dependencies through the shared installer.
+RUN --mount=dst=/tmp/tx5dr-linux,source=linux \
+    bash /tmp/tx5dr-linux/install.sh --docker
 
 # 安装运行时依赖
 RUN apt-get update && apt-get install -y \
@@ -147,33 +167,43 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # 从构建阶段复制构建产物和必要文件
-COPY --from=builder /app/packages ./packages/
-COPY --from=builder /app/node_modules ./node_modules/
-COPY --from=builder /app/resources/models ./resources/models/
-COPY --from=builder /app/resources/licenses ./resources/licenses/
-COPY --from=builder /app/resources/README.txt ./resources/README.txt
-RUN test -f resources/models/deepcw/model.onnx \
-    && test -f resources/models/deepcw/model.onnx.json
-COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/yarn.lock ./yarn.lock
-COPY --from=builder /app/turbo.json ./turbo.json
+COPY --from=builder --parents \
+    --exclude=packages/electron-main \
+    --exclude=packages/electron-preload \
+    --exclude=packages/create-tx5dr-plugin \
+    --exclude=packages/*/src \
+    --exclude=packages/*/test \
+    --exclude=packages/*/node_modules \
+    /app/./packages \
+    /app/./resources/models \
+    /app/./resources/licenses \
+    /app/./resources/README.txt \
+    /app/./package.json \
+    /app/./yarn.lock \
+    /app/./turbo.json \
+    ./
+COPY --from=build-production --parents \
+    /app/./node_modules \
+    ./
 
-RUN rm -rf /tmp/tx5dr-linux/
-RUN node -e "const a=require('audify'); const e=new a.OpusEncoder(48000,1,a.OpusApplication.OPUS_APPLICATION_RESTRICTED_LOWDELAY); const d=new a.OpusDecoder(48000,1); const p=e.encode(Buffer.alloc(960*2),960); d.decode(p,960); console.log('audify Opus runtime ok');" \
-    && node -e "import('wsjtx-lib').then(()=>console.log('wsjtx-lib runtime ok'))" \
-    && node -e "const {PNG}=require('pngjs'); if(typeof PNG.sync.read!=='function') throw new Error('pngjs unavailable'); const r=require('rasterwave-node'); if(r.sstvModes().length!==31) throw new Error('rasterwave mode catalog incomplete'); Promise.all([new r.SstvDecoder(12000,{outputMode:'continuousPaper',fallbackMode:'robot36',queueCapacitySamples:24000},()=>{}).dispose(),new r.FaxDecoder(12000,{outputMode:'continuousPaper',continuousAuto:true,queueCapacitySamples:24000},()=>{}).dispose()]).then(()=>console.log('Image Radio runtime ok')).catch(e=>{console.error(e);process.exit(1)});"
-
-# Nginx configuration: shared template + Docker-specific wrapper
-COPY docker/nginx-wrapper.conf /etc/nginx/nginx.conf
-COPY linux/nginx-site.conf /tmp/nginx-site.conf.template
-RUN sed -e 's|%%LISTEN_PORT%%|80|g' \
+# Copy the following configuration and scripts for runtime setup
+# - Nginx configuration: shared template + Docker-specific wrapper
+# - Supervisor configuration
+# - entrypoint script
+RUN --mount=dst=/tmp/ctx,source=. \
+    cp /tmp/ctx/docker/nginx-wrapper.conf /etc/nginx/nginx.conf && \
+    sed -e 's|%%LISTEN_PORT%%|80|g' \
         -e 's|%%WEB_ROOT%%|/app/packages/web/dist|g' \
         -e 's|%%API_HOST%%|127.0.0.1:4000|g' \
-        /tmp/nginx-site.conf.template > /etc/nginx/conf.d/tx5dr.conf \
-    && rm /tmp/nginx-site.conf.template
+        /tmp/ctx/linux/nginx-site.conf > /etc/nginx/conf.d/tx5dr.conf && \
+    cp /tmp/ctx/docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf && \
+    cp /tmp/ctx/docker/entrypoint.sh /entrypoint.sh && \
+    chmod +x /entrypoint.sh
 
-# Supervisor configuration
-COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+# 创建数据目录并设置权限
+RUN mkdir -p /app/data/config /app/data/plugins /app/data/logs /app/data/cache /app/data/realtime && \
+    chown -R www-data:www-data /app/data && \
+    chmod -R u+rwX,go+rX,go-w /app/data
 
 # 复制entrypoint脚本
 COPY docker/entrypoint.sh /entrypoint.sh
@@ -198,4 +228,4 @@ EXPOSE 50110/udp
 ENTRYPOINT ["/entrypoint.sh"]
 
 # 默认启动supervisor
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"] 
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
