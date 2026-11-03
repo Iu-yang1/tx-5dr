@@ -1,11 +1,6 @@
 name: Experimental mfsk-native six-mode smoke build
 
 on:
-  push:
-    branches: [ 'integration/mfsk-six-mode-*' ]
-    paths:
-      - 'packages/mfsk-native/**'
-      - '.github/workflows/mfsk-native-acceptance.yml'
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -53,7 +48,14 @@ jobs:
       - name: Run exploratory deterministic FT8/FT4 AWGN simulation
         shell: bash
         run: node packages/mfsk-native/simulation-acceptance.cjs
+      - name: Run six-mode independent offline RX/TX replay
+        if: runner.os == 'Linux' && runner.arch == 'X64'
+        shell: bash
+        env:
+          MFSK_STRICT_LOOPBACK: '1'
+        run: node packages/mfsk-native/six-mode-replay.cjs
       - name: Upload experimental native addon
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: mfsk-native-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
@@ -61,4 +63,5 @@ jobs:
             packages/mfsk-native/mfsk-native.node
             packages/mfsk-native/smoke.cjs
             packages/mfsk-native/simulation-report.json
+            packages/mfsk-native/six-mode-replay-report.json
           retention-days: 14
