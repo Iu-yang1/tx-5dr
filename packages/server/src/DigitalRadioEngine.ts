@@ -34,6 +34,9 @@ import {
   resolveWindowTiming,
 } from '@tx5dr/contracts';
 import { EventEmitter } from 'eventemitter3';
+import { MfskLiveRxService } from './decode/MfskLiveRxService.js';
+import { MfskRfArmGate } from './decode/MfskRfArmGate.js';
+import { MfskNativeTxService } from './decode/MfskNativeTxService.js';
 import {
   AudioStreamManager,
   CW_INPUT_PROCESSING_SAMPLE_RATE,
@@ -250,6 +253,9 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
   private clockSource: ClockSourceSystem;
   private currentMode: ModeDescriptor = MODES.FT8;
   private audioStreamManager: AudioStreamManager;
+  private mfskLiveRxService: MfskLiveRxService;
+  private mfskNativeTxService: MfskNativeTxService;
+  private mfskRfArmGate: MfskRfArmGate;
   private physicalTxAudioBackend: PhysicalTxAudioBackend;
   private realDecodeQueue: WSJTXDecodeWorkQueue;
   private realEncodeQueue: WSJTXEncodeWorkQueue;
@@ -333,6 +339,7 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
       },
     );
     this.audioStreamManager = new AudioStreamManager({ now: () => this.clockSource.now() });
+    this.mfskLiveRxService = new MfskLiveRxService(this.audioStreamManager, () => this.clockSource.now());
     this.physicalTxAudioBackend = this.audioStreamManager;
     this.realDecodeQueue = new WSJTXDecodeWorkQueue();
     const decodeWorkerEvents = this as unknown as DecodeWorkerEngineEmitter;
@@ -377,6 +384,53 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
     this.physicalTxCoordinator.on('phaseChanged', (snapshot) => {
       this.handleCoordinatedPhysicalTxChanged(snapshot);
     });
+    this.mfskRfArmGate = new MfskRfArmGate({
+      monotonicNowMs:()=>performance.now(),
+      eligibleIdentity:()=>{
+        const rx=this.mfskLiveRxService.status();
+        const dialHz=this.radioManager.getLastConfirmedFrequency();
+        if(!Number.isFinite(dialHz) || dialHz===null || dialHz<=0
+          || !this.radioManager.isConnected()
+          || !!ConfigManager.getInstance().getActiveVirtualRadioProfile()
+          || !this.engineLifecycle?.getIsRunning()
+          || !rx.ready || rx.mode!==this.currentMode.name
+          || !['Q65','WSPR','MSK144','JTTY'].includes(this.currentMode.name)){
+          return null;
+        }
+        // A new dial frequency requires the operator to reacknowledge
+        // regulatory band and RF power/antenna readiness.
+        return [this.radioManager.getConnectionGeneration(),
+          this.currentMode.name,rx.generation,dialHz].join(':');
+      },
+    });
+    this.mfskNativeTxService = new MfskNativeTxService({
+      mode:()=>this.currentMode.name,
+      isRunning:()=>this.engineLifecycle?.getIsRunning()??false,
+      operatorExists:(id)=>this._operatorManager.getOperatorById(id)!==undefined,
+      receiver:()=>this.mfskLiveRxService.status(),
+      now:()=>this.clockSource.now(),
+      transmitAudio:request=>this.physicalTxCoordinator.transmitAudio(request),
+      stopTuneTone:()=>this.stopTuneTone('native digital transmitter started'),
+      // Only an explicit in-app approval tied to the current physical rig,
+      // native mode and RX generation can enable a guarded manual TX.
+      rfAllowed:operatorId=>this.mfskRfArmGate.allowedForOperator(operatorId),
+    });
+    // A native worker crash or a receiver restart is an RF boundary, not
+    // merely a decode warning. Cancel an uncommitted UTC send immediately
+    // and release any native PTT lease that is already playing.
+    this.mfskLiveRxService.on('status',(state)=>{
+      if(state.ready)return;
+      this.mfskRfArmGate.revoke();
+      if(!this.mfskNativeTxService.isBusy())return;
+      this.mfskNativeTxService.cancel();
+      const snapshot=this.physicalTxCoordinator.getSnapshot();
+      if(snapshot.phase!=='idle' && snapshot.source==='digital'
+        && snapshot.reason?.startsWith('native ')){
+        void this.physicalTxCoordinator.forceInterrupt('native RX unavailable')
+          .catch(error=>logger.error('Failed to interrupt native digital TX after RX loss',error));
+      }
+    });
+
     this.frequencyManager = new FrequencyManager(ConfigManager.getInstance().getCustomFrequencyPresets());
     this.transmissionTracker = new TransmissionTracker();
     this.resourceManager = new ResourceManager();
@@ -855,6 +909,35 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
 
   public getEngineLifecycle(): EngineLifecycle {
     return this.engineLifecycle;
+  }
+
+  public getMfskRfArmGate(): MfskRfArmGate {
+    return this.mfskRfArmGate;
+  }
+
+  public armMfskNativeRfTx(acknowledged:boolean,operatorId:string,principalId:string) {
+    if(this.physicalTxCoordinator.getSnapshot().phase!=='idle'){
+      throw new Error('Cannot arm native RF while a physical TX lease is active');
+    }
+    if(!this._operatorManager.getOperatorById(operatorId))throw new Error('Unknown operator');
+    return this.mfskRfArmGate.arm(acknowledged,operatorId,principalId);
+  }
+
+  public async disarmMfskNativeRfTx():Promise<void>{
+    this.mfskRfArmGate.revoke();
+    this.mfskNativeTxService.cancel();
+    const snapshot=this.physicalTxCoordinator.getSnapshot();
+    if(snapshot.source==='digital' && snapshot.reason?.startsWith('native ')){
+      await this.physicalTxCoordinator.forceInterrupt('native RF authorization revoked');
+    }
+  }
+
+  public getMfskNativeTxService(): MfskNativeTxService {
+    return this.mfskNativeTxService;
+  }
+
+  public getMfskLiveRxService(): MfskLiveRxService {
+    return this.mfskLiveRxService;
   }
 
   public getAudioStreamManager(): AudioStreamManager {
@@ -1420,6 +1503,7 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
       getAudioSidecar: () => this.audioSidecar,
       isVirtualRadioActive: () => this.virtualRadioSession !== null,
       getImageRadioService: () => this.imageRadioService,
+      getMfskLiveRxService: () => this.mfskLiveRxService,
       getStatus: () => this.getStatus(),
     });
     this.engineLifecycle.setVoiceSessionManager(this.voiceSessionManager);
@@ -1556,6 +1640,9 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
     // already-serialized mode transaction settle before disconnecting CAT.
     await this.modeSwitchTail.catch(() => undefined);
     await this.stopTuneTone('engine stopped');
+    this.mfskRfArmGate?.revoke();
+    this.mfskNativeTxService?.cancel();
+    await this.mfskLiveRxService.flushAndStop();
     try {
       return await this.engineLifecycle.stop();
     } finally {
@@ -1634,6 +1721,7 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
 
   async destroy(): Promise<void> {
     logger.info('Destroying...');
+    this.mfskLiveRxService.stop();
     this.operatorManager.qsoCompletions.stopAccepting();
     try {
       await this.stopTuneTone('engine destroyed');
@@ -1831,7 +1919,13 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
         return;
       }
 
-      const digitalMode = mode as ModeDescriptor;
+      // Never trust client-provided stage/clock parameters; resolve canonical
+      // server-side descriptors to prevent invalid mode timings.
+      const requestedDigitalName=typeof mode==='string'?mode:mode.name;
+      const digitalMode=Object.values(MODES).find(m=>m.name===requestedDigitalName);
+      if(!digitalMode || !['FT8','FT4','Q65','WSPR','MSK144','JTTY'].includes(digitalMode.name)){
+        throw new Error(`Unsupported digital protocol: ${requestedDigitalName}`);
+      }
 
       // If switching from voice to digital
       if (this.engineMode === 'voice') {
@@ -1848,6 +1942,18 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
 
       if (this.engineMode === 'image') {
         await this.runWithModeChangeGate(() => this.switchEngineMode('digital', digitalMode));
+        return;
+      }
+
+      // Entering/leaving a native protocol family requires complete resource
+      // reconfiguration: its RX is neither the FT8 scheduler nor a fake slot.
+      const nativeNames=new Set(['Q65','WSPR','MSK144','JTTY']);
+      if(nativeNames.has(this.currentMode.name)||nativeNames.has(digitalMode.name)){
+        if(this.currentMode.name===digitalMode.name){
+          this.emitStatusSnapshot();return;
+        }
+        await this.runWithModeChangeGate(() => this.switchEngineMode('digital',digitalMode));
+        await ConfigManager.getInstance().setLastDigitalModeName(digitalMode.name);
         return;
       }
 
@@ -1890,6 +1996,8 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
   }
 
   private async runWithModeChangeGate(operation: () => Promise<void>): Promise<void> {
+    this.mfskRfArmGate?.revoke();
+    this.mfskNativeTxService?.cancel();
     this._operatorManager.enterTransmissionMaintenance('mode change');
     try {
       await this.stopTuneTone('mode changed');
@@ -3140,14 +3248,17 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
   }
 
   public getCurrentSlotInfo(): SlotInfo | null {
+    if(['Q65','WSPR','MSK144','JTTY'].includes(this.currentMode.name))return null;
     return this.slotClock?.getCurrentSlotInfo() ?? null;
   }
 
   public getStatus() {
     const isRunning = this.engineLifecycle?.getIsRunning() ?? false;
     // Voice and CW modes have no decode slot loop, so mirror engine running state.
+    const isNativeMode=['Q65','WSPR','MSK144','JTTY'].includes(this.currentMode.name);
     const isActuallyDecoding = this.engineMode === 'voice' || this.engineMode === 'cw' || this.engineMode === 'image'
       ? isRunning
+      : isNativeMode ? isRunning && this.mfskLiveRxService.status().ready
       : isRunning && (this.slotClock?.isRunning ?? false);
 
     const engineState = this.engineLifecycle?.getEngineState() ?? 'idle';

@@ -173,3 +173,6 @@ export * from './schema/logbook-sync.schema.js';
 export * from './schema/update.schema.js';
 export * from './schema/observability.schema.js';
 export * from './schema/diagnostics.schema.js';
+
+// Multimode codec capability and lifecycle contracts (P1)
+export * from './schema/digital-codec.schema.js';

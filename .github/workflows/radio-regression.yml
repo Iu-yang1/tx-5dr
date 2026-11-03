@@ -6,6 +6,11 @@ on:
   push:
     branches: [ 'integration/**' ]
 
+concurrency:
+  # Both integration push and PR check the same commit; run one current suite.
+  group: radio-regression-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 

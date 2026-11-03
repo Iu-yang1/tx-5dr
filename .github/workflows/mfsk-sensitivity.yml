@@ -1,0 +1,122 @@
+name: MFSK weak-signal sensitivity study (on demand)
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Channel model
+        type: choice
+        options: [awgn, watterson]
+        default: awgn
+      spread_hz:
+        description: Two-sigma Gaussian spread (Hz)
+        type: choice
+        options: ['1', '10', '30']
+        default: '1'
+      doppler_rate:
+        description: Linear Doppler rate (Hz/s)
+        type: choice
+        options: ['0', '10', '20']
+        default: '0'
+  pull_request:
+    paths:
+      - 'packages/mfsk-native/sensitivity-monte-carlo.cjs'
+      - 'packages/server/scripts/reference-threshold-monte-carlo.cjs'
+      - '.github/workflows/mfsk-sensitivity.yml'
+permissions:
+  contents: read
+# A fast-moving integration PR must not keep obsolete 80x bootstrap jobs
+# running indefinitely. The newest SHA owns acceptance evidence.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  sensitivity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build the pinned Rust addon
+        run: |
+          cargo build --manifest-path packages/mfsk-native/Cargo.toml --release
+          cp packages/mfsk-native/target/release/libtx5dr_mfsk_native.so packages/mfsk-native/mfsk-native.node
+          node packages/mfsk-native/smoke.cjs
+      - name: Validate deterministic two-path Gaussian Doppler channel
+        run: node --test packages/mfsk-native/watterson-channel.test.cjs
+      - name: FT8 Monte Carlo with Wilson confidence intervals
+        env:
+          MFSK_MODE: FT8
+          MFSK_TRIALS: '20'
+        run: node packages/mfsk-native/sensitivity-monte-carlo.cjs
+      - name: FT4 Monte Carlo with Wilson confidence intervals
+        env:
+          MFSK_MODE: FT4
+          MFSK_TRIALS: '20'
+        run: node packages/mfsk-native/sensitivity-monte-carlo.cjs
+      - name: Install dependencies for independent WSJT-X reference decoding
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libasound2-dev libpulse-dev libhamlib-dev libhamlib4 libopus-dev build-essential python3-dev pkg-config
+          corepack enable
+          corepack prepare yarn@4.9.1 --activate
+          # Reference-only CI needs wsjtx-lib, NOT post-install scripts for
+          # onnxruntime-node / Electron / unrelated optional radio plugins.
+          # Such scripts fetch large external models and can fail on GitHub
+          # runner networking before any codec threshold is exercised.
+          yarn install --immutable --mode=skip-build
+          # Yarn rebuild clears the package build state and may also run ALL
+          # skipped lifecycle scripts, including unrelated onnxruntime-node.
+          # npm rebuild <package> explicitly compiles ONLY this native
+          # WSJT-X reference addon; no lockfile or dependency change.
+          npm rebuild wsjtx-lib --no-save --foreground-scripts
+          node --input-type=module -e "const {WSJTXLib,WSJTXMode}=await import('wsjtx-lib');if(!WSJTXLib||!WSJTXMode)throw Error('WSJT-X reference module unavailable');console.log('Independent WSJT-X reference module loaded')"
+      - name: FT8 independent codec threshold comparison
+        env:
+          MFSK_MODE: FT8
+          MFSK_TRIALS: '80'
+          MFSK_ENFORCE_THRESHOLD: '1'
+          MFSK_CHANNEL: ${{ inputs.channel || 'awgn' }}
+          MFSK_SPREAD_HZ: ${{ inputs.spread_hz || '1' }}
+          MFSK_DOPPLER_RATE: ${{ inputs.doppler_rate || '0' }}
+        run: node packages/server/scripts/reference-threshold-monte-carlo.cjs
+      - name: FT4 independent codec threshold comparison
+        env:
+          MFSK_MODE: FT4
+          MFSK_TRIALS: '80'
+          MFSK_ENFORCE_THRESHOLD: '1'
+          MFSK_CHANNEL: ${{ inputs.channel || 'awgn' }}
+          MFSK_SPREAD_HZ: ${{ inputs.spread_hz || '1' }}
+          MFSK_DOPPLER_RATE: ${{ inputs.doppler_rate || '0' }}
+        run: node packages/server/scripts/reference-threshold-monte-carlo.cjs
+      - name: Watterson-style fading and linear-Doppler coverage matrix
+        # Exploratory paired reference recovery, NOT the AWGN 0.5dB gate:
+        # 1/10/30 Hz Gaussian spread at 0/10/20 Hz/s deterministic drift.
+        # Every row keeps both decoders' hits, false frames and Wilson CI.
+        env:
+          MFSK_CHANNEL: watterson
+          MFSK_TRIALS: '8'
+          MFSK_SNR_POINTS: '-22,-19,-16'
+          MFSK_ENFORCE_THRESHOLD: '0'
+        run: |
+          set -euo pipefail
+          for spread in 1 10 30; do
+            for rate in 0 10 20; do
+              for mode in FT8 FT4; do
+                MFSK_MODE="$mode" MFSK_SPREAD_HZ="$spread" \
+                  MFSK_DOPPLER_RATE="$rate" \
+                  node packages/server/scripts/reference-threshold-monte-carlo.cjs
+              done
+            done
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mfsk-weak-signal-sensitivity
+          path: |
+            packages/mfsk-native/sensitivity-*.json
+            packages/server/scripts/reference-threshold-*.json
+          retention-days: 30
+          if-no-files-found: warn

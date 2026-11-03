@@ -1,0 +1,138 @@
+name: Experimental mfsk-native six-mode smoke build
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mfsk-native-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    name: Native ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022, ubuntu-24.04-arm]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build Rust Node-API addon (fixed mfsk-core v0.15.0)
+        shell: bash
+        run: |
+          # Node-API symbols are resolved by the hosting Node process on Linux.
+          # A standalone Rust test binary cannot link those symbols, so typecheck
+          # the test targets then perform a real .node load + protocol smoke below.
+          cargo check --manifest-path packages/mfsk-native/Cargo.toml --all-targets --release
+          cargo build --manifest-path packages/mfsk-native/Cargo.toml --release
+      - name: Prepare runtime addon
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            cp packages/mfsk-native/target/release/tx5dr_mfsk_native.dll packages/mfsk-native/mfsk-native.node
+          elif [ "$RUNNER_OS" = "macOS" ]; then
+            cp packages/mfsk-native/target/release/libtx5dr_mfsk_native.dylib packages/mfsk-native/mfsk-native.node
+          else
+            cp packages/mfsk-native/target/release/libtx5dr_mfsk_native.so packages/mfsk-native/mfsk-native.node
+          fi
+      - name: Verify real Node-API load and offline TX waveforms
+        run: node packages/mfsk-native/smoke.cjs
+      - name: Run exploratory deterministic FT8/FT4 AWGN simulation
+        shell: bash
+        run: node packages/mfsk-native/simulation-acceptance.cjs
+      - name: Run six-mode independent offline RX/TX replay
+        if: runner.os == 'Linux' && runner.arch == 'X64'
+        shell: bash
+        env:
+          MFSK_STRICT_LOOPBACK: '1'
+        run: node packages/mfsk-native/six-mode-replay.cjs
+      - name: Upload experimental native addon
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mfsk-native-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
+          path: |
+            packages/mfsk-native/mfsk-native.node
+            packages/mfsk-native/smoke.cjs
+            packages/mfsk-native/simulation-report.json
+            packages/mfsk-native/six-mode-replay-report.json
+          retention-days: 14
+
+  # A native .node that works in isolation can still be unusable by the real
+  # TypeScript server. This job validates the actual compiled server pipeline.
+  server-runtime:
+    needs: native
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.1'
+      - name: Checkout pinned WSJT-X tier-B reference WAV corpus
+        uses: actions/checkout@v4
+        with:
+          repository: jl1nie/mfsk-core
+          ref: 18b37c068e150541b051944db2a94f30bc6c36af
+          path: mfsk-upstream-golden
+          sparse-checkout: |
+            embedded-poc/assets/golden
+            LICENSE
+          sparse-checkout-cone-mode: false
+      - name: Enable yarn
+        run: |
+          corepack enable
+          corepack prepare yarn@4.9.1 --activate
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libasound2-dev libpulse-dev libhamlib-dev libhamlib4 libopus-dev build-essential python3-dev pkg-config
+      - name: Download x64 native codec built and tested by matrix
+        uses: actions/download-artifact@v4
+        with:
+          name: mfsk-native-Linux-X64-${{ github.sha }}
+          path: packages/mfsk-native
+      - name: Build all TypeScript packages
+        run: |
+          yarn install --immutable
+          yarn build
+      - name: Exercise existing radio UI RX and operator interaction regression
+        run: yarn workspace @tx5dr/web exec vitest run src/pages/about/MfskLiveReceiverPanel.test.tsx src/components/radio/digital/nativeDigitalSelection.test.ts
+      - name: Audit production Rust selection, NAPI ABI and absence of eager legacy imports
+        run: node packages/server/scripts/p9-codec-runtime-audit.cjs
+      - name: Exercise all six real compiled server simulation paths
+        run: node packages/server/scripts/mfsk-sim-e2e.cjs
+      - name: Decode official WSJT-X off-air samples with the actual Node-API addon
+        run: node packages/server/scripts/wsjtx-golden-replay.cjs mfsk-upstream-golden/embedded-poc/assets/golden
+      - name: Upload strict off-air recall and phantom report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mfsk-wsjtx-offair-golden-${{ github.sha }}
+          path: packages/server/scripts/wsjtx-golden-replay-report.json
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Cross-decode independent FT8/FT4 reference TX and Rust TX (both directions)
+        run: node packages/server/scripts/reference-crosscodec.cjs
+      - name: Upload independent cross-codec reference results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mfsk-reference-interoperability-${{ github.sha }}
+          path: packages/server/scripts/reference-crosscodec-report.json
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Run real TX-5DR virtual-radio QSO regression on native FT8/FT4 backend
+        env:
+          TX5DR_CODEC_BACKEND: mfsk-native
+        run: yarn workspace @tx5dr/server test:virtual-radio-integration

@@ -19,9 +19,14 @@ on:
         description: 'Release only Windows and Linux desktop; macOS requires Apple signing/notarization secrets'
         required: false
         type: boolean
-        default: false
+        default: true
 
 # 授予 GITHUB_TOKEN 写入权限以创建 release
+concurrency:
+  # Keep the latest PR validation; never cancel an official release dispatch.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: write
 
@@ -30,7 +35,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.windows_linux_only && '[{"os":"windows-2022","platform":"win32","arch":"x64","artifact_name":"tx-5dr-windows-x64"},{"os":"ubuntu-latest","platform":"linux","arch":"x64","artifact_name":"tx-5dr-linux-x64"},{"os":"ubuntu-24.04-arm","platform":"linux","arch":"arm64","artifact_name":"tx-5dr-linux-arm64"}]' || '[{"os":"windows-2022","platform":"win32","arch":"x64","artifact_name":"tx-5dr-windows-x64"},{"os":"macos-latest","platform":"darwin","arch":"arm64","artifact_name":"tx-5dr-macos-arm64"},{"os":"macos-15-intel","platform":"darwin","arch":"x64","artifact_name":"tx-5dr-macos-x64"},{"os":"ubuntu-latest","platform":"linux","arch":"x64","artifact_name":"tx-5dr-linux-x64"},{"os":"ubuntu-24.04-arm","platform":"linux","arch":"arm64","artifact_name":"tx-5dr-linux-arm64"}]') }}
+        # Release platforms: Windows x64, Linux x64 and Linux arm64.
+        include:
+          - {os: windows-2022, platform: win32, arch: x64, artifact_name: tx-5dr-windows-x64}
+          - {os: ubuntu-latest, platform: linux, arch: x64, artifact_name: tx-5dr-linux-x64}
+          - {os: ubuntu-24.04-arm, platform: linux, arch: arm64, artifact_name: tx-5dr-linux-arm64}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
 
@@ -172,6 +181,26 @@ jobs:
           security find-identity -v -p codesigning temp.keychain
           echo "✅ 证书导入成功"
 
+      # Experimental six-mode branch only. Keep the official release pipeline
+      # unchanged until the P9 migration is verified and the license audit passes.
+      - name: Install Rust for native six-mode codec
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Compile and probe mfsk-native before Electron packaging
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo check --manifest-path packages/mfsk-native/Cargo.toml --all-targets --release
+          cargo build --manifest-path packages/mfsk-native/Cargo.toml --release
+          if [ "${{ matrix.platform }}" = "win32" ]; then
+            cp packages/mfsk-native/target/release/tx5dr_mfsk_native.dll packages/mfsk-native/mfsk-native.node
+          elif [ "${{ matrix.platform }}" = "darwin" ]; then
+            cp packages/mfsk-native/target/release/libtx5dr_mfsk_native.dylib packages/mfsk-native/mfsk-native.node
+          else
+            cp packages/mfsk-native/target/release/libtx5dr_mfsk_native.so packages/mfsk-native/mfsk-native.node
+          fi
+          node packages/mfsk-native/smoke.cjs
+
       - name: Build application
         run: yarn build
         env:
@@ -286,66 +315,10 @@ jobs:
           echo "Portable node prepared:"
           ls -la resources/bin/${TRIPLET}
 
-      # macOS: fix wsjtx-lib prebuilt dylib install_names to load from its own folder
-      - name: Patch wsjtx-lib dylib install names (macOS)
-        if: matrix.platform == 'darwin'
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "Patching wsjtx-lib install names..."
-          ROOT=$(pwd)
-          ARCH="${{ matrix.arch }}"
-          PREBUILT_DIR="$ROOT/node_modules/wsjtx-lib/prebuilds/darwin-${ARCH}"
-          if [ ! -d "$PREBUILT_DIR" ]; then
-            echo "wsjtx-lib prebuild dir not found: $PREBUILT_DIR"
-            exit 0
-          fi
-
-          # 自动检测 Homebrew 路径（Intel: /usr/local, Apple Silicon: /opt/homebrew）
-          if [ -d "/opt/homebrew" ]; then
-            HOMEBREW_PREFIX="/opt/homebrew"
-          elif [ -d "/usr/local/Homebrew" ]; then
-            HOMEBREW_PREFIX="/usr/local"
-          else
-            echo "⚠️ Warning: Homebrew not found, trying default paths..."
-            HOMEBREW_PREFIX="/opt/homebrew"  # 默认使用 ARM64 路径
-          fi
-          echo "✅ 使用 Homebrew 路径: $HOMEBREW_PREFIX"
-
-          # Ensure libquadmath and libgcc_s are present (copy from Homebrew GCC)
-          GCC_PREFIX=$(brew --prefix gcc@14 || brew --prefix gcc)
-          echo "GCC prefix: $GCC_PREFIX"
-          cp -Lv $(ls "$GCC_PREFIX"/lib/gcc/*/libquadmath.0.dylib | head -n1) "$PREBUILT_DIR" || true
-          cp -Lv $(ls "$GCC_PREFIX"/lib/gcc/*/libgcc_s.1.1.dylib | head -n1) "$PREBUILT_DIR" || true
-
-          pushd "$PREBUILT_DIR" >/dev/null
-          set +e
-          # Set ids to @loader_path
-          install_name_tool -id @loader_path/libfftw3f.3.dylib libfftw3f.3.dylib 2>/dev/null || true
-          install_name_tool -id @loader_path/libfftw3f_threads.3.dylib libfftw3f_threads.3.dylib 2>/dev/null || true
-          install_name_tool -id @loader_path/libgfortran.5.dylib libgfortran.5.dylib 2>/dev/null || true
-          [ -f libquadmath.0.dylib ] && install_name_tool -id @loader_path/libquadmath.0.dylib libquadmath.0.dylib || true
-          [ -f libgcc_s.1.1.dylib ] && install_name_tool -id @loader_path/libgcc_s.1.1.dylib libgcc_s.1.1.dylib || true
-
-          # Fix dependencies to @loader_path (支持两种路径：/opt/homebrew 和 /usr/local)
-          install_name_tool -change ${HOMEBREW_PREFIX}/opt/fftw/lib/libfftw3f.3.dylib @loader_path/libfftw3f.3.dylib wsjtx_lib_nodejs.node 2>/dev/null || true
-          install_name_tool -change ${HOMEBREW_PREFIX}/opt/fftw/lib/libfftw3f_threads.3.dylib @loader_path/libfftw3f_threads.3.dylib wsjtx_lib_nodejs.node 2>/dev/null || true
-          # GCC dylibs may vary by version; try both gcc@14 and generic gcc paths
-          install_name_tool -change ${HOMEBREW_PREFIX}/opt/gcc@14/lib/gcc/14/libgfortran.5.dylib @loader_path/libgfortran.5.dylib wsjtx_lib_nodejs.node 2>/dev/null || true
-          install_name_tool -change ${HOMEBREW_PREFIX}/opt/gcc/lib/gcc/*/libgfortran.5.dylib @loader_path/libgfortran.5.dylib wsjtx_lib_nodejs.node 2>/dev/null || true
-          install_name_tool -change ${HOMEBREW_PREFIX}/opt/gcc@14/lib/gcc/14/libquadmath.0.dylib @loader_path/libquadmath.0.dylib wsjtx_lib_nodejs.node 2>/dev/null || true
-          install_name_tool -change ${HOMEBREW_PREFIX}/opt/gcc/lib/gcc/*/libquadmath.0.dylib @loader_path/libquadmath.0.dylib wsjtx_lib_nodejs.node 2>/dev/null || true
-
-          # Fix secondary deps
-          install_name_tool -change ${HOMEBREW_PREFIX}/opt/fftw/lib/libfftw3f.3.dylib @loader_path/libfftw3f.3.dylib libfftw3f_threads.3.dylib 2>/dev/null || true
-          install_name_tool -change @rpath/libquadmath.0.dylib @loader_path/libquadmath.0.dylib libgfortran.5.dylib 2>/dev/null || true
-          install_name_tool -change @rpath/libgcc_s.1.1.dylib @loader_path/libgcc_s.1.1.dylib libgfortran.5.dylib 2>/dev/null || true
-          set -e
-          popd >/dev/null
-
       - name: Package application
         shell: bash
         env:
+          TX5DR_REQUIRE_MFSK_NATIVE: '1'
           NODE_ENV: production
           PLATFORM: ${{ matrix.platform }}
           ARCH: ${{ matrix.arch }}
@@ -498,9 +471,8 @@ jobs:
           fi
 
           if [ "$PLATFORM" = "linux" ]; then
-            if find "$APP_ROOT/node_modules/wsjtx-lib/prebuilds" -path "*/linux-*/libstdc++.so.6" -type f | grep -q .; then
-              echo "Packaged wsjtx-lib must not bundle libstdc++.so.6 on Linux Electron builds" >&2
-              find "$APP_ROOT/node_modules/wsjtx-lib/prebuilds" -path "*/linux-*/libstdc++.so.6" -type f >&2
+            if [ -e "$APP_ROOT/node_modules/wsjtx-lib" ]; then
+              echo "Legacy wsjtx-lib must not be present in production Electron package" >&2
               exit 1
             fi
 
@@ -522,8 +494,9 @@ jobs:
               ' "$@")
             }
 
-            run_packaged_import_order audify hamlib wsjtx-lib
-            run_packaged_import_order wsjtx-lib audify hamlib
+            run_packaged_import_order audify hamlib
+            run_packaged_import_order hamlib audify
+            "$NODE_BIN" -e "const n=require(process.argv[1]);if(!n.supportedModes().includes('Q65-60B'))throw new Error('MFSK native addon not functional')" "$APP_ROOT/packages/mfsk-native/mfsk-native.node"
           fi
 
           echo "=== Packaged Image Radio runtime smoke ==="
@@ -956,7 +929,12 @@ jobs:
             echo "tag=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
             echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
             echo "channel=release" >> $GITHUB_OUTPUT
-            echo "channel_path=release" >> $GITHUB_OUTPUT
+            # RC manifests must NEVER replace the stable /release/latest.json feed.
+            if [[ "${{ github.event.inputs.version }}" == *-rc.* ]]; then
+              echo "channel_path=rc" >> $GITHUB_OUTPUT
+            else
+              echo "channel_path=release" >> $GITHUB_OUTPUT
+            fi
             echo "app_version=${{ github.event.inputs.version }}" | sed 's/^app_version=v/app_version=/' >> $GITHUB_OUTPUT
           fi
 
@@ -1010,7 +988,7 @@ jobs:
       - name: Validate app manifest
         shell: bash
         env:
-          TX5DR_WINDOWS_LINUX_ONLY: ${{ inputs.windows_linux_only }}
+          TX5DR_WINDOWS_LINUX_ONLY: 'true'
         run: |
           node - <<'EOF'
           const fs = require('node:fs');
@@ -1099,14 +1077,6 @@ jobs:
             - [**7z Archive**](https://github.com/${{ github.repository }}/releases/download/nightly-app/TX-5DR-nightly-windows-x64.7z) （压缩包，推荐）— LZMA2 compression, ~100MB smaller than ZIP, requires [7-Zip](https://www.7-zip.org/)
             - [**ZIP Archive**](https://github.com/${{ github.repository }}/releases/download/nightly-app/TX-5DR-nightly-windows-x64.zip) （压缩包）— larger file size
 
-            #### macOS (ARM64 — Apple Silicon)
-            - [**DMG Installer**](https://github.com/${{ github.repository }}/releases/download/nightly-app/TX-5DR-nightly-macos-arm64.dmg) （安装包）— recommended
-            - [**ZIP Archive**](https://github.com/${{ github.repository }}/releases/download/nightly-app/TX-5DR-nightly-macos-arm64.zip) （压缩包）
-
-            #### macOS (x64 — Intel)
-            - [**DMG Installer**](https://github.com/${{ github.repository }}/releases/download/nightly-app/TX-5DR-nightly-macos-x64.dmg) （安装包）— recommended
-            - [**ZIP Archive**](https://github.com/${{ github.repository }}/releases/download/nightly-app/TX-5DR-nightly-macos-x64.zip) （压缩包）
-
             #### Linux Desktop (x64) — Electron App
             - [**DEB Package**](https://github.com/${{ github.repository }}/releases/download/nightly-app/TX-5DR-nightly-linux-x64.deb) (Ubuntu/Debian)
             - [**RPM Package**](https://github.com/${{ github.repository }}/releases/download/nightly-app/TX-5DR-nightly-linux-x64.rpm) (Fedora/RHEL)
@@ -1128,7 +1098,7 @@ jobs:
 
             ### 🔧 System Requirements 系统要求
             - Node.js >= 22.15.1 (bundled / 已内置)
-            - Windows 10+ / macOS 11+ / Ubuntu 20.04+ / Fedora 35+
+            - Windows 10+ / Ubuntu 20.04+ / Fedora 35+
           allowUpdates: true
           removeArtifacts: true
           artifacts: "release-assets/*"
@@ -1136,21 +1106,32 @@ jobs:
           prerelease: true
           makeLatest: false
 
-      # Explicit Windows/Linux stable release, preserving mandatory macOS signing
-      # and notarization requirements on the full official release path.
+      # Windows/Linux only: -rc.N releases are prerelease, never latest.
       - name: Create Official Windows and Linux Release
-        if: github.event.inputs.version != '' && inputs.windows_linux_only
+        if: github.event.inputs.version != ''
         uses: ncipollo/release-action@v1
         with:
           tag: ${{ github.event.inputs.version }}
           name: "TX-5DR ${{ github.event.inputs.version }} — Windows/Linux"
           body: |
-            ## TX-5DR ${{ github.event.inputs.version }} — Windows/Linux Official Release
-            正式版：仅包含 Windows 和 Linux 桌面端。由于缺少 Apple 签名及公证凭据，本次**不包含 macOS 正式安装包**。
+            ## TX-5DR ${{ github.event.inputs.version }} — Windows/Linux
+            Windows x64、Linux x64/ARM64；-rc.N 为预发布候选版。不构建或发布 macOS。
 
             **Commit:** [${{ steps.release_info.outputs.short_sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
             **Build:** ${{ steps.release_info.outputs.timestamp }}
             **Validation:** backend/full, frontend, native process isolation, package identity and platform CI.
+
+            ### Native digital modes in the existing radio workspace
+            - FT8/FT4 use the pinned Rust production codec with independent reference checks.
+            - Q65 (AP/EME averaging), WSPR, MSK144 and JTTY integrate into the existing mode selector, RX and operator panes.
+            - Native manual TX requires an explicit expiring operator/session RF authorization and a host-controlled physical PTT lease. RX never keys PTT.
+            - WSPR spots are local observations, not completed QSOs.
+
+            ### Release Candidate limitations
+            - Windows x64 and Linux x64/ARM64 only; no macOS packages.
+            - Hardware-specific CAT, AF, PTT and on-air QSO timing must be validated at each station.
+            - Upstream does not yet support MSK40 shorthand or MSK144 adaptive RX equalization.
+            - High-spread Watterson and fast-Doppler decoding parity is not established.
 
             ### Windows x64
             - NSIS installer: TX-5DR-${{ github.event.inputs.version }}-windows-x64-nsis.exe
@@ -1168,63 +1149,8 @@ jobs:
           artifacts: "release-assets/*"
           token: ${{ secrets.GITHUB_TOKEN }}
           draft: false
-          prerelease: false
-          makeLatest: true
-
-      # Official Release
-      - name: Create Official Release
-        if: github.event.inputs.version != '' && !inputs.windows_linux_only
-        uses: ncipollo/release-action@v1
-        with:
-          tag: ${{ github.event.inputs.version }}
-          name: "TX-5DR ${{ github.event.inputs.version }}"
-          body: |
-            ## TX-5DR ${{ github.event.inputs.version }}
-
-            **Release Date** （发布日期）: ${{ steps.release_info.outputs.date }}
-            **Commit**: [${{ steps.release_info.outputs.short_sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
-
-            ### 🚀 What's New 新功能
-            - See [CHANGELOG](https://github.com/${{ github.repository }}/commits/main) for details.
-
-            ### 📦 Downloads 下载
-
-            #### Windows (x64)
-            - [**NSIS Installer**](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/TX-5DR-${{ github.event.inputs.version }}-windows-x64-nsis.exe) （安装包）— recommended for installation and auto-update
-            - [**7z Archive**](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/TX-5DR-${{ github.event.inputs.version }}-windows-x64.7z) （压缩包，推荐）— LZMA2 compression, ~100MB smaller than ZIP, requires [7-Zip](https://www.7-zip.org/)
-            - [**ZIP Archive**](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/TX-5DR-${{ github.event.inputs.version }}-windows-x64.zip) （压缩包）— larger file size
-
-            #### macOS (ARM64 — Apple Silicon)
-            - [**DMG Installer**](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/TX-5DR-${{ github.event.inputs.version }}-macos-arm64.dmg) （安装包）— recommended
-            - [**ZIP Archive**](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/TX-5DR-${{ github.event.inputs.version }}-macos-arm64.zip) （压缩包）
-
-            #### macOS (x64 — Intel)
-            - [**DMG Installer**](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/TX-5DR-${{ github.event.inputs.version }}-macos-x64.dmg) （安装包）— recommended
-            - [**ZIP Archive**](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/TX-5DR-${{ github.event.inputs.version }}-macos-x64.zip) （压缩包）
-
-            #### Linux Desktop (x64) — Electron App
-            - [**DEB Package**](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/TX-5DR-${{ github.event.inputs.version }}-linux-x64.deb) (Ubuntu/Debian)
-            - [**RPM Package**](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/TX-5DR-${{ github.event.inputs.version }}-linux-x64.rpm) (Fedora/RHEL)
-            - [**AppImage**](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/TX-5DR-${{ github.event.inputs.version }}-linux-x64.AppImage) — supports in-app auto-update
-            - [**ZIP Archive**](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/TX-5DR-${{ github.event.inputs.version }}-linux-x64.zip) （压缩包）
-
-            #### Linux Desktop (ARM64) — Electron App
-            - [**DEB Package**](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/TX-5DR-${{ github.event.inputs.version }}-linux-arm64.deb) (Ubuntu/Debian)
-            - [**RPM Package**](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/TX-5DR-${{ github.event.inputs.version }}-linux-arm64.rpm) (Fedora/RHEL)
-            - [**AppImage**](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/TX-5DR-${{ github.event.inputs.version }}-linux-arm64.AppImage) — supports in-app auto-update
-            - [**ZIP Archive**](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/TX-5DR-${{ github.event.inputs.version }}-linux-arm64.zip) （压缩包）
-
-            ### 🔧 System Requirements 系统要求
-            - Node.js >= 22.15.1 (bundled / 已内置)
-            - Windows 10+ / macOS 11+ / Ubuntu 20.04+ / Fedora 35+
-
-            ---
-            Built at （构建于）: ${{ steps.release_info.outputs.timestamp }}
-          artifacts: "release-assets/*"
-          token: ${{ secrets.GITHUB_TOKEN }}
-          draft: false
-          prerelease: false
-          makeLatest: true
+          prerelease: ${{ contains(github.event.inputs.version, '-rc.') }}
+          makeLatest: ${{ !contains(github.event.inputs.version, '-rc.') }}
 
       - name: Install ossutil
         if: env.OSS_ACCESS_KEY_ID != '' && env.OSS_ACCESS_KEY_SECRET != '' && env.OSS_BUCKET != '' && env.OSS_ENDPOINT != '' && env.OSS_BASE_URL != ''

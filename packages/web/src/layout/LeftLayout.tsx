@@ -17,13 +17,14 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { faGithub } from '@fortawesome/free-brands-svg-icons';
 import { SpectrumDisplay } from '../components/radio/spectrum/SpectrumDisplay';
+import { MfskLiveReceiverPanel } from '../pages/about/MfskLiveReceiverPanel';
 import { SlotPacksMessageDisplay } from '../components/radio/digital/SlotPacksMessageDisplay';
 import { RadioMetersPanel } from '../components/radio/control/RadioMetersPanel';
 import { RemoteAccessPopover } from '../components/system/RemoteAccessPopover';
 import { ClockDisplay } from '../components/system/ClockDisplay';
 import { StationInfoPopover } from '../components/station/StationInfoPopover';
 import { AppBrandAboutLink } from '../components/common/AppBrandAboutLink';
-import { useRadioActions, useConnection, useStationInfo } from '../store/radioStore';
+import { useRadioActions, useConnection, useStationInfo, useRadioModeState } from '../store/radioStore';
 import { useHasMinRole } from '../store/authStore';
 import { UserRole } from '@tx5dr/contracts';
 import { isElectron, isMacOS } from '../utils/config';
@@ -32,6 +33,10 @@ import { useTranslation } from 'react-i18next';
 export const LeftLayout: React.FC = React.memo(() => {
   const { t } = useTranslation('common');
   const isAdmin = useHasMinRole(UserRole.ADMIN);
+  const { currentMode } = useRadioModeState();
+  const activeNativeMode = currentMode && ['Q65','WSPR','MSK144','JTTY'].includes(currentMode.name)
+    ? currentMode.name as 'Q65'|'WSPR'|'MSK144'|'JTTY'
+    : null;
   const { slotPacksDispatch, clearMyRelatedTimeline } = useRadioActions();
   const connection = useConnection();
   const stationInfo = useStationInfo();
@@ -202,13 +207,16 @@ export const LeftLayout: React.FC = React.memo(() => {
 
       {/* 主要内容区域 */}
       <div className="flex-1 px-2 pb-2 md:px-5 md:pb-5 min-h-0 flex flex-col gap-2 md:gap-4">
-        {/* FT8解码消息表格 */}
-        <div className="flex-1 min-h-0">
-          <SlotPacksMessageDisplay
-            className="h-full"
-            onMessageHover={setHoveredMessageFreq}
-          />
-        </div>
+        {activeNativeMode
+          ? <div className="flex-1 min-h-0 overflow-y-auto">
+              <MfskLiveReceiverPanel key={activeNativeMode} initialMode={activeNativeMode} surface="receiver"/>
+            </div>
+          : <div className="flex-1 min-h-0">
+              <SlotPacksMessageDisplay
+                className="h-full"
+                onMessageHover={setHoveredMessageFreq}
+              />
+            </div>}
 
         {/* 频谱显示：弹出到独立窗口后整体隐藏 */}
         {!isSpectrumPopedOut && (

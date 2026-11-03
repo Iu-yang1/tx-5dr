@@ -568,6 +568,68 @@ function normalizeOperatorRequest<T extends CreateRadioOperatorRequest | UpdateR
 // ========== API 对象 ==========
 
 export const api = {
+  /** Isolated probe only; cannot authorize real RF transmissions. */
+  async getMfskNativeTxStatus(operatorId?:string):Promise<{rfEnabled:boolean;busy:boolean;remainingMs:number}>{
+    return apiRequest<{rfEnabled:boolean;busy:boolean;remainingMs:number}>(
+      '/mfsk/tx/status'+(operatorId?'?operatorId='+encodeURIComponent(operatorId):''),
+    );
+  },
+  /** Explicit RF authorization, bound to current real radio + native RX generation. */
+  async armMfskNativeTx(operatorId:string):Promise<{success:true;rfEnabled:boolean;remainingMs:number}> {
+    return apiRequest('/mfsk/tx/arm',{
+      method:'POST',body:JSON.stringify({acknowledged:true,operatorId}),
+    });
+  },
+  async disarmMfskNativeTx():Promise<{success:true;rfEnabled:boolean;remainingMs:number}> {
+    return apiRequest('/mfsk/tx/disarm',{method:'POST'});
+  },
+  async confirmMfskQso(request:import('@tx5dr/contracts').MfskManualQso):
+    Promise<{success:true;id:string}> {
+    return apiRequest<{success:true;id:string}>('/mfsk/qso/confirm',{
+      method:'POST',body:JSON.stringify(request),
+    });
+  },
+  async transmitMfsk(request:import('@tx5dr/contracts').MfskPhysicalTxRequest):Promise<unknown>{
+    return apiRequest('/mfsk/tx/send',{method:'POST',body:JSON.stringify(request)});
+  },
+  async startMfskLiveRx(
+    cfg: import('@tx5dr/contracts').MfskLiveRxStart,
+  ): Promise<import('@tx5dr/contracts').MfskLiveRxStatus> {
+    return apiRequest<import('@tx5dr/contracts').MfskLiveRxStatus>('/mfsk/live/start',{
+      method:'POST',body:JSON.stringify(cfg),
+    });
+  },
+  async updateMfskLiveRxApContext(
+    apContext: import('@tx5dr/contracts').MfskApContext | null,
+  ): Promise<import('@tx5dr/contracts').MfskLiveRxStatus> {
+    return apiRequest('/mfsk/live/ap-context',{
+      method:'POST',body:JSON.stringify({apContext}),
+    });
+  },
+  async stopMfskLiveRx(): Promise<import('@tx5dr/contracts').MfskLiveRxStatus> {
+    return apiRequest<import('@tx5dr/contracts').MfskLiveRxStatus>('/mfsk/live/stop',{
+      method:'POST',
+    });
+  },
+  async getMfskLiveRxStatus(): Promise<import('@tx5dr/contracts').MfskLiveRxStatus> {
+    return apiRequest<import('@tx5dr/contracts').MfskLiveRxStatus>('/mfsk/live/status');
+  },
+  async getMfskLiveWsprSpots(): Promise<import('@tx5dr/contracts').WsprSpotsResponse> {
+    return apiRequest<import('@tx5dr/contracts').WsprSpotsResponse>('/mfsk/live/wspr-spots');
+  },
+  async getMfskLiveRxEvents(afterMs = 0): Promise<import('@tx5dr/contracts').MfskLiveRxEvents> {
+    return apiRequest<import('@tx5dr/contracts').MfskLiveRxEvents>(`/mfsk/live/events?afterMs=${Math.max(0,Math.floor(afterMs))}`);
+  },
+  async simulateMfskCodec(
+    payload: import('@tx5dr/contracts').MfskCodecSimulationRequest,
+  ): Promise<import('@tx5dr/contracts').MfskCodecSimulationResponse> {
+    return apiRequest<import('@tx5dr/contracts').MfskCodecSimulationResponse>('/mfsk/simulate',{
+      method:'POST',body:JSON.stringify(payload),
+    });
+  },
+  async getMfskCodecProbe(): Promise<import('@tx5dr/contracts').MfskCodecProbeResponse> {
+    return apiRequest<import('@tx5dr/contracts').MfskCodecProbeResponse>('/mfsk/capabilities');
+  },
   /** Applies all scalar members of one host-declared radio parameter group atomically. */
   async writeRadioCapabilityGroup(payload: WriteCapabilityGroupPayload, apiBase?: string): Promise<{ success: boolean }> {
     return apiRequest<{ success: boolean }>(`/radio/capability-groups/${encodeURIComponent(payload.groupId)}`, {

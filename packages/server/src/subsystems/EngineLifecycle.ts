@@ -31,6 +31,7 @@ import { createLogger } from '../utils/logger.js';
 import type { WSJTXDecodeWorkQueue } from '../decode/WSJTXDecodeWorkQueue.js';
 import type { PhysicalTxCoordinator } from '../transmission/PhysicalTxCoordinator.js';
 import type { ImageRadioService } from '../image-radio/ImageRadioService.js';
+import type { MfskLiveRxService } from '../decode/MfskLiveRxService.js';
 
 const logger = createLogger('EngineLifecycle');
 
@@ -59,6 +60,7 @@ export interface EngineLifecycleDeps {
   getAudioSidecar: () => AudioSidecarController;
   isVirtualRadioActive?: () => boolean;
   getImageRadioService?: () => ImageRadioService | null;
+  getMfskLiveRxService?: () => MfskLiveRxService | null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getStatus: () => any;
 }
@@ -169,7 +171,9 @@ export class EngineLifecycle {
           ? this.buildCWModeResourcePlan()
           : mode.name === 'SSTV' || mode.name === 'FAX'
             ? this.buildImageModeResourcePlan(mode.name === 'SSTV' ? 'sstv' : 'fax')
-            : this.buildDigitalModeResourcePlan()),
+            : ['Q65','WSPR','MSK144','JTTY'].includes(mode.name)
+              ? this.buildNativeDigitalModeResourcePlan(mode.name)
+              : this.buildDigitalModeResourcePlan()),
     ];
 
     logger.info(`Built ${mode.name === 'VOICE' ? 'voice' : mode.name === 'CW' ? 'cw' : mode.name === 'SSTV' || mode.name === 'FAX' ? 'image' : 'digital'} resource plan`);
@@ -448,6 +452,40 @@ export class EngineLifecycle {
       optional: false,
     });
     return resources;
+  }
+
+  /**
+   * Native multimode resource plan. Never start the legacy FT8/FT4
+   * SlotClock, SlotScheduler, decode-worker pool or legacy operator auto-TX.
+   * Independent RX consumes the existing post-demodulated AF audio stream.
+   */
+  private buildNativeDigitalModeResourcePlan(name:string):SimplifiedResourceConfig[] {
+    const service=this.deps.getMfskLiveRxService?.()??null;
+    if(!service)throw new Error('Native mode requires isolated receiver service');
+    return [
+      {
+        name:'mfskNativeReceiver',
+        start:async()=>{
+          if(!['Q65','WSPR','MSK144','JTTY'].includes(name)){
+            throw new Error('Unrecognized native mode');
+          }
+          await service.startReady({
+            mode:name as 'Q65'|'WSPR'|'MSK144'|'JTTY',
+            ...(name==='Q65'?{q65Submode:'Q65-60B' as const}:{}),
+            frequencyHz:1500,depth:3,
+          });
+          logger.info('Native multimode receiver started',{mode:name});
+        },
+        stop:async()=>{await service.flushAndStop();},
+        priority:5,dependencies:[],optional:false,
+      },
+      {
+        name:'spectrumScheduler',
+        start:async()=>this.deps.spectrumScheduler.start(),
+        stop:async()=>this.deps.spectrumScheduler.stop(),
+        priority:6,dependencies:[],optional:false,
+      },
+    ];
   }
 
   private buildDigitalModeResourcePlan(): SimplifiedResourceConfig[] {

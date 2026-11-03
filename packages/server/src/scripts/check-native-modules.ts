@@ -1,4 +1,8 @@
 import { pathToFileURL } from 'node:url';
+import { createRequire } from 'node:module';
+import { MFSK_NATIVE_MODULE_PATH } from '../decode/MfskNativeAdapter.js';
+
+const loadNative=createRequire(import.meta.url);
 
 /**
  * Native module diagnostic script — runs as an isolated child process.
@@ -28,7 +32,7 @@ export const NATIVE_MODULES = [
   'icom-wlan-node',
   'node-wav',
   'onnxruntime-node',
-  'wsjtx-lib',
+  'mfsk-native',
 ];
 
 export const DEGRADABLE_NATIVE_MODULES = new Set([
@@ -44,7 +48,8 @@ function defaultWriteLine(line: string): void {
 }
 
 export async function runNativeModulePreflight({
-  importer = (moduleName: string) => import(moduleName),
+  importer = (moduleName: string) => moduleName==='mfsk-native'
+    ? Promise.resolve(loadNative(MFSK_NATIVE_MODULE_PATH)) : import(moduleName),
   writeLine = defaultWriteLine,
 }: {
   importer?: NativeModuleImporter;

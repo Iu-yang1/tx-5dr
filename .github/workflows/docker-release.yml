@@ -16,6 +16,11 @@ on:
         required: false
         default: ''
 
+concurrency:
+  # Keep the latest PR validation; never cancel an official release dispatch.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: write
   packages: write
@@ -66,10 +71,19 @@ jobs:
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           COMMIT_STAMP=$(git show -s --date=format-local:%Y%m%d%H%M --format=%cd "${{ github.sha }}")
           HOST_VERSION=$(node scripts/host-version.mjs --channel nightly --build-stamp "$COMMIT_STAMP" --commit "${{ github.sha }}")
+          if [ -n "${{ github.event.inputs.tag }}" ]; then HOST_VERSION="${{ github.event.inputs.tag }}"; fi
+          SOURCE_VERSION=$(node -p "require('./package.json').version")
+          IS_RC_SOURCE=false
+          if [[ "${{ github.event.inputs.tag }}" == *-rc.* || "$SOURCE_VERSION" == *-rc.* ]]; then
+            IS_RC_SOURCE=true
+          fi
+          echo "is_rc_source=$IS_RC_SOURCE" >> "$GITHUB_OUTPUT"
 
-          # 基础标签
-          TAGS="${IMAGE}:latest"
-          TAGS="${TAGS},${IMAGE}:${SHORT_SHA}"
+          # A push to main containing -rc.N must never retag :latest.
+          TAGS="${IMAGE}:${SHORT_SHA}"
+          if [ "$IS_RC_SOURCE" != "true" ]; then
+            TAGS="${IMAGE}:latest,${TAGS}"
+          fi
 
           # 如果是手动触发且指定了标签
           if [ -n "${{ github.event.inputs.tag }}" ]; then
@@ -169,10 +183,10 @@ jobs:
           echo "### 🚀 使用方法" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
           echo "# 拉取最新镜像" >> $GITHUB_STEP_SUMMARY
-          echo "docker pull ${{ steps.tags.outputs.image }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ steps.tags.outputs.image }}:${{ github.event.inputs.tag != '' && github.event.inputs.tag || 'latest' }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "# 运行容器" >> $GITHUB_STEP_SUMMARY
-          echo "docker run -d -p 8076:80 --name tx-5dr ${{ steps.tags.outputs.image }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo "docker run -d -p 8076:80 --name tx-5dr ${{ steps.tags.outputs.image }}:${{ github.event.inputs.tag != '' && github.event.inputs.tag || 'latest' }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "# 或使用 docker-compose" >> $GITHUB_STEP_SUMMARY
           echo "docker-compose up -d" >> $GITHUB_STEP_SUMMARY
@@ -183,7 +197,8 @@ jobs:
           echo "- [GitHub Repository](https://github.com/${{ github.repository }})" >> $GITHUB_STEP_SUMMARY
 
       - name: Create or Update Nightly Docker Release
-        if: github.event_name != 'pull_request'
+        # RC on main push must not mutate nightly-docker.
+        if: github.event_name != 'pull_request' && (steps.tags.outputs.is_rc_source != 'true' || github.event.inputs.tag != '')
         uses: ncipollo/release-action@v1
         with:
           tag: ${{ github.event.inputs.tag != '' && format('{0}-docker', github.event.inputs.tag) || 'nightly-docker' }}
@@ -217,7 +232,7 @@ jobs:
             version: '3.8'
             services:
               tx5dr:
-                image: ${{ steps.tags.outputs.image }}:latest
+                image: ${{ steps.tags.outputs.image }}:${{ github.event.inputs.tag != '' && github.event.inputs.tag || 'latest' }}
                 container_name: tx5dr
                 restart: unless-stopped
                 ports:
@@ -241,7 +256,7 @@ jobs:
             | `TX5DR_LOGS_DIR` | `/app/data/logs` | Log directory / 日志目录 |
 
             ### 🏷️ Image Tags 镜像标签
-            - `latest` — always points to newest build / 始终指向最新构建
+            - `latest` — stable/nightly only; prerelease uses its versioned RC tag.
             - `${{ steps.tags.outputs.short_sha }}` — pinned to this commit / 锁定到此提交
 
             ### 📦 Architectures 支持架构
@@ -255,7 +270,7 @@ jobs:
           allowUpdates: ${{ github.event.inputs.tag == '' }}
           artifacts: ""
           token: ${{ secrets.GITHUB_TOKEN }}
-          prerelease: ${{ github.event.inputs.tag == '' }}
+          prerelease: ${{ github.event.inputs.tag == '' || contains(github.event.inputs.tag, '-rc.') }}
           makeLatest: false
 
       - name: Install ossutil
@@ -295,7 +310,8 @@ jobs:
           EOF
 
       - name: Generate OSS docker manifest
-        if: env.OSS_ACCESS_KEY_ID != '' && env.OSS_ACCESS_KEY_SECRET != '' && env.OSS_BUCKET != '' && env.OSS_ENDPOINT != '' && env.OSS_BASE_URL != ''
+        # RC is tagged separately in GHCR; it must not write nightly/latest OSS indexes.
+        if: env.OSS_ACCESS_KEY_ID != '' && env.OSS_ACCESS_KEY_SECRET != '' && env.OSS_BUCKET != '' && env.OSS_ENDPOINT != '' && env.OSS_BASE_URL != '' && !contains(github.event.inputs.tag, '-rc.') && steps.tags.outputs.is_rc_source != 'true'
         run: |
           node scripts/generate-oss-manifest.mjs \
             --product docker \
@@ -312,7 +328,7 @@ jobs:
             --docker-digest "${{ steps.docker_build.outputs.digest }}"
 
       - name: Upload docker metadata to OSS
-        if: env.OSS_ACCESS_KEY_ID != '' && env.OSS_ACCESS_KEY_SECRET != '' && env.OSS_BUCKET != '' && env.OSS_ENDPOINT != '' && env.OSS_BASE_URL != ''
+        if: env.OSS_ACCESS_KEY_ID != '' && env.OSS_ACCESS_KEY_SECRET != '' && env.OSS_BUCKET != '' && env.OSS_ENDPOINT != '' && env.OSS_BASE_URL != '' && !contains(github.event.inputs.tag, '-rc.') && steps.tags.outputs.is_rc_source != 'true'
         run: |
           ossutil cp "oss-metadata/docker/latest.json" "oss://${OSS_BUCKET}/tx-5dr/docker/nightly-docker/latest.json" --force -c "${RUNNER_TEMP}/.ossutilconfig"
           ossutil cp "oss-metadata/docker/latest.json" "oss://${OSS_BUCKET}/tx-5dr/docker/latest.json" --force -c "${RUNNER_TEMP}/.ossutilconfig"

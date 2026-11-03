@@ -1,0 +1,19 @@
+[package]
+name = "tx5dr-mfsk-native"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { version = "2.16", default-features = false, features = ["napi4"] }
+napi-derive = "2.16"
+mfsk-core = { version = "=0.15.0", default-features = false, features = [
+  "std", "fft-rustfft", "ft8", "ft4", "wspr", "q65", "msk144", "jtty", "parallel"
+] }
+
+[build-dependencies]
+napi-build = "2"

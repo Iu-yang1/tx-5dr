@@ -10,6 +10,7 @@ import { isPackagedBuild, useBuildInfo } from '../hooks/useBuildInfo';
 import { openExternal } from '../utils/openExternal';
 import { isElectron } from '../utils/config';
 import { AboutHeader } from './about/AboutHeader';
+import { MfskCodecStatusCard } from './about/MfskCodecStatusCard';
 import { DependencyList } from './about/DependencyList';
 import { SponsorList } from './about/SponsorList';
 import { DesktopUpdateCard } from '../components/app/DesktopUpdateCard';
@@ -136,6 +137,7 @@ export const AboutPage: React.FC<AboutPageProps> = ({ embedded, showUpdateCard =
           </CardBody>
         </Card>
 
+        <MfskCodecStatusCard />
         <DependencyList />
 
         <SponsorList />

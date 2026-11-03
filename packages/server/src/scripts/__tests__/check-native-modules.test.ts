@@ -5,6 +5,8 @@ import { DEGRADABLE_NATIVE_MODULES, NATIVE_MODULES, runNativeModulePreflight } f
 describe('native module preflight list', () => {
   it('includes onnxruntime-node so Windows VC runtime issues surface at startup', () => {
     expect(NATIVE_MODULES).toContain('onnxruntime-node');
+    expect(NATIVE_MODULES).toContain('mfsk-native');
+    expect(NATIVE_MODULES).not.toContain('wsjtx-lib');
   });
 
   it('preflights rasterwave as a degradable image-radio feature', () => {

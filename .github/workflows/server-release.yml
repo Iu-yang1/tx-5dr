@@ -16,6 +16,11 @@ on:
         required: false
         default: ''
 
+concurrency:
+  # Keep the latest PR validation; never cancel an official release dispatch.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: write
 
@@ -90,6 +95,18 @@ jobs:
               --distribution linux-service
           fi
 
+      - name: Prepare Rust toolchain for packaged native codec
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build and validate six-mode Node-API native module
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo check --manifest-path packages/mfsk-native/Cargo.toml --all-targets --release
+          cargo build --manifest-path packages/mfsk-native/Cargo.toml --release
+          cp packages/mfsk-native/target/release/libtx5dr_mfsk_native.so packages/mfsk-native/mfsk-native.node
+          node packages/mfsk-native/smoke.cjs
+
       - name: Build application
         run: yarn build
         env:
@@ -136,6 +153,26 @@ jobs:
               rasterwave.correctFaxPaper(new Uint8Array(8), 4, 2, 0, []),
             ]).then(() => console.log("Packaged Image Radio runtime ok")).catch((error) => { console.error(error); process.exit(1); });
           ')
+
+      - name: Verify native addon exists and loads inside installed DEB
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEB_FILE=$(find dist -name '*.deb' -type f | head -1)
+          test -n "$DEB_FILE"
+          EXTRACT_DIR=$(mktemp -d)
+          trap 'rm -rf "$EXTRACT_DIR"' EXIT
+          dpkg-deb -x "$DEB_FILE" "$EXTRACT_DIR"
+          APP_ROOT="$EXTRACT_DIR/usr/share/tx5dr"
+          test -s "$APP_ROOT/packages/mfsk-native/mfsk-native.node"
+          test ! -e "$APP_ROOT/node_modules/wsjtx-lib"
+          node - "$APP_ROOT/packages/mfsk-native/mfsk-native.node" <<'NODE'
+          const native=require(process.argv[2]);
+          for(const mode of ['FT8','FT4','WSPR','Q65-60B','MSK144','JTTY']){
+            if(!native.supportedModes().includes(mode))throw new Error('Missing native '+mode);
+          }
+          console.log('Native headless DEB addon verified:',native.codecVersion());
+          NODE
 
       - name: Prepare artifacts
         run: |
@@ -235,7 +272,11 @@ jobs:
             echo "tag=${{ github.event.inputs.version }}-server" >> $GITHUB_OUTPUT
             echo "version=${VERSION_NO_V#v}" >> $GITHUB_OUTPUT
             echo "channel=release" >> $GITHUB_OUTPUT
-            echo "channel_path=release" >> $GITHUB_OUTPUT
+            if [[ "${{ github.event.inputs.version }}" == *-rc.* ]]; then
+              echo "channel_path=rc" >> $GITHUB_OUTPUT
+            else
+              echo "channel_path=release" >> $GITHUB_OUTPUT
+            fi
           fi
 
       - name: Prepare server release metadata
@@ -406,6 +447,7 @@ jobs:
           name: "TX-5DR Server ${{ github.event.inputs.version }}"
           body: |
             ## TX-5DR Server ${{ github.event.inputs.version }}
+            Windows/Linux P9 six-mode candidate: -rc.N tags are prereleases, not stable. RF TX needs explicit operator consent.
 
             **Release Date** （发布日期）: ${{ steps.release_info.outputs.date }}
             **Commit**: [${{ steps.release_info.outputs.short_sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
@@ -466,7 +508,7 @@ jobs:
           artifacts: "release-assets/*"
           token: ${{ secrets.GITHUB_TOKEN }}
           draft: false
-          prerelease: false
+          prerelease: ${{ contains(github.event.inputs.version, '-rc.') }}
           makeLatest: false
 
       - name: Install ossutil
@@ -554,7 +596,13 @@ jobs:
           done
           ossutil cp "oss-metadata/server/latest.json" "oss://${OSS_BUCKET}/tx-5dr/server/${{ steps.release_info.outputs.tag }}/latest.json" --force -c "${RUNNER_TEMP}/.ossutilconfig"
           ossutil cp "oss-metadata/server/latest.json" "oss://${OSS_BUCKET}/tx-5dr/server/${{ steps.release_info.outputs.channel_path }}/latest.json" --force -c "${RUNNER_TEMP}/.ossutilconfig"
-          ossutil cp "oss-metadata/server/latest.json" "oss://${OSS_BUCKET}/tx-5dr/server/latest.json" --force -c "${RUNNER_TEMP}/.ossutilconfig"
-          if [ -f "publish-assets/install-online.sh" ]; then
-            ossutil cp "publish-assets/install-online.sh" "oss://${OSS_BUCKET}/tx-5dr/server/latest/install-online.sh" --force -c "${RUNNER_TEMP}/.ossutilconfig"
+          # Versioned RC and /rc/latest.json are safe. Do not re-point
+          # the ordinary server latest manifest or installer to a prerelease.
+          SOURCE_VERSION=$(node -p "require('./package.json').version")
+          if [ "${{ steps.release_info.outputs.channel_path }}" != "rc" ] &&
+             [[ "$SOURCE_VERSION" != *-rc.* ]]; then
+            ossutil cp "oss-metadata/server/latest.json" "oss://${OSS_BUCKET}/tx-5dr/server/latest.json" --force -c "${RUNNER_TEMP}/.ossutilconfig"
+            if [ -f "publish-assets/install-online.sh" ]; then
+              ossutil cp "publish-assets/install-online.sh" "oss://${OSS_BUCKET}/tx-5dr/server/latest/install-online.sh" --force -c "${RUNNER_TEMP}/.ossutilconfig"
+            fi
           fi

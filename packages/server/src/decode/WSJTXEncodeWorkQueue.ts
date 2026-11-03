@@ -1,9 +1,11 @@
 import { EventEmitter } from 'eventemitter3';
-import { WSJTXLib, WSJTXMode } from 'wsjtx-lib';
+import type { WSJTXLib } from 'wsjtx-lib';
 import { resampleAudioProfessional } from '../utils/audioUtils.js';
 import { createLogger } from '../utils/logger.js';
 import { WSJTXNativeGate } from './WSJTXNativeGate.js';
 import { digitalMessageTextsMatch, normalizeDigitalMessageText } from './digitalMessageValidation.js';
+import { loadMfskNative, verifyNativeWaveform, type MfskNativeModule } from './MfskNativeAdapter.js';
+import { resolveCodecBackend } from './codec-backend.js';
 
 const logger = createLogger('EncodeWorkQueue');
 
@@ -14,6 +16,8 @@ export interface EncodeRequest {
   streamId?: string;
   trackId?: string;
   mode?: 'FT8' | 'FT4';
+  /** Native migration: request originated inside virtual-radio simulation only. */
+  virtualSimulation?: boolean;
   slotStartMs?: number; // 时隙开始时间戳
   timeSinceSlotStartMs?: number; // 从时隙开始到现在经过的时间（毫秒）
   requestId?: string; // 编码请求唯一ID（用于去重和追踪）
@@ -41,23 +45,70 @@ export interface EncodeWorkQueueEvents {
 }
 
 /**
+ * FT8/FT4 native codec admission before an existing digital frame lease.
+ * This does not grant PTT: DigitalFrameCoordinator still validates revision,
+ * decision epoch, owner and physical frame capacity downstream.
+ */
+export function assertNativeSlottedEncodeAdmission(
+  request: EncodeRequest,
+  rfEnabled: boolean,
+): void {
+  if(request.virtualSimulation === true) {
+    if(!request.operatorId.startsWith('simulation:') || request.frameId !== undefined) {
+      throw new Error('Invalid native simulation request provenance');
+    }
+    return;
+  }
+  // The new native implementation cannot borrow the legacy physical chain
+  // without an explicit product gate and complete frame identity.
+  if(!rfEnabled)throw new Error('mfsk-native RF transmission is disabled pending P9 acceptance');
+  const mode=request.mode==='FT4'?'FT4':'FT8';
+  const slotMs=mode==='FT4'?7500:15000;
+  if(!request.operatorId || request.operatorId.startsWith('simulation:')
+    || !request.frameId || request.frameId.length>256
+    || !Number.isSafeInteger(request.frameRevision) || (request.frameRevision??-1)<0
+    || !Number.isSafeInteger(request.decisionEpoch) || (request.decisionEpoch??-1)<0
+    || !Number.isSafeInteger(request.slotStartMs) || (request.slotStartMs??-1)<0
+    || (request.slotStartMs??-1)%slotMs!==0) {
+    throw new Error('Native RF transmission requires complete aligned digital frame identity');
+  }
+}
+
+/**
  * 使用 wsjtx-lib 进行FT8消息编码
  */
 export class WSJTXEncodeWorkQueue extends EventEmitter<EncodeWorkQueueEvents> {
   private readonly maxConcurrency: number;
-  private readonly lib: WSJTXLib;
+  private readonly lib: Promise<{
+    lib: WSJTXLib;
+    enums: typeof import('wsjtx-lib').WSJTXMode;
+  }> | null;
+  private readonly native: MfskNativeModule | null;
   private activeCount = 0;
   private readonly pending: Array<{
     request: EncodeRequest;
     resolve: () => void;
   }> = [];
   
-  constructor(maxConcurrency: number = 2) {
+  constructor(maxConcurrency: number = 2, nativeForTests?: MfskNativeModule) {
     super();
     this.maxConcurrency = Number.isFinite(maxConcurrency)
       ? Math.max(1, Math.floor(maxConcurrency))
       : 1;
-    this.lib = new WSJTXLib({ maxThreads: 4 });
+    if (nativeForTests || resolveCodecBackend(process.env.TX5DR_CODEC_BACKEND,process.env.NODE_ENV)==='mfsk-native') {
+      const loaded = nativeForTests ? { ready: true as const, module: nativeForTests } : loadMfskNative();
+      if (!loaded.ready) throw new Error(loaded.reason);
+      this.native = loaded.module;
+      this.lib = null;
+    } else {
+      this.native = null;
+      // Only comparison and explicit compatibility runs import the legacy
+      // binary. The production Rust path never evaluates wsjtx-lib.
+      this.lib = import('wsjtx-lib').then(module=>({
+        lib:new module.WSJTXLib({maxThreads:4}),
+        enums:module.WSJTXMode,
+      }));
+    }
     logger.info('encode work queue initialized', { maxConcurrency: this.maxConcurrency });
   }
   
@@ -100,12 +151,41 @@ export class WSJTXEncodeWorkQueue extends EventEmitter<EncodeWorkQueueEvents> {
     try {
       const startTime = performance.now();
 
+      // Native mode is explicitly opted into; a missing module fails closed.
+      if (this.native) {
+        // An explicit, default-disabled RF gate may unlock the *existing*
+        // coordinator-owned frame flow for integration testing. A waveform
+        // emitted here is not a PTT request and still needs a valid lease.
+        assertNativeSlottedEncodeAdmission(
+          request,
+          process.env.TX5DR_ENABLE_MFSK_RF_TX === '1',
+        );
+        const mode = request.mode === 'FT4' ? 'FT4' : 'FT8';
+        const waveform = this.native.encodeSlotted(mode, request.message, request.frequency);
+        const samples = verifyNativeWaveform(waveform, request.message, mode);
+        const encodeResult: EncodeResult & { request: EncodeRequest } = {
+          operatorId: request.operatorId,
+          streamId: request.streamId,
+          trackId: request.trackId,
+          audioData: samples,
+          sampleRate: waveform.sampleRate,
+          duration: samples.length / waveform.sampleRate,
+          success: true,
+          request,
+        };
+        this.emit('encodeComplete', encodeResult);
+        return;
+      }
+      const legacy = this.lib ? await this.lib : null;
+      if (!legacy) throw new Error('No codec backend configured');
+      const {lib,enums:WSJTXMode}=legacy;
+
       // 确定模式
       const mode = request.mode === 'FT4' ? WSJTXMode.FT4 : WSJTXMode.FT8;
 
       // 调用原生库编码
       const { audioData: audioFloat32, messageSent, sampleRate: resultSampleRate } = await WSJTXNativeGate.run(
-        () => this.lib.encode(
+        () => lib.encode(
           mode,
           request.message,
           request.frequency
@@ -129,7 +209,7 @@ export class WSJTXEncodeWorkQueue extends EventEmitter<EncodeWorkQueueEvents> {
       const expectedDuration = mode === WSJTXMode.FT8 ? 12.64 : 6.0;
       const encodeSampleRate = Number.isFinite(resultSampleRate)
         ? resultSampleRate
-        : this.lib.getSampleRate(mode);
+        : lib.getSampleRate(mode);
       const actualDuration = audioFloat32.length / encodeSampleRate;
       const maxSamples = Math.floor(expectedDuration * encodeSampleRate * 1.5);
       let finalAudio = audioFloat32;

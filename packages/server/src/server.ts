@@ -691,6 +691,8 @@ export async function createServer() {
     const { pskreporterRoutes } = await import('./routes/pskreporter.js');
     await scope.register(pskreporterRoutes, { prefix: '/api' });
     await scope.register(systemRoutes, { prefix: '/api/system' });
+    const { mfskCapabilityRoutes } = await import('./routes/mfsk-capabilities.js');
+    await scope.register(mfskCapabilityRoutes, { prefix: '/api/mfsk' });
     await scope.register(openwebrxRoutes, { prefix: '/api/openwebrx' });
   });
   fastify.log.info('Admin routes registered (audio, settings, storage, pskreporter, system, openwebrx)');

@@ -197,6 +197,8 @@ function cleanNonRuntimeFiles(nm) {
 
 function cleanPlatformPrebuilds(nm, platform, arch) {
   console.log(`Cleaning platform prebuilds for ${platform}-${arch}...`);
+  // Entire legacy codec is excluded from installable desktop runtimes.
+  rmrf(path.join(nm, 'wsjtx-lib'));
   const wsjtxPrebuilds = path.join(nm, 'wsjtx-lib', 'prebuilds');
   const hamlibPrebuilds = path.join(nm, 'hamlib', 'prebuilds');
   const serialportPrebuilds = path.join(nm, '@serialport', 'bindings-cpp', 'prebuilds');
@@ -345,8 +347,9 @@ function signMacosBinaries(appRoot, resourcesDir, arch) {
     throw new Error(`macOS entitlements file not found: ${entitlementsPath}`);
   }
   const nodeFiles = findFilesByExt(path.join(appRoot, 'node_modules'), '.node');
+  const mfskNode = findFilesByExt(path.join(appRoot, 'packages', 'mfsk-native'), '.node');
   const dylibFiles = findFilesByExt(path.join(appRoot, 'node_modules'), '.dylib');
-  const runtimeFiles = [...dylibFiles, ...nodeFiles];
+  const runtimeFiles = [...dylibFiles, ...nodeFiles, ...mfskNode];
   console.log(`Signing macOS native runtime files (${runtimeFiles.length})...`);
   for (const runtimeFile of runtimeFiles) {
     execSync([
@@ -387,6 +390,20 @@ async function packageAfterCopy({ appRoot, resourcesDir, platform, arch }) {
   try { cleanNonRuntimeFiles(nm); } catch (error) { console.warn('non-runtime cleanup warning:', error.message || error); }
   try { cleanPlatformPrebuilds(nm, platform, arch); } catch (error) { console.warn('prebuild cleanup warning:', error.message || error); }
   assertPackagedImageRadioRuntime(nm, platform, arch);
+  // A successful source build is not sufficient: prove the actual packed
+  // app contains a real loadable addon for the target runner architecture.
+  if (process.env.TX5DR_REQUIRE_MFSK_NATIVE === '1') {
+    const addon = path.join(appRoot, 'packages', 'mfsk-native', 'mfsk-native.node');
+    if (!fs.existsSync(addon)) {
+      throw new Error(`Experimental TX-5DR package lacks native codec: ${addon}`);
+    }
+    const binding = require(addon);
+    const modes = binding.supportedModes();
+    for (const name of ['FT8', 'FT4', 'WSPR', 'Q65-60B', 'MSK144', 'JTTY']) {
+      if (!modes.includes(name)) throw new Error(`Packaged native codec missing ${name}`);
+    }
+    console.log('Verified packed mfsk-native Node-API binding:', binding.codecVersion());
+  }
 
   if (platform === 'darwin') {
     try { fixMacosRuntimeRpaths(appRoot); } catch (error) { console.warn('macOS RPATH warning:', error.message || error); }
