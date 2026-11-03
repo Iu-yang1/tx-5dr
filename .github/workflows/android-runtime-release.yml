@@ -6,6 +6,7 @@ on:
     paths-ignore:
       - 'release/official-version.txt'
       - '.github/workflows/official-release-dispatch.yml'
+      - '.github/workflows/tx5dr-p9-half-hour-watch.yml'
   workflow_dispatch:
     inputs:
       version:

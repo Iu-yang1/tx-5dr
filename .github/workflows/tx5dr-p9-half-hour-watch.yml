@@ -1,0 +1,280 @@
+name: TX-5DR P9 half-hour acceptance watch
+
+# GitHub scheduled workflows run from the repository default branch.
+# Check the integration PR's *current* HEAD rather than a stale CI run.
+on:
+  schedule:
+    - cron: '0,30 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: tx5dr-p9-half-hour-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    name: Verify current P9 SHA and advance the next verified stage
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const owner=context.repo.owner,repo=context.repo.repo,number=23;
+            const marker='<!-- tx5dr-p9-half-hour-watch -->';
+            const names=[
+              'Focused Radio Regression Tests',
+              'Full Dynamic Radio and Performance Validation',
+              'P0 Native Addon Fork Isolation Acceptance',
+              'Experimental mfsk-native six-mode smoke build',
+              'MFSK weak-signal sensitivity study (on demand)',
+              'Build and Release Electron App',
+              'Build and Release Linux Server',
+              'Build and Release Docker Image',
+            ];
+            const pr=(await github.rest.pulls.get({owner,repo,pull_number:number})).data;
+            if(pr.state==='closed'&&!pr.merged){
+              core.notice('P9 PR #23 was closed without merging; no action taken');
+              return;
+            }
+            const comments=await github.paginate(github.rest.issues.listComments,{
+              owner,repo,issue_number:number,per_page:100,
+            });
+            const previous=comments.find(c=>c.body?.includes(marker)
+              && c.user?.type==='Bot');
+            const report=async (lines)=>{
+              const body=marker+'\n'+lines.join('\n');
+              if(previous?.body===body)return;
+              if(previous)await github.rest.issues.updateComment({
+                owner,repo,comment_id:previous.id,body,
+              });
+              else await github.rest.issues.createComment({
+                owner,repo,issue_number:number,body,
+              });
+            };
+            const findRuns=async (event,branch,sha)=>{
+              const {data}=await github.rest.actions.listWorkflowRunsForRepo({
+                owner,repo,event,branch,per_page:100,
+              });
+              return data.workflow_runs.filter(r=>r.head_sha===sha);
+            };
+            const dispatch=async (sha)=>{
+              const workflows=[
+                ['electron-release.yml',{version:''}],
+                ['server-release.yml',{version:''}],
+                ['docker-release.yml',{tag:''}],
+                ['android-runtime-release.yml',{version:''}],
+              ];
+              const existing=await findRuns('workflow_dispatch','main',sha);
+              const triggered=[];
+              for(const [file,inputs] of workflows){
+                const wf=await github.rest.actions.getWorkflow({owner,repo,workflow_id:file});
+                if(existing.some(r=>r.workflow_id===wf.data.id)){
+                  triggered.push(file+' (already queued)');continue;
+                }
+                await github.rest.actions.createWorkflowDispatch({
+                  owner,repo,workflow_id:file,ref:'main',inputs,
+                });
+                triggered.push(file+' (dispatched)');
+              }
+              return triggered;
+            };
+            if(pr.merged){
+              const sha=pr.merge_commit_sha;
+              if(!sha){core.warning('Merged PR has no merge SHA');return;}
+              const jobs=await dispatch(sha);
+              const rows=await findRuns('workflow_dispatch','main',sha);
+              const done=['Build and Release Electron App',
+                'Build and Release Linux Server',
+                'Build and Release Docker Image',
+                'Build and Release Android Runtime'];
+              const current=done.map(n=>({
+                name:n,run:rows.filter(r=>r.name===n)
+                  .sort((a,b)=>Date.parse(b.created_at)-Date.parse(a.created_at))[0],
+              }));
+              const complete=current.every(x=>x.run?.conclusion==='success');
+              await report([
+                '### TX-5DR P9：已合并；自动执行发布候选构建',
+                'Merged SHA: ' + sha,
+                '',
+                ...current.map(x=>'- '+x.name+': '+
+                  (x.run?(x.run.status+' / '+(x.run.conclusion||'running')+
+                    ' ([run]('+x.run.html_url+'))'):'awaiting run')),
+                '',
+                complete?'四项后续候选构建全部通过。注意：这些是 nightly 工件，不等于已发布正式版本。':
+                  '已调度后续 nightly 构建；失败需要根据对应日志继续排障。',
+              ]);
+              core.notice('P9 merged follow-up: '+jobs.join(', '));
+              return;
+            }
+            if(pr.head.repo.full_name!==owner+'/'+repo ||
+              pr.head.ref!=='integration/mfsk-six-mode-p0-p9' ||
+              pr.base.ref!=='main'){
+              core.setFailed('Unexpected PR source/target; fail closed');
+              return;
+            }
+            const head=pr.head.sha;
+            let mergeSha=pr.merge_commit_sha;
+            try{
+              const ref=await github.rest.git.getRef({owner,repo,ref:'pull/23/merge'});
+              mergeSha=ref.data.object.sha;
+            }catch(error){
+              core.warning('Unable to resolve synthetic merge ref: '+error.message);
+            }
+            const {data}=await github.rest.actions.listWorkflowRunsForRepo({
+              owner,repo,event:'pull_request',branch:pr.head.ref,per_page:100,
+            });
+            const matching=data.workflow_runs.filter(r=>
+              (r.head_sha===head || r.head_sha===mergeSha) &&
+              (r.pull_requests?.length===0 ||
+                r.pull_requests?.some(p=>p.number===number)));
+            const checks=names.map(name=>({
+              name,run:matching.filter(r=>r.name===name)
+                .sort((a,b)=>Date.parse(b.created_at)-Date.parse(a.created_at))[0],
+            }));
+            const issues=[];
+            let retried=false;
+            for(const item of checks){
+              const run=item.run;
+              if(!run || run.status!=='completed' || run.conclusion!=='failure')continue;
+              const jobs=(await github.rest.actions.listJobsForWorkflowRun({
+                owner,repo,run_id:run.id,filter:'latest',per_page:100,
+              })).data.jobs;
+              const failedJobs=jobs.filter(j=>j.conclusion==='failure');
+              const transient=failedJobs.length>0 && failedJobs.every(j=>
+                j.steps?.some(s=>s.conclusion==='failure' &&
+                  /(checkout|setup node\.js|setup rust)/i.test(s.name)));
+              issues.push(item.name+': '+failedJobs.map(j=>j.name+
+                ' ['+j.steps?.filter(s=>s.conclusion==='failure')
+                  .map(s=>s.name).join(', ')+']').join('; '));
+              if(transient && (run.run_attempt||1)<2){
+                try{
+                  await github.rest.actions.reRunFailedJobsForWorkflowRun({
+                    owner,repo,run_id:run.id,
+                  });
+                  retried=true;
+                  core.notice('Auto-retried infrastructure failure: '+run.html_url);
+                }catch(error){core.warning('Retry failed: '+error.message);}
+              }
+            }
+            const statusLines=checks.map(x=>'- '+x.name+': '+
+              (x.run?(x.run.status+' / '+(x.run.conclusion||'running')+
+                ' ([run]('+x.run.html_url+'))'):'not found for current SHA'));
+            const allGreen=checks.every(x=>x.run?.status==='completed'&&
+              x.run?.conclusion==='success');
+            let matrixGreen=true;
+            if(allGreen){
+              for(const item of checks){
+                if(!['Experimental mfsk-native six-mode smoke build',
+                  'Build and Release Electron App'].includes(item.name))continue;
+                const jobs=(await github.rest.actions.listJobsForWorkflowRun({
+                  owner,repo,run_id:item.run.id,filter:'latest',per_page:100,
+                })).data.jobs;
+                const required=item.name.startsWith('Experimental')?[
+                  'Native ubuntu-24.04','Native ubuntu-24.04-arm',
+                  'Native windows-2022','Native macos-15-intel',
+                  'Native macos-latest','server-runtime',
+                ]:[
+                  'tx-5dr-windows-x64','tx-5dr-linux-x64',
+                  'tx-5dr-linux-arm64','tx-5dr-macos-x64',
+                  'tx-5dr-macos-arm64',
+                ];
+                for(const value of required){
+                  const job=jobs.find(j=>item.name.startsWith('Experimental')
+                    ?j.name===value:j.name.includes(value));
+                  if(job?.conclusion!=='success'){
+                    issues.push('Missing or non-success mandatory matrix job: '+
+                      item.name+' / '+value);
+                    matrixGreen=false;
+                  }
+                }
+              }
+            }
+            const green=allGreen&&matrixGreen;
+            let next='Continue waiting for the current-head tests.';
+            if(issues.length){
+              next='Failures identified. Retry only transient runner setup failures; '+
+                'code failures need a real fix and a new commit. Never lower acceptance gates.';
+              const title='TX-5DR P9 CI blockers (automated)';
+              const open=await github.paginate(github.rest.issues.listForRepo,{
+                owner,repo,state:'open',per_page:100,
+              });
+              const existing=open.find(x=>!x.pull_request&&x.title===title);
+              const body='<!-- tx5dr-p9-blockers -->\nCurrent HEAD: '+head+
+                '\n\n'+issues.map(x=>'- '+x).join('\n')+
+                '\n\nSee PR #23 and the linked CI logs. Keep FT8/FT4 '+
+                'sensitivity and independent-reference thresholds unchanged.';
+              if(existing){
+                if(existing.body!==body)await github.rest.issues.update({
+                  owner,repo,issue_number:existing.number,body,
+                });
+              }else{
+                await github.rest.issues.create({owner,repo,title,body});
+              }
+            }
+            if(retried)next+=' Retried one transient setup failure automatically.';
+            if(green){
+              next='All eight workflows and mandatory five-platform jobs are green. '+
+                'Begin PR promotion and integration.';
+              try{
+                if(pr.draft){
+                  await github.graphql(
+                    'mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){pullRequest{id}}}',
+                    {id:pr.node_id},
+                  );
+                }
+                const refreshed=(await github.rest.pulls.get({
+                  owner,repo,pull_number:number,
+                })).data;
+                if(refreshed.head.sha!==head){
+                  next='PR HEAD advanced during verification; defer integration.';
+                }else if(refreshed.mergeable!==true){
+                  next='PR is ready for review, but mergeability is not confirmed. '+
+                    'Do not bypass branch protection.';
+                }else{
+                  const merge=await github.rest.pulls.merge({
+                    owner,repo,pull_number:number,sha:head,
+                    merge_method:'squash',
+                    commit_title:'feat: TX-5DR native digital six-mode P2-P9 integration',
+                  });
+                  if(merge.data.merged){
+                    next='Merged into main at '+merge.data.sha+
+                      '. Dispatching post-merge nightly platform builds.';
+                    const started=await dispatch(merge.data.sha);
+                    next+=' '+started.join(', ');
+                    const open=await github.paginate(github.rest.issues.listForRepo,{
+                      owner,repo,state:'open',per_page:100,
+                    });
+                    const blocker=open.find(x=>x.title===
+                      'TX-5DR P9 CI blockers (automated)'&&!x.pull_request);
+                    if(blocker)await github.rest.issues.update({
+                      owner,repo,issue_number:blocker.number,state:'closed',
+                    });
+                  }
+                }
+              }catch(error){
+                next='P9 checks green but automatic next step blocked: '+error.message+
+                  '. No branch protection or review requirement will be bypassed.';
+                core.warning(next);
+              }
+            }
+            await report([
+              '### TX-5DR P9：每 30 分钟自动验收监测',
+              'Current source HEAD: '+head,
+              'Synthetic merge SHA: '+mergeSha,
+              '',
+              ...statusLines,
+              '',
+              '**Next action:** '+next,
+              '',
+              'Only same-HEAD CI evidence qualifies. Simulation does not certify actual RF hardware.',
+            ]);
+            await core.summary.addHeading('TX-5DR P9 acceptance status')
+              .addRaw('Head: '+head+'\n\n'+statusLines.join('\n')+
+                '\n\nNext: '+next).write();
