@@ -13,6 +13,8 @@ import { MFSK_NATIVE_MODULE_PATH } from '../decode/MfskNativeAdapter.js';
 import { MfskCodecSimulationRequestSchema, MfskCodecSimulationResponseSchema } from '@tx5dr/contracts';
 import { fileURLToPath } from 'node:url';
 import { DigitalRadioEngine } from '../DigitalRadioEngine.js';
+import { requireOperatorAbility } from '../auth/authPlugin.js';
+import { MfskPhysicalTxRequestSchema } from '@tx5dr/contracts';
 import {
   MfskLiveRxStartSchema, MfskLiveRxStatusSchema, MfskLiveRxEventsSchema,
 } from '@tx5dr/contracts';
@@ -117,6 +119,28 @@ export async function mfskCapabilityRoutes(fastify:FastifyInstance):Promise<void
         events:live.recent(afterMs),status:live.status(),
       }));
     });
+
+  // Dedicated authenticated TX path. The host's physical lease owns PTT;
+  // Rust encoding runs in a separate child. A hard product RF gate remains
+  // disabled by default, including for a connected physical transceiver.
+  fastify.get('/tx/status',{preHandler:[requireAbility('manage','all')]},
+    async(_request,reply)=>{
+      const service=DigitalRadioEngine.getInstance().getMfskNativeTxService();
+      return reply.send({rfEnabled:service.isRfEnabled(),busy:service.isBusy()});
+    });
+  fastify.post('/tx/send',{
+    preHandler:[requireOperatorAbility(req=>(req.body as {operatorId?:string})?.operatorId??'')],
+  },async(request,reply)=>{
+    const payload=MfskPhysicalTxRequestSchema.parse(request.body);
+    const service=DigitalRadioEngine.getInstance().getMfskNativeTxService();
+    if(!service.isRfEnabled()){
+      return reply.code(423).send({
+        success:false,error:'MFSK physical TX is locked until P9 acceptance',
+      });
+    }
+    const result=await service.send(payload);
+    return reply.send(result);
+  });
 
   // Only one CPU-intensive native simulation at a time per server process.
   // Runs in a disposable child; malformed native code cannot crash Fastify.

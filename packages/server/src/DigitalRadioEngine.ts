@@ -35,6 +35,7 @@ import {
 } from '@tx5dr/contracts';
 import { EventEmitter } from 'eventemitter3';
 import { MfskLiveRxService } from './decode/MfskLiveRxService.js';
+import { MfskNativeTxService } from './decode/MfskNativeTxService.js';
 import {
   AudioStreamManager,
   CW_INPUT_PROCESSING_SAMPLE_RATE,
@@ -252,6 +253,7 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
   private currentMode: ModeDescriptor = MODES.FT8;
   private audioStreamManager: AudioStreamManager;
   private mfskLiveRxService: MfskLiveRxService;
+  private mfskNativeTxService: MfskNativeTxService;
   private physicalTxAudioBackend: PhysicalTxAudioBackend;
   private realDecodeQueue: WSJTXDecodeWorkQueue;
   private realEncodeQueue: WSJTXEncodeWorkQueue;
@@ -380,6 +382,21 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
     this.physicalTxCoordinator.on('phaseChanged', (snapshot) => {
       this.handleCoordinatedPhysicalTxChanged(snapshot);
     });
+    this.mfskNativeTxService = new MfskNativeTxService({
+      mode:()=>this.currentMode.name,
+      isRunning:()=>this.engineLifecycle?.getIsRunning()??false,
+      operatorExists:(id)=>this._operatorManager.getOperatorById(id)!==undefined,
+      now:()=>this.clockSource.now(),
+      transmitAudio:request=>this.physicalTxCoordinator.transmitAudio(request),
+      stopTuneTone:()=>this.stopTuneTone('native digital transmitter started'),
+      // Explicit RF admission remains FALSE unless the operator deliberately
+      // enables this experimental build after complete P9 validation. No
+      // automatic enable merely because the native codec is installed.
+      rfAllowed:()=>process.env.TX5DR_ENABLE_MFSK_RF_TX==='1'
+        && !ConfigManager.getInstance().getActiveVirtualRadioProfile()
+        && this.mfskLiveRxService.status().ready,
+    });
+
     this.frequencyManager = new FrequencyManager(ConfigManager.getInstance().getCustomFrequencyPresets());
     this.transmissionTracker = new TransmissionTracker();
     this.resourceManager = new ResourceManager();
@@ -858,6 +875,10 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
 
   public getEngineLifecycle(): EngineLifecycle {
     return this.engineLifecycle;
+  }
+
+  public getMfskNativeTxService(): MfskNativeTxService {
+    return this.mfskNativeTxService;
   }
 
   public getMfskLiveRxService(): MfskLiveRxService {
@@ -1564,6 +1585,7 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
     // already-serialized mode transaction settle before disconnecting CAT.
     await this.modeSwitchTail.catch(() => undefined);
     await this.stopTuneTone('engine stopped');
+    this.mfskNativeTxService.cancel();
     this.mfskLiveRxService.stop();
     try {
       return await this.engineLifecycle.stop();
@@ -1918,6 +1940,7 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
   }
 
   private async runWithModeChangeGate(operation: () => Promise<void>): Promise<void> {
+    this.mfskNativeTxService.cancel();
     this._operatorManager.enterTransmissionMaintenance('mode change');
     try {
       await this.stopTuneTone('mode changed');

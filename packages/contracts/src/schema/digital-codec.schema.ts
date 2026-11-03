@@ -209,3 +209,20 @@ export const MfskLiveRxEventsSchema = z.object({
   status:MfskLiveRxStatusSchema,
 });
 export type MfskLiveRxEvents = z.infer<typeof MfskLiveRxEventsSchema>;
+
+export const MfskPhysicalTxRequestSchema = z.object({
+  mode:DigitalCodecModeSchema,
+  operatorId:z.string().min(1).max(128),
+  text:z.string().trim().min(1).max(64),
+  audioHz:z.number().finite().min(100).max(5500),
+  q65Submode:Q65SubmodeSchema.optional(),
+  beaconAuthorized:z.boolean().default(false),
+}).superRefine((value,ctx)=>{
+  if(value.mode==='WSPR'&&!value.beaconAuthorized){
+    ctx.addIssue({code:z.ZodIssueCode.custom,path:['beaconAuthorized'],message:'WSPR beacon requires explicit authorization'});
+  }
+  if(value.mode!=='Q65'&&value.q65Submode){
+    ctx.addIssue({code:z.ZodIssueCode.custom,path:['q65Submode'],message:'Q65-only submode'});
+  }
+});
+export type MfskPhysicalTxRequest = z.infer<typeof MfskPhysicalTxRequestSchema>;

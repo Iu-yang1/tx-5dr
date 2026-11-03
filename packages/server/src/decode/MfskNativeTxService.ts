@@ -57,6 +57,7 @@ export class MfskNativeTxService {
 
   cancel():void {this.epoch++;}
   isBusy():boolean {return this.busy;}
+  isRfEnabled():boolean {return this.deps.rfAllowed();}
 
   async send(request:MfskTxRequest):Promise<MfskTxOutcome> {
     if(this.busy)throw new Error('A native transmit operation is already pending');
