@@ -60,7 +60,8 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
   private serialized:Promise<void>=Promise.resolve();
   private readonly history:DigitalRxEvent[]=[];
   private readonly wsprSpotStore=new WsprSpotStore();
-  private readonly onPcm=(samples:Float32Array,rate:number)=>this.receiveAudio(samples,rate);
+  private readonly onPcm=(samples:Float32Array,rate:number)=>
+    this.receiveAudio(samples,rate,this.now());
 
   constructor(audio:AudioStreamManager, now:()=>number=Date.now,
     spawnWorker:(entry:string)=>ChildProcess=(entry)=>fork(entry,[],{
@@ -307,7 +308,7 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
     this.emit('status',this.status());
   }
 
-  private receiveAudio(pcm:Float32Array,sampleRate:number):void {
+  private receiveAudio(pcm:Float32Array,sampleRate:number,arrivalTimeMs:number):void {
     const generation=this.generation;
     if(!this.ready||!this.config||!this.child)return;
     if(!Number.isFinite(sampleRate)||sampleRate<8000||sampleRate>192000||!pcm.length)return;
@@ -330,14 +331,14 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
         return;
       }
       if(this.ring){
-        this.ring.write(normalized,this.now());
+        this.ring.write(normalized,arrivalTimeMs);
       }else{
-        this.sendAudio(generation,normalized);
+        this.sendAudio(generation,normalized,arrivalTimeMs);
       }
     }).catch(e=>this.fail(generation,e instanceof Error?e.message:String(e)));
   }
 
-  private sendAudio(generation:number,samples:Float32Array):void {
+  private sendAudio(generation:number,samples:Float32Array,arrivalTimeMs:number):void {
     if(this.generation!==generation||!this.child||!this.ready)return;
     if(this.pending>=8){
       this.fail(generation,'Native streaming RX queue overrun');
@@ -349,7 +350,7 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
     this.nextSample+=samples.length;
     this.pending++;
     this.child.send({cmd:'audio',generation,startSample,
-      timestampMs:this.now(),pcm:bytes});
+      timestampMs:arrivalTimeMs,pcm:bytes});
   }
 
   private pollSlot(generation:number,periodMs:number):void {

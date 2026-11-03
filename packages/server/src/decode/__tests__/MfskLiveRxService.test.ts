@@ -40,6 +40,24 @@ describe('live receiver protects the real AF ingestion and native session bounda
     expect(s.live.status().running).toBe(false);
   });
 
+  it('preserves audio-capture timestamp through deferred native streaming queue',async()=>{
+    const s=setup();
+    const initial=s.live.start({mode:'MSK144'});
+    const worker=s.workers[0];
+    worker.emit('message',{type:'started',generation:initial.generation});
+    const t0=1_800_000_000_000;
+    s.at(t0);
+    (s.audio as unknown as EventEmitter).emit('audioData',new Float32Array(480),12000);
+    // Resampling/serialization resolves only after the source clock advances.
+    // The delivered AF still belongs to the earlier hardware callback.
+    s.at(t0+2500);
+    await new Promise(resolve=>setImmediate(resolve));
+    const audioMessage=worker.messages.find((msg)=>
+      (msg as {cmd?:string}).cmd==='audio') as {timestampMs:number}|undefined;
+    expect(audioMessage?.timestampMs).toBe(t0);
+    s.live.stop();
+  });
+
   it('keeps MSK144 real AF chunks contiguous and prevents queued RX after stop',async()=>{
     const s=setup();
     const first=s.live.start({mode:'MSK144',frequencyHz:1500});
