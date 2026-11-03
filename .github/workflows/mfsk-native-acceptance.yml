@@ -79,6 +79,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22.15.1'
+      - name: Checkout pinned WSJT-X tier-B reference WAV corpus
+        uses: actions/checkout@v4
+        with:
+          repository: jl1nie/mfsk-core
+          ref: 18b37c068e150541b051944db2a94f30bc6c36af
+          path: mfsk-upstream-golden
+          sparse-checkout: |
+            embedded-poc/assets/golden
+            LICENSE
+          sparse-checkout-cone-mode: false
       - name: Enable yarn
         run: |
           corepack enable
@@ -100,6 +110,16 @@ jobs:
         run: node packages/server/scripts/p9-codec-runtime-audit.cjs
       - name: Exercise all six real compiled server simulation paths
         run: node packages/server/scripts/mfsk-sim-e2e.cjs
+      - name: Decode official WSJT-X off-air samples with the actual Node-API addon
+        run: node packages/server/scripts/wsjtx-golden-replay.cjs mfsk-upstream-golden/embedded-poc/assets/golden
+      - name: Upload strict off-air recall and phantom report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mfsk-wsjtx-offair-golden-${{ github.sha }}
+          path: packages/server/scripts/wsjtx-golden-replay-report.json
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Cross-decode independent FT8/FT4 reference TX and Rust TX (both directions)
         run: node packages/server/scripts/reference-crosscodec.cjs
       - name: Upload independent cross-codec reference results
