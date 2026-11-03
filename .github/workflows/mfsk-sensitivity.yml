@@ -67,7 +67,11 @@ jobs:
           # Such scripts fetch large external models and can fail on GitHub
           # runner networking before any codec threshold is exercised.
           yarn install --immutable --mode=skip-build
-          yarn rebuild wsjtx-lib
+          # Yarn rebuild clears the package build state and may also run ALL
+          # skipped lifecycle scripts, including unrelated onnxruntime-node.
+          # npm rebuild <package> explicitly compiles ONLY this native
+          # WSJT-X reference addon; no lockfile or dependency change.
+          npm rebuild wsjtx-lib --no-save --foreground-scripts
           node --input-type=module -e "const {WSJTXLib,WSJTXMode}=await import('wsjtx-lib');if(!WSJTXLib||!WSJTXMode)throw Error('WSJT-X reference module unavailable');console.log('Independent WSJT-X reference module loaded')"
       - name: FT8 independent codec threshold comparison
         env:
