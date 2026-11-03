@@ -34,6 +34,18 @@ describe('native RF operator admission (no physical PTT)', () => {
     expect(gate.status().remainingMs).toBe(0);
   });
 
+  it('revokes approval after a dial-frequency change without restoring it',()=>{
+    let identity:string|null='rig:3:Q65:7:432080000';
+    const gate=new MfskRfArmGate({
+      monotonicNowMs:()=>100,eligibleIdentity:()=>identity,
+    });
+    gate.arm(true);
+    identity='rig:3:Q65:7:432090000';
+    expect(gate.allowed()).toBe(false);
+    identity='rig:3:Q65:7:432080000';
+    expect(gate.allowed()).toBe(false);
+  });
+
   it('denies a disconnected rig and rejects too-long authorization',()=>{
     let identity:string|null='real:3:Q65:10';
     const gate=new MfskRfArmGate({

@@ -388,15 +388,19 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
       monotonicNowMs:()=>performance.now(),
       eligibleIdentity:()=>{
         const rx=this.mfskLiveRxService.status();
-        if(!this.radioManager.isConnected()
+        const dialHz=this.radioManager.getLastConfirmedFrequency();
+        if(!Number.isFinite(dialHz) || dialHz===null || dialHz<=0
+          || !this.radioManager.isConnected()
           || !!ConfigManager.getInstance().getActiveVirtualRadioProfile()
           || !this.engineLifecycle?.getIsRunning()
           || !rx.ready || rx.mode!==this.currentMode.name
           || !['Q65','WSPR','MSK144','JTTY'].includes(this.currentMode.name)){
           return null;
         }
-        return [this.radioManager.getConnectionGeneration?.()??-1,
-          this.currentMode.name,rx.generation].join(':');
+        // A new dial frequency requires the operator to reacknowledge
+        // regulatory band and RF power/antenna readiness.
+        return [this.radioManager.getConnectionGeneration(),
+          this.currentMode.name,rx.generation,dialHz].join(':');
       },
     });
     this.mfskNativeTxService = new MfskNativeTxService({
