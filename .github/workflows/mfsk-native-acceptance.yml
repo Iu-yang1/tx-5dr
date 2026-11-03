@@ -13,6 +13,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: mfsk-native-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   native:
     name: Native ${{ matrix.os }}
@@ -43,6 +47,9 @@ jobs:
           fi
       - name: Verify real Node-API load and offline TX waveforms
         run: node packages/mfsk-native/smoke.cjs
+      - name: Run exploratory deterministic FT8/FT4 AWGN simulation
+        shell: bash
+        run: node packages/mfsk-native/simulation-acceptance.cjs
       - name: Upload experimental native addon
         uses: actions/upload-artifact@v4
         with:
@@ -50,4 +57,5 @@ jobs:
           path: |
             packages/mfsk-native/mfsk-native.node
             packages/mfsk-native/smoke.cjs
+            packages/mfsk-native/simulation-report.json
           retention-days: 14
