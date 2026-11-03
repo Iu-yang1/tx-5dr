@@ -88,6 +88,21 @@
     "rfLocked": "RF TX is locked pending P9 safety acceptance",
     "beaconAuthorization": "I explicitly authorize a WSPR beacon transmission (120 s period)",
     "txComplete": "Transmission workflow completed",
-    "txFailed": "TX failed: check mode, operator permission, RF gate and server diagnostics"
+    "txFailed": "TX failed: check mode, operator permission, RF gate and server diagnostics",
+    "logTitle": "QSO log (manual confirmation)",
+    "logManualOnly": "Confirm only after a genuine two-way exchange. A decode alone is not proof of a completed QSO. WSPR beacons are not QSOs.",
+    "dxCall": "DX callsign",
+    "dxGrid": "DX locator (optional)",
+    "sentReport": "Report sent",
+    "receivedReport": "Report received",
+    "logFrequencyMHz": "RF frequency MHz",
+    "logUtc": "Contact start",
+    "logNewContact": "New QSO timer",
+    "logConfirm": "Confirm and save QSO",
+    "logSaved": "Contact saved in the existing logbook",
+    "logFailed": "Logbook write failed: inspect operator, mode and logbook",
+    "logCallInvalid": "Enter a valid callsign",
+    "logGridInvalid": "Grid must be 4 or 6-character Maidenhead",
+    "logFrequencyInvalid": "Enter a valid RF frequency in MHz"
   }
 }

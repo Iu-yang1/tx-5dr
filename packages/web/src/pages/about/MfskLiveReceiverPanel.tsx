@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Button, Card, CardBody, Input } from '@heroui/react';
 import { useTranslation } from 'react-i18next';
 import { api } from '@tx5dr/core';
-import { useCurrentOperatorId } from '../../store/radioStore';
+import { useCurrentOperatorId, useRadioModeState } from '../../store/radioStore';
 import { Q65SubmodeSchema, type DigitalCodecMode, type DigitalRxEvent,
   type MfskLiveRxStatus, type Q65Submode } from '@tx5dr/contracts';
 
@@ -11,6 +11,7 @@ import { Q65SubmodeSchema, type DigitalCodecMode, type DigitalRxEvent,
 export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecMode} = {}) {
   const { t } = useTranslation('about');
   const { currentOperatorId } = useCurrentOperatorId();
+  const radioMode = useRadioModeState();
   const [status,setStatus] = useState<MfskLiveRxStatus | null>(null);
   const [mode,setMode] = useState<DigitalCodecMode>(initialMode??'Q65');
   const [submode,setSubmode] = useState<Q65Submode>('Q65-60B');
@@ -25,6 +26,15 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
   const [beaconAuthorized,setBeaconAuthorized] = useState(false);
   const [txPending,setTxPending] = useState(false);
   const [txNotice,setTxNotice] = useState<string | null>(null);
+  const [dxCall,setDxCall] = useState('');
+  const [dxGrid,setDxGrid] = useState('');
+  const [txReport,setTxReport] = useState('-10');
+  const [rxReport,setRxReport] = useState('-12');
+  const [frequencyMHz,setFrequencyMHz] = useState('');
+  const [contactStartMs,setContactStartMs] = useState(() => Date.now());
+  const [qsoBusy,setQsoBusy] = useState(false);
+  const [qsoNotice,setQsoNotice] = useState<string|null>(null);
+
 
   useEffect(()=>{
     let active=true;
@@ -58,6 +68,39 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
     void action.then(value=>{setStatus(value);setEvents([]);})
       .catch(()=>setError(t('codec.liveOperationFailed')))
       .finally(()=>setBusy(false));
+  };
+
+  const recordQso=()=>{
+    if(!currentOperatorId || (mode!=='Q65'&&mode!=='MSK144'&&mode!=='JTTY'))return;
+    const hz = Number(frequencyMHz) * 1_000_000 ||
+      radioMode.currentRadioFrequency || 0;
+    if(!Number.isFinite(hz)||hz<1000||hz>100_000_000_000){
+      setQsoNotice(t('codec.logFrequencyInvalid'));return;
+    }
+    const call=dxCall.trim().toUpperCase();
+    if(!/^[A-Z0-9/]{3,24}$/.test(call)){
+      setQsoNotice(t('codec.logCallInvalid'));return;
+    }
+    const grid=dxGrid.trim().toUpperCase();
+    if(grid && !/^[A-R]{2}[0-9]{2}(?:[A-X]{2})?$/.test(grid)){
+      setQsoNotice(t('codec.logGridInvalid'));return;
+    }
+    const matched=events.filter(e=>e.text.toUpperCase().includes(call)
+      && e.timestampMs>=contactStartMs-60_000).map(e=>e.text).slice(-64);
+    setQsoBusy(true);setQsoNotice(null);
+    void api.confirmMfskQso({
+      mode,operatorId:currentOperatorId,callsign:call,
+      ...(grid?{grid}:{}),frequencyHz:Math.round(hz),
+      startTime:contactStartMs,endTime:Date.now(),
+      ...(txReport.trim()?{reportSent:txReport.trim()}:{}),
+      ...(rxReport.trim()?{reportReceived:rxReport.trim()}:{}),
+      ...(mode==='Q65'?{q65Submode:submode}:{}),
+      messageHistory:matched,
+    }).then(value=>{
+      setQsoNotice(value.success?t('codec.logSaved'):t('codec.logFailed'));
+      if(value.success){setContactStartMs(Date.now());setDxCall('');}
+    }).catch(()=>setQsoNotice(t('codec.logFailed')))
+      .finally(()=>setQsoBusy(false));
   };
 
   const transmit=()=>{
@@ -157,6 +200,30 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
         </div>
         {txNotice && <p className="text-xs" role="status">{txNotice}</p>}
       </div>
+      {mode!=='WSPR' && <section className="rounded-md border border-default-200 p-3 space-y-2">
+        <p className="text-sm font-medium">{t('codec.logTitle')}</p>
+        <p className="text-xs text-default-500">{t('codec.logManualOnly')}</p>
+        <div className="grid grid-cols-2 gap-2">
+          <Input size="sm" label={t('codec.dxCall')} value={dxCall} onValueChange={setDxCall} maxLength={24}/>
+          <Input size="sm" label={t('codec.dxGrid')} value={dxGrid} onValueChange={setDxGrid} maxLength={6}/>
+          <Input size="sm" label={t('codec.sentReport')} value={txReport} onValueChange={setTxReport} maxLength={16}/>
+          <Input size="sm" label={t('codec.receivedReport')} value={rxReport} onValueChange={setRxReport} maxLength={16}/>
+          <Input size="sm" type="number" label={t('codec.logFrequencyMHz')}
+            value={frequencyMHz} onValueChange={setFrequencyMHz}
+            placeholder={radioMode.currentRadioFrequency ?
+              (radioMode.currentRadioFrequency/1_000_000).toFixed(6):'144.360'}/>
+        </div>
+        <p className="text-xs text-default-500">{t('codec.logUtc')}:
+          {' '}{new Date(contactStartMs).toISOString().replace('T',' ').slice(0,19)} UTC</p>
+        <div className="flex gap-2 flex-wrap">
+          <Button size="sm" variant="flat" onPress={()=>{setContactStartMs(Date.now());setQsoNotice(null);}}>
+            {t('codec.logNewContact')}</Button>
+          <Button size="sm" color="primary" isLoading={qsoBusy}
+            isDisabled={!currentOperatorId||!dxCall.trim()||qsoBusy}
+            onPress={recordQso}>{t('codec.logConfirm')}</Button>
+        </div>
+        {qsoNotice && <p className="text-xs" role="status">{qsoNotice}</p>}
+      </section>}
       <p className="text-xs text-default-500">{t('codec.liveNoTx')}</p>
     </CardBody>
   </Card>;

@@ -88,6 +88,21 @@
     "rfLocked": "射频发送尚未开放；必须完成 P9 安全验收",
     "beaconAuthorization": "我明确授权发送 WSPR 信标（120 秒固定周期）",
     "txComplete": "已完成一次发射流程",
-    "txFailed": "发射未成功：请检查模式、操作员权限、射频门禁与服务端诊断"
+    "txFailed": "发射未成功：请检查模式、操作员权限、射频门禁与服务端诊断",
+    "logTitle": "QSO 日志（人工确认）",
+    "logManualOnly": "请仅在确实完成双方交换之后确认记录；本软件不会把单次解码当成成功 QSO。WSPR 信标不记录为 QSO。",
+    "dxCall": "对方呼号",
+    "dxGrid": "对方网格（可选）",
+    "sentReport": "发送报告",
+    "receivedReport": "接收报告",
+    "logFrequencyMHz": "RF 频率 MHz",
+    "logUtc": "开始时间",
+    "logNewContact": "新建通联计时",
+    "logConfirm": "确认并保存 QSO",
+    "logSaved": "通联已由现有日志本服务保存",
+    "logFailed": "日志保存失败，请检查操作员、模式及日志本",
+    "logCallInvalid": "请输入有效对方呼号",
+    "logGridInvalid": "网格需要 4 或 6 字符的 Maidenhead 格式",
+    "logFrequencyInvalid": "请输入有效的射频频率（MHz）"
   }
 }

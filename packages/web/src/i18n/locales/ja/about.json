@@ -88,6 +88,21 @@
     "rfLocked": "P9検証までRF送信は禁止",
     "beaconAuthorization": "120秒WSPRビーコン送信を明示的に許可",
     "txComplete": "送信フロー完了",
-    "txFailed": "送信に失敗しました。モード・権限・サーバーを確認"
+    "txFailed": "送信に失敗しました。モード・権限・サーバーを確認",
+    "logTitle": "QSOログ（手動確認）",
+    "logManualOnly": "双方の交信成立を確認した場合のみ記録します。受信復号だけではQSO成立ではありません。WSPRはQSOではありません。",
+    "dxCall": "相手局コールサイン",
+    "dxGrid": "グリッド（任意）",
+    "sentReport": "送信レポート",
+    "receivedReport": "受信レポート",
+    "logFrequencyMHz": "RF周波数 MHz",
+    "logUtc": "開始時間",
+    "logNewContact": "新しいQSO",
+    "logConfirm": "QSOを確認して保存",
+    "logSaved": "既存ログに保存しました",
+    "logFailed": "ログ保存に失敗しました",
+    "logCallInvalid": "有効なコールサインを入力",
+    "logGridInvalid": "グリッドは4または6文字で入力",
+    "logFrequencyInvalid": "有効なRF周波数をMHzで入力"
   }
 }
