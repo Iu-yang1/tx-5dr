@@ -51,6 +51,8 @@ module.exports = {
     'package.json',
     'packages/**/package.json',
     'packages/**/dist/**',
+    // Only present in the experimental PR build; preserve real native Node-API binary.
+    'packages/mfsk-native/mfsk-native.node',
     'packages/client-tools/src/proxy.js',
     'packages/electron-main/assets/**',
     'node_modules/**',

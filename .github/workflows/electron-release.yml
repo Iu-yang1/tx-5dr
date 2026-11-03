@@ -171,6 +171,28 @@ jobs:
           security find-identity -v -p codesigning temp.keychain
           echo "✅ 证书导入成功"
 
+      # Experimental six-mode branch only. Keep the official release pipeline
+      # unchanged until the P9 migration is verified and the license audit passes.
+      - name: Install Rust for experimental native codecs
+        if: github.event_name == 'pull_request'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Compile and probe mfsk-native before Electron packaging
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo check --manifest-path packages/mfsk-native/Cargo.toml --all-targets --release
+          cargo build --manifest-path packages/mfsk-native/Cargo.toml --release
+          if [ "${{ matrix.platform }}" = "win32" ]; then
+            cp packages/mfsk-native/target/release/tx5dr_mfsk_native.dll packages/mfsk-native/mfsk-native.node
+          elif [ "${{ matrix.platform }}" = "darwin" ]; then
+            cp packages/mfsk-native/target/release/libtx5dr_mfsk_native.dylib packages/mfsk-native/mfsk-native.node
+          else
+            cp packages/mfsk-native/target/release/libtx5dr_mfsk_native.so packages/mfsk-native/mfsk-native.node
+          fi
+          node packages/mfsk-native/smoke.cjs
+
       - name: Build application
         run: yarn build
         env:
@@ -345,6 +367,7 @@ jobs:
       - name: Package application
         shell: bash
         env:
+          TX5DR_REQUIRE_MFSK_NATIVE: ${{ github.event_name == 'pull_request' && '1' || '0' }}
           NODE_ENV: production
           PLATFORM: ${{ matrix.platform }}
           ARCH: ${{ matrix.arch }}
