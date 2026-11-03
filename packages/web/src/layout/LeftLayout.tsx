@@ -28,7 +28,7 @@ import { ClockDisplay } from '../components/system/ClockDisplay';
 import { StationInfoPopover } from '../components/station/StationInfoPopover';
 import { AppBrandAboutLink } from '../components/common/AppBrandAboutLink';
 import { useRadioActions, useConnection, useStationInfo, useRadioModeState } from '../store/radioStore';
-import { useHasMinRole } from '../store/authStore';
+import { useHasMinRole, useCan } from '../store/authStore';
 import { UserRole } from '@tx5dr/contracts';
 import { isElectron, isMacOS } from '../utils/config';
 import { useTranslation } from 'react-i18next';
@@ -36,6 +36,7 @@ import { useTranslation } from 'react-i18next';
 export const LeftLayout: React.FC = React.memo(() => {
   const { t } = useTranslation('common');
   const isAdmin = useHasMinRole(UserRole.ADMIN);
+  const canSwitchDigitalMode = useCan('execute','ModeSwitch');
   const { currentMode } = useRadioModeState();
   const activeNativeMode = currentMode && ['Q65','WSPR','MSK144','JTTY'].includes(currentMode.name)
     ? currentMode.name as 'Q65'|'WSPR'|'MSK144'|'JTTY'
@@ -199,9 +200,9 @@ export const LeftLayout: React.FC = React.memo(() => {
               </DropdownItem>
             </DropdownMenu>
           </Dropdown>
-          {/* Native MFSK receiver is a dedicated AF monitor, not a PTT mode.
-              Keep the original FT8/FT4 layout unaltered until P9 migration. */}
-          {isAdmin && !activeNativeMode && (
+          {/* Existing FT8/FT4 main QSO UI stays intact; operators granted
+              mode-switch authority can open the native AF workbench. */}
+          {canSwitchDigitalMode && !activeNativeMode && (
             <Popover placement="bottom-end">
               <PopoverTrigger>
                 <Button size="sm" variant="flat" title="Six-mode AF receive console"

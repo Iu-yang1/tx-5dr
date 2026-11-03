@@ -146,7 +146,8 @@ describe('native six-mode transmit protocol and physical lease boundaries',()=>{
     for(const seconds of [5,10,15,30] as const){
       const outcome=await service.send({mode:'MSK144',text:'K1ABC K2ABC -10',
         operatorId:'op1',audioHz:1500,mskPeriodSeconds:seconds});
-      expect(outcome.durationMs).toBe(1000);
+      // Never truncate halfway through a 72 ms frame: 1000 ms holds 13.
+      expect(outcome.durationMs).toBe(13 * 72);
     }
     expect(selected).toEqual([5,10,15,30]);
     await expect(service.send({mode:'MSK144',text:'K1ABC K2ABC -10',

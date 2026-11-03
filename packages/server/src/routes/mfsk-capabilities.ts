@@ -77,7 +77,7 @@ async function probeNative(): Promise<MfskCodecProbeResponse> {
 
 export async function mfskCapabilityRoutes(fastify:FastifyInstance):Promise<void> {
   fastify.get('/capabilities',{
-    preHandler:[requireAbility('manage','all')],
+    preHandler:[requireAbility('read','all')],
   },async (_request,reply)=>{
     const now=Date.now();
     if(!cached || now-cachedAt>30_000){
@@ -91,25 +91,25 @@ export async function mfskCapabilityRoutes(fastify:FastifyInstance):Promise<void
 
   // This receiver is attached to the existing post-demodulated AF audioData
   // stream, but runs the native DSP exclusively in a dedicated child process.
-  // Admin-only, receive-only; starting it does NOT switch the host's
+  // Mode-switch-authorized live receiver; starting it does NOT switch the host's
   // FT8/FT4 transmit scheduler, allocate PTT, or write a logbook QSO.
-  fastify.post('/live/start',{preHandler:[requireAbility('manage','all')]},
+  fastify.post('/live/start',{preHandler:[requireAbility('execute','ModeSwitch')]},
     async(request,reply)=>{
       const cfg=MfskLiveRxStartSchema.parse(request.body);
       const live=DigitalRadioEngine.getInstance().getMfskLiveRxService();
       return reply.send(MfskLiveRxStatusSchema.parse(live.start(cfg)));
     });
-  fastify.post('/live/stop',{preHandler:[requireAbility('manage','all')]},
+  fastify.post('/live/stop',{preHandler:[requireAbility('execute','ModeSwitch')]},
     async(_request,reply)=>{
       const live=DigitalRadioEngine.getInstance().getMfskLiveRxService();
       return reply.send(MfskLiveRxStatusSchema.parse(await live.flushAndStop()));
     });
-  fastify.get('/live/status',{preHandler:[requireAbility('manage','all')]},
+  fastify.get('/live/status',{preHandler:[requireAbility('read','all')]},
     async(_request,reply)=>{
       const live=DigitalRadioEngine.getInstance().getMfskLiveRxService();
       return reply.send(MfskLiveRxStatusSchema.parse(live.status()));
     });
-  fastify.get('/live/events',{preHandler:[requireAbility('manage','all')]},
+  fastify.get('/live/events',{preHandler:[requireAbility('read','all')]},
     async(request,reply)=>{
       const query=request.query as {afterMs?:string};
       const afterMs=Number(query.afterMs??0);
@@ -122,7 +122,7 @@ export async function mfskCapabilityRoutes(fastify:FastifyInstance):Promise<void
       }));
     });
 
-  fastify.get('/live/wspr-spots',{preHandler:[requireAbility('manage','all')]},
+  fastify.get('/live/wspr-spots',{preHandler:[requireAbility('read','all')]},
     async(_request,reply)=>{
       const live=DigitalRadioEngine.getInstance().getMfskLiveRxService();
       return reply.send(WsprSpotsResponseSchema.parse({
@@ -133,7 +133,7 @@ export async function mfskCapabilityRoutes(fastify:FastifyInstance):Promise<void
   // Dedicated authenticated TX path. The host's physical lease owns PTT;
   // Rust encoding runs in a separate child. A hard product RF gate remains
   // disabled by default, including for a connected physical transceiver.
-  fastify.get('/tx/status',{preHandler:[requireAbility('manage','all')]},
+  fastify.get('/tx/status',{preHandler:[requireAbility('read','all')]},
     async(_request,reply)=>{
       const service=DigitalRadioEngine.getInstance().getMfskNativeTxService();
       return reply.send({rfEnabled:service.isRfEnabled(),busy:service.isBusy()});
@@ -201,7 +201,7 @@ export async function mfskCapabilityRoutes(fastify:FastifyInstance):Promise<void
   // Runs in a disposable child; malformed native code cannot crash Fastify.
   let simulationInFlight=false;
   fastify.post('/simulate', {
-    preHandler:[requireAbility('manage','all')],
+    preHandler:[requireAbility('read','all')],
   },async (request,reply)=>{
     const payload = MfskCodecSimulationRequestSchema.parse(request.body);
     if(simulationInFlight){

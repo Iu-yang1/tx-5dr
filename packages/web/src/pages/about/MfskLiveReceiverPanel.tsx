@@ -203,7 +203,7 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
           {status?.running?t('codec.applyRx'):t('codec.startRx')}
         </Button>
         <Button size="sm" variant="flat" onPress={()=>run(false)}
-          isDisabled={busy||!status?.running||Boolean(initialMode)}>{t('codec.stopRx')}</Button>
+          isDisabled={busy||!status?.running}>{t('codec.stopRx')}</Button>
         <span className="text-xs text-default-500">
           {status?.ready?t('codec.liveReady'):status?.running?t('codec.liveStarting'):t('codec.liveStopped')}
         </span>

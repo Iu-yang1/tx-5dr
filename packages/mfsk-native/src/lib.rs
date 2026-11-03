@@ -2,7 +2,7 @@
 //! physical TX pipeline until the P3-P9 integration gates have passed.
 //! PCM transport is a little-endian f32 Buffer at exactly 12,000 Hz.
 use mfsk_core::{
-    decoder::{AnyDecoder, SlotInput, Depth},
+    decoder::{AnyDecoder, AnyExtras, SlotInput, Depth},
     encoder::{encode, TxAudio},
     registry::Mode,
 };
@@ -112,6 +112,7 @@ pub fn decode_slotted(mode: String, pcm_f32_le: Buffer) -> Result<Vec<NativeDeco
         .ok_or_else(|| invalid(format!("unsupported slotted protocol: {mode}")))?;
     let samples = from_pcm(&pcm_f32_le)?;
     let mut decoder = AnyDecoder::with_defaults(protocol);
+    configure_slot_decoder(&mode, &mut decoder);
     let result = decoder.decode(&SlotInput::f32(&samples));
     Ok(result.rows.into_iter().map(|r| NativeDecodeRow {
         text: r.decoded.text,
@@ -195,6 +196,38 @@ pub fn decode_msk144_recording(pcm_f32_le: Buffer, audio_hz: f64) -> Result<Vec<
     Ok(rows)
 }
 
+/// Apply reference-calibrated searches to the actual TX-5DR decoder.
+/// No message-specific filters or goldens enter the production DSP path.
+fn configure_slot_decoder(mode: &str, decoder: &mut AnyDecoder) {
+    match mode {
+        "WSPR" => decoder.params_mut().band_hz = (1400.0, 1620.0),
+        name if name.starts_with("Q65-") => decoder.params_mut().band_hz = (200.0, 3000.0),
+        _ => {}
+    }
+    match decoder.extras_mut() {
+        AnyExtras::Wspr(options) => {
+            // wsprd's 10,000 Fano cycles/bit are needed for the -23 dB
+            // G8VDQ reference signal; GUI Deep defaults to only 500.
+            options.max_cycles_per_bit = Some(10_000);
+            options.search.max_candidates = Some(100);
+            options.search.score_threshold = Some(0.05);
+        }
+        AnyExtras::Q65(options) => {
+            // Wide time search recovers off-air 60A EME signals that
+            // a narrow nominal-slot default misses.
+            let period_sec = mode.trim_start_matches("Q65-")
+                .chars().take_while(|c| c.is_ascii_digit())
+                .collect::<String>().parse::<f32>().unwrap_or(60.0);
+            let tolerance_sec = (period_sec / 2.0).clamp(7.5, 150.0);
+            options.search.time_tolerance_early_sec = Some(tolerance_sec);
+            options.search.time_tolerance_late_sec = Some(tolerance_sec);
+            options.search.score_threshold = Some(0.05);
+            options.search.max_candidates = Some(16);
+        }
+        _ => {}
+    }
+}
+
 /// Persistent per-channel, per-mode receiver. The Node worker owns these
 /// handles and must cancel/dispose the session when its generation changes.
 #[napi]
@@ -209,7 +242,9 @@ impl SlottedSession {
     pub fn new(mode: String) -> Result<Self> {
         let protocol = Mode::from_name(&mode)
             .ok_or_else(|| invalid(format!("unknown slotted mode: {mode}")))?;
-        Ok(Self { mode, inner: std::sync::Mutex::new(AnyDecoder::with_defaults(protocol)) })
+        let mut decoder = AnyDecoder::with_defaults(protocol);
+        configure_slot_decoder(&mode, &mut decoder);
+        Ok(Self { mode, inner: std::sync::Mutex::new(decoder) })
     }
 
     #[napi]
@@ -246,7 +281,11 @@ impl SlottedSession {
         params.depth = depth;
         params.averaging = averaging;
         if let Some(f) = rx_hz {
-            params.rx_freq_hz = Some(validate_audio_frequency(f)?);
+            let f = validate_audio_frequency(f)?;
+            params.rx_freq_hz = Some(f);
+            if self.mode == "WSPR" {
+                params.band_hz = ((f - 110.0).max(100.0), (f + 110.0).min(5500.0));
+            }
         }
         if let Some(t) = tolerance_hz {
             if !t.is_finite() || t <= 0.0 || t > 5000.0 {

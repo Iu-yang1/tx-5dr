@@ -53,11 +53,15 @@ function wav(relative){
   return Buffer.from(samples.buffer,samples.byteOffset,samples.byteLength);
 }
 const norm=x=>String(x??'').toUpperCase().trim().replace(/\s+/g,' ');
-function score(name,decoded,expected,minRecall,maxExtra){
-  const observed=decoded.map(row=>({
+function score(name,decoded,expected,minRecall,maxExtra,evaluationBand=null){
+  const all=decoded.map(row=>({
     text:norm(row.text),frequencyHz:Number(row.frequencyHz),
     snrDb:Number(row.snrDb),dtSeconds:Number(row.dtSeconds),
   })).filter(row=>row.text);
+  const observed=evaluationBand ? all.filter(row=>
+    row.frequencyHz>=evaluationBand[0]&&row.frequencyHz<=evaluationBand[1]) : all;
+  const outsideReferencePassband=evaluationBand ? all.filter(row=>
+    row.frequencyHz<evaluationBand[0]||row.frequencyHz>evaluationBand[1]) : [];
   // Decoder may emit multiple versions of the same message on one real
   // recording. A duplicate with a new frequency is treated as a separate
   // hit so false multi-frequency ghosts cannot hide behind deduplication.
@@ -73,7 +77,7 @@ function score(name,decoded,expected,minRecall,maxExtra){
   results.push({name,pass,minRecall,maxExtra,recall:matched.length,
     totalExpected:expected.length,extraCount:extras.length,
     missing:expected.filter(x=>!matched.includes(x.text)).map(x=>x.text),
-    extras,decoded:observed.slice(0,60)});
+    extras,outsideReferencePassband,decoded:observed.slice(0,60)});
   console.log(`${pass?'PASS':'FAIL'} ${name}: recall ${matched.length}/${expected.length} (min ${minRecall}), extras ${extras.length} (max ${maxExtra})`);
 }
 const exp=(text,freq,tolHz=15)=>({text:norm(text),freq,tolHz});
@@ -82,7 +86,11 @@ function slotted(name,filename,expected,minRecall,maxExtra){
   const decoder=new native.SlottedSession(name);
   decoder.setParameters(3,false);
   const rows=decoder.decode(pcm,0,false);
-  score(name,rows,expected,minRecall,maxExtra);
+  // WSJT-X FT4 oracle was explicitly -L 300 -H 2700; the corpus
+  // includes five real signals above 2700 Hz. Compare exactly the
+  // same passband, report outside-band rows without whitelisting them.
+  const band=name==='FT4'?[300,2700]:null;
+  score(name,rows,expected,minRecall,maxExtra,band);
 }
 // Reference lists transcribed from upstream mfsk-core/tests/{ft4,wspr,
 // q65,msk144}_wsjtx_samples.rs, explicitly derived from WSJT-X jt9/wsprd.
