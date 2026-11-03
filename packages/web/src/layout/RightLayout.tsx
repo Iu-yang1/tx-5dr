@@ -5,7 +5,7 @@ import {
   PopoverContent,
   PopoverTrigger
 } from '@heroui/react';
-import { useCurrentOperatorId, useOperators } from '../store/radioStore';
+import { useCurrentOperatorId, useOperators, useRadioModeState } from '../store/radioStore';
 import { useAuth } from '../store/authStore';
 import { AuthLoginForm } from '../components/auth/AuthLoginForm';
 import { RadioControl } from '../components/radio/control/RadioControl';
@@ -44,6 +44,8 @@ export const RightLayout: React.FC = () => {
   };
   const { operators } = useOperators();
   const { currentOperatorId } = useCurrentOperatorId();
+  const { currentMode } = useRadioModeState();
+  const nativeDigitalOperating = ['Q65','WSPR','MSK144','JTTY'].includes(currentMode?.name??'');
   const { state: authState, logout } = useAuth();
   const [selectedMode, setSelectedMode] = useState<string>('auto5');
   const [loginPopoverOpen, setLoginPopoverOpen] = useState(false);
@@ -277,7 +279,7 @@ export const RightLayout: React.FC = () => {
         <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties & { WebkitAppRegion: string }}>
           <div className="flex items-center gap-1">
             {/* 通联机制（有操作员时才显示） */}
-            {operators.length > 0 && automationOperatorId && (
+            {!nativeDigitalOperating && operators.length > 0 && automationOperatorId && (
               <Popover placement="bottom-start">
                 <PopoverTrigger>
                   <Button

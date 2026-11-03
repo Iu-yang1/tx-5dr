@@ -1,17 +1,19 @@
 import { useEffect, useState } from 'react';
 import { Button, Card, CardBody, Input } from '@heroui/react';
 import { useTranslation } from 'react-i18next';
+import { useCan } from '../../store/authStore';
 import { api } from '@tx5dr/core';
 import { useCurrentOperatorId, useRadioModeState } from '../../store/radioStore';
 import { Q65SubmodeSchema, type DigitalCodecMode, type DigitalRxEvent,
   type MfskLiveRxStatus, type Q65Submode, type WsprDecodedSpot } from '@tx5dr/contracts';
 
-/** Receives post-demodulated AF from the application's live audio input.
- * Does not offer any PTT or RF TX control. Visible only to administrators. */
+/** First-class operator workbench for post-demodulated AF and guarded
+ * native-mode manual TX; physical PTT is always owned by the server lease. */
 export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecMode} = {}) {
   const { t } = useTranslation('about');
   const { currentOperatorId } = useCurrentOperatorId();
   const radioMode = useRadioModeState();
+  const maySwitchMode = useCan('execute','ModeSwitch');
   const [status,setStatus] = useState<MfskLiveRxStatus | null>(null);
   const [mode,setMode] = useState<DigitalCodecMode>(initialMode??'Q65');
   const [submode,setSubmode] = useState<Q65Submode>('Q65-60B');
@@ -28,10 +30,12 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
   const [busy,setBusy] = useState(false);
   const [error,setError] = useState<string | null>(null);
   const [txStatus,setTxStatus] = useState<{rfEnabled:boolean;busy:boolean}>({rfEnabled:false,busy:false});
-  const [text,setText] = useState('CQ K1ABC FN42');
+  // Never prefill a fictitious TX callsign into a live transmitter.
+  const [text,setText] = useState('');
   const [beaconAuthorized,setBeaconAuthorized] = useState(false);
   const [mskPeriod,setMskPeriod] = useState<5|10|15|30>(5);
   const [mskTxFirst,setMskTxFirst] = useState(true);
+  const [q65TxFirst,setQ65TxFirst] = useState(true);
   const [txPending,setTxPending] = useState(false);
   const [txNotice,setTxNotice] = useState<string | null>(null);
   const [dxCall,setDxCall] = useState('');
@@ -66,7 +70,11 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
     return ()=>{active=false;clearInterval(timer);};
   },[]);
 
+  const receiverMatches=Boolean(status?.ready && status.mode===mode &&
+    (mode!=='Q65'||status.q65Submode===submode));
+
   const run=(start:boolean)=>{
+    if(!maySwitchMode)return;
     setBusy(true);setError(null);
     const hz=Number(frequency);
     if(start && (!Number.isFinite(hz)||hz<100||hz>5500)){
@@ -88,7 +96,11 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
           frequencyHz:hz,depth:3,
         })
       : api.stopMfskLiveRx();
-    void action.then(value=>{setStatus(value);setEvents([]);setWsprSpots([]);})
+    void action.then(value=>{
+      setStatus(value);
+      if(start){setEvents([]);setWsprSpots([]);}
+      // Stop is graceful for JTTY: retain final reception-ended messages.
+    })
       .catch(()=>setError(t('codec.liveOperationFailed')))
       .finally(()=>setBusy(false));
   };
@@ -127,7 +139,7 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
   };
 
   const transmit=()=>{
-    if(!currentOperatorId || !txStatus.rfEnabled || !status?.ready || txPending) return;
+    if(!currentOperatorId || !txStatus.rfEnabled || !receiverMatches || txPending) return;
     const hz=Number(frequency);
     if(!Number.isFinite(hz)||hz<100||hz>5500) {
       setTxNotice(t('codec.liveInvalidFrequency')); return;
@@ -136,7 +148,7 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
     setTxNotice(null);
     void api.transmitMfsk({
       mode,operatorId:currentOperatorId,text:text.trim(),audioHz:hz,
-      ...(mode==='Q65'?{q65Submode:submode}:{}),
+      ...(mode==='Q65'?{q65Submode:submode,q65TxFirst}:{}),
       ...(mode==='WSPR'?{beaconAuthorized}:{}),
       ...(mode==='MSK144'?{mskPeriodSeconds:mskPeriod,mskTxFirst}:{}),
     }).then(()=>setTxNotice(t('codec.txComplete')))
@@ -199,11 +211,11 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
       </section>}
       <div className="flex flex-wrap gap-2 items-center">
         <Button size="sm" color="primary" onPress={()=>run(true)}
-          isDisabled={busy} isLoading={busy}>
+          isDisabled={busy||!maySwitchMode} isLoading={busy}>
           {status?.running?t('codec.applyRx'):t('codec.startRx')}
         </Button>
         <Button size="sm" variant="flat" onPress={()=>run(false)}
-          isDisabled={busy||!status?.running}>{t('codec.stopRx')}</Button>
+          isDisabled={busy||!maySwitchMode||!status?.running}>{t('codec.stopRx')}</Button>
         <span className="text-xs text-default-500">
           {status?.ready?t('codec.liveReady'):status?.running?t('codec.liveStarting'):t('codec.liveStopped')}
         </span>
@@ -252,6 +264,11 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
         <p className="text-sm font-medium">{t('codec.txTitle')}</p>
         <Input size="sm" label={t('codec.message')} value={text} onValueChange={setText}
           isDisabled={txPending} maxLength={64}/>
+        {mode==='Q65' && <label className="text-xs flex gap-2 items-center">
+          <input type="checkbox" checked={q65TxFirst}
+            onChange={e=>setQ65TxFirst(e.target.checked)} disabled={txPending}/>
+          {t('codec.q65TxFirst')}
+        </label>}
         {mode==='MSK144' && <div className="flex gap-2 items-center">
           <label htmlFor="mfsk-msk-period" className="text-xs">{t('codec.mskPeriod')}</label>
           <select id="mfsk-msk-period" value={mskPeriod}
@@ -273,7 +290,7 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
         </label>}
         <div className="flex gap-2 items-center flex-wrap">
           <Button size="sm" color="warning" isLoading={txPending}
-            isDisabled={!status?.ready||!txStatus.rfEnabled||txStatus.busy||!currentOperatorId||
+            isDisabled={!receiverMatches||!txStatus.rfEnabled||txStatus.busy||!currentOperatorId||
               !text.trim()||txPending||(mode==='WSPR'&&!beaconAuthorized)}
             onPress={transmit}>{t('codec.manualTx')}</Button>
           <span className="text-xs text-default-500">
@@ -282,7 +299,7 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
         </div>
         {txNotice && <p className="text-xs" role="status">{txNotice}</p>}
       </div>
-      {mode!=='WSPR' && <section className="rounded-md border border-default-200 p-3 space-y-2">
+      {(mode==='Q65'||mode==='JTTY'||mode==='MSK144') && <section className="rounded-md border border-default-200 p-3 space-y-2">
         <p className="text-sm font-medium">{t('codec.logTitle')}</p>
         <p className="text-xs text-default-500">{t('codec.logManualOnly')}</p>
         <div className="grid grid-cols-2 gap-2">

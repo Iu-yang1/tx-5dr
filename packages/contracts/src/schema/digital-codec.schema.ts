@@ -234,6 +234,7 @@ export const MfskPhysicalTxRequestSchema = z.object({
   text:z.string().trim().min(1).max(64),
   audioHz:z.number().finite().min(100).max(5500),
   q65Submode:Q65SubmodeSchema.optional(),
+  q65TxFirst:z.boolean().optional(),
   mskPeriodSeconds: z.union([z.literal(5),z.literal(10),z.literal(15),z.literal(30)]).optional(),
   mskTxFirst: z.boolean().optional(),
   beaconAuthorized:z.boolean().default(false),
@@ -243,6 +244,9 @@ export const MfskPhysicalTxRequestSchema = z.object({
   }
   if(value.mode!=='Q65'&&value.q65Submode){
     ctx.addIssue({code:z.ZodIssueCode.custom,path:['q65Submode'],message:'Q65-only submode'});
+  }
+  if(value.mode!=='Q65'&&value.q65TxFirst!==undefined){
+    ctx.addIssue({code:z.ZodIssueCode.custom,path:['q65TxFirst'],message:'Q65-only TX phase'});
   }
   if(value.mode!=='MSK144'&&value.mskPeriodSeconds!==undefined){
     ctx.addIssue({code:z.ZodIssueCode.custom,path:['mskPeriodSeconds'],message:'MSK144-only period'});

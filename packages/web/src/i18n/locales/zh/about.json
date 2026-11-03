@@ -78,7 +78,7 @@
     "rejectedSlots": "跳过周期",
     "workerFaults": "解码错误",
     "liveNoEvents": "暂无解码结果",
-    "liveNoTx": "当前仅开放实时接收；本功能不会控制 PTT、射频发射或自动创建通联日志。",
+    "liveNoTx": "此工作台支持实时 AF 接收、受安全门禁保护的手动发射与人工确认的 QSO 日志。未经明确授权时射频发射保持锁定；接收绝不触发 PTT。",
     "liveInvalidFrequency": "请输入 100–5500 Hz 的 AF 频率",
     "liveOperationFailed": "操作失败，请检查服务端日志",
     "applyRx": "应用接收设置",
@@ -121,6 +121,7 @@
     "wsprSpots": "WSPR 本地接收报告",
     "wsprLocalOnly": "仅根据已解码的标准消息显示；AF Hz 不是实际射频频率。未自动上传 WSPRnet/PSK Reporter。",
     "wsprNoSpots": "尚无可解析的标准 WSPR 消息。",
-    "mskTxFirst": "MSK144 本方先发（UTC 偶周期）"
+    "mskTxFirst": "MSK144 本方先发（UTC 偶周期）",
+    "q65TxFirst": "Q65 本方先发（UTC 偶周期）"
   }
 }

@@ -16,6 +16,8 @@ export interface MfskTxRequest {
   operatorId: string;
   audioHz: number;
   q65Submode?: Q65Submode;
+  /** True = even Q65 UTC periods; false = odd. */
+  q65TxFirst?: boolean;
   mskPeriodSeconds?: 5|10|15|30;
   /** Even UTC period is the first (Tx First) phase. Default: true. */
   mskTxFirst?: boolean;
@@ -117,8 +119,8 @@ export class MfskNativeTxService {
         // Schedule a future whole UTC interval. For MSK144 select the
         // requested alternating even/odd T/R phase, not a random ping.
         let slotStart=(Math.floor((now+1000)/periodMs)+1)*periodMs;
-        if(isMsk){
-          const desired=(request.mskTxFirst??true)?0:1;
+        if(isMsk || request.mode==='Q65'){
+          const desired=(isMsk ? request.mskTxFirst : request.q65TxFirst)===false?1:0;
           if(Math.floor(slotStart/periodMs)%2!==desired)slotStart+=periodMs;
         }
         startMs=slotStart+margin;
@@ -128,7 +130,7 @@ export class MfskNativeTxService {
         // without crossing the UTC slot edge. Recheck after async PTT setup.
         latestAllowedStartMs=slotStart+periodMs-durationMs-tailHoldMs-startGuardMs;
         const delay=Math.max(0,startMs-this.deps.now());
-        if(delay>(isMsk?2*periodMs+2000:periodMs+2000)){
+        if(delay>((isMsk||request.mode==='Q65')?2*periodMs+2000:periodMs+2000)){
           throw new Error('Unreasonable UTC TX wait');
         }
         await (this.deps.sleep??(ms=>new Promise<void>(resolve=>setTimeout(resolve,ms))))(delay);
@@ -165,6 +167,9 @@ export class MfskNativeTxService {
     });
     if(request.mode!=='MSK144'&&request.mskTxFirst!==undefined){
       throw new Error('MSK144 TX phase is only valid for MSK144');
+    }
+    if(request.mode!=='Q65'&&request.q65TxFirst!==undefined){
+      throw new Error('Q65 TX phase is only valid for Q65');
     }
     if(request.mode==='WSPR'&&!request.beaconAuthorized){
       throw new Error('WSPR beacon transmission requires explicit authorization');

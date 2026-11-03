@@ -78,7 +78,7 @@
     "rejectedSlots": "Skipped slots",
     "workerFaults": "Decoder faults",
     "liveNoEvents": "No decoded messages yet",
-    "liveNoTx": "Receive-only: this panel never requests PTT, transmits RF, or saves QSOs.",
+    "liveNoTx": "This workbench supports live AF reception, guarded manual RF transmission and operator-confirmed QSOs. RF TX remains locked unless explicitly authorized; reception never keys PTT.",
     "liveInvalidFrequency": "Enter AF frequency between 100 and 5500 Hz",
     "liveOperationFailed": "Operation failed; inspect server logs",
     "applyRx": "Apply receiver settings",
@@ -121,6 +121,7 @@
     "wsprSpots": "Local WSPR spots",
     "wsprLocalOnly": "Standard decoded messages only. AF Hz is not the RF dial frequency. Nothing is auto-uploaded to WSPRnet or PSK Reporter.",
     "wsprNoSpots": "No recognized standard WSPR messages yet.",
-    "mskTxFirst": "MSK144 TX First (even UTC periods)"
+    "mskTxFirst": "MSK144 TX First (even UTC periods)",
+    "q65TxFirst": "Q65 TX First (even UTC periods)"
   }
 }

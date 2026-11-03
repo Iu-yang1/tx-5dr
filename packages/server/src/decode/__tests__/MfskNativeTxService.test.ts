@@ -50,6 +50,22 @@ describe('native six-mode transmit protocol and physical lease boundaries',()=>{
       assertPtt:true,
     });
   });
+  it('aligns Q65 TX first/second to even/odd UTC periods',async()=>{
+    for(const [q65TxFirst,expectedPhase] of [[true,0],[false,1]] as const){
+      const c=context('Q65');
+      const service=new MfskNativeTxService(c.deps);
+      const outcome=await service.send({mode:'Q65',text:'CQ K1ABC FN42',
+        operatorId:'op1',audioHz:1500,q65Submode:'Q65-60B',q65TxFirst});
+      expect(outcome.scheduledStartMs).not.toBeNull();
+      expect(Math.floor((outcome.scheduledStartMs!-500)/60_000)%2).toBe(expectedPhase);
+      expect(outcome.durationMs).toBe(1000);
+    }
+    const c=context();
+    await expect(new MfskNativeTxService(c.deps).send({
+      mode:'MSK144',text:'K1ABC K2ABC -10',operatorId:'op1',audioHz:1500,
+      q65TxFirst:true,
+    })).rejects.toThrow(/Q65 TX phase/);
+  });
   it('prevents unconsented WSPR beacons and wrong active-mode TX',async()=>{
     const c=context();
     const service=new MfskNativeTxService(c.deps);

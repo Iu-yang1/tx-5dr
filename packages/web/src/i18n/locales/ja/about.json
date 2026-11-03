@@ -78,7 +78,7 @@
     "rejectedSlots": "スキップした周期",
     "workerFaults": "受信エラー",
     "liveNoEvents": "復号されたメッセージはまだありません",
-    "liveNoTx": "このパネルは受信専用で、PTT・RF送信・QSO記録を行いません。",
+    "liveNoTx": "この画面はAF受信、保護された手動RF送信、確認済みQSO記録に対応します。明示的な許可がない場合RF送信はロックされ、受信中にPTTを操作しません。",
     "liveInvalidFrequency": "AF周波数は100～5500 Hzで入力してください",
     "liveOperationFailed": "操作に失敗しました。サーバーログを確認してください",
     "applyRx": "受信設定を適用",
@@ -121,6 +121,7 @@
     "wsprSpots": "ローカルWSPRスポット",
     "wsprLocalOnly": "標準メッセージのみ表示します。AF HzはRF周波数ではありません。外部送信は行いません。",
     "wsprNoSpots": "標準WSPRメッセージはまだありません。",
-    "mskTxFirst": "MSK144 TX先行（UTC偶数周期）"
+    "mskTxFirst": "MSK144 TX先行（UTC偶数周期）",
+    "q65TxFirst": "Q65 TX先行（UTC偶数周期）"
   }
 }
