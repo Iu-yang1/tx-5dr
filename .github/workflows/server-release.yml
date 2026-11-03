@@ -442,6 +442,7 @@ jobs:
           name: "TX-5DR Server ${{ github.event.inputs.version }}"
           body: |
             ## TX-5DR Server ${{ github.event.inputs.version }}
+            Windows/Linux P9 six-mode candidate: -rc.N tags are prereleases, not stable. RF TX needs explicit operator consent.
 
             **Release Date** （发布日期）: ${{ steps.release_info.outputs.date }}
             **Commit**: [${{ steps.release_info.outputs.short_sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})

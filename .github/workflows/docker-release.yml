@@ -176,10 +176,10 @@ jobs:
           echo "### 🚀 使用方法" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
           echo "# 拉取最新镜像" >> $GITHUB_STEP_SUMMARY
-          echo "docker pull ${{ steps.tags.outputs.image }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ steps.tags.outputs.image }}:${{ github.event.inputs.tag != '' && github.event.inputs.tag || 'latest' }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "# 运行容器" >> $GITHUB_STEP_SUMMARY
-          echo "docker run -d -p 8076:80 --name tx-5dr ${{ steps.tags.outputs.image }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo "docker run -d -p 8076:80 --name tx-5dr ${{ steps.tags.outputs.image }}:${{ github.event.inputs.tag != '' && github.event.inputs.tag || 'latest' }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "# 或使用 docker-compose" >> $GITHUB_STEP_SUMMARY
           echo "docker-compose up -d" >> $GITHUB_STEP_SUMMARY
@@ -224,7 +224,7 @@ jobs:
             version: '3.8'
             services:
               tx5dr:
-                image: ${{ steps.tags.outputs.image }}:latest
+                image: ${{ steps.tags.outputs.image }}:${{ github.event.inputs.tag != '' && github.event.inputs.tag || 'latest' }}
                 container_name: tx5dr
                 restart: unless-stopped
                 ports:
@@ -248,7 +248,7 @@ jobs:
             | `TX5DR_LOGS_DIR` | `/app/data/logs` | Log directory / 日志目录 |
 
             ### 🏷️ Image Tags 镜像标签
-            - `latest` — always points to newest build / 始终指向最新构建
+            - `latest` — stable/nightly only; prerelease uses its versioned RC tag.
             - `${{ steps.tags.outputs.short_sha }}` — pinned to this commit / 锁定到此提交
 
             ### 📦 Architectures 支持架构

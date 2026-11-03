@@ -3,6 +3,7 @@ import React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { MfskLiveReceiverPanel } from './MfskLiveReceiverPanel';
+const selected = vi.hoisted(() => ({ mode: 'Q65' }));
 
 const mock = vi.hoisted(() => ({
   transmit: vi.fn(async () => ({ success: true })),
@@ -13,7 +14,7 @@ const mock = vi.hoisted(() => ({
   events: vi.fn(async () => ({
     status: {
       ready: true, running: true, physicalTxEnabled: false,
-      mode: 'Q65', q65Submode: 'Q65-120D', generation: 7,
+      mode: selected.mode, q65Submode: 'Q65-120D', generation: 7,
       received: 0, droppedAudioChunks: 0, rejectedSlots: 0,
       workerFaults: 0,
     },
@@ -37,7 +38,7 @@ vi.mock('../../store/authStore', () => ({ useCan: () => true }));
 vi.mock('../../store/radioStore', () => ({
   useCurrentOperatorId: () => ({ currentOperatorId:'op1', setCurrentOperatorId:vi.fn() }),
   useOperators: () => ({ operators:[{ id:'op1', context:{myCall:'K1ABC'} }] }),
-  useRadioModeState: () => ({currentMode:{name:'Q65'},currentRadioFrequency:432080000}),
+  useRadioModeState: () => ({currentMode:{name:selected.mode},currentRadioFrequency:432080000}),
 }));
 vi.mock('@tx5dr/core', () => ({ api: {
   getMfskLiveRxEvents:mock.events,
@@ -50,7 +51,7 @@ vi.mock('@tx5dr/core', () => ({ api: {
   getMfskLiveWsprSpots:vi.fn(async()=>({spots:[]})),
 }}));
 
-afterEach(()=>{cleanup();vi.clearAllMocks();});
+afterEach(()=>{cleanup();vi.clearAllMocks();selected.mode='Q65';});
 
 it('uses the existing mode and confirmed Q65 RX submode for operator TX',async()=>{
   render(<MfskLiveReceiverPanel surface="operator"/>);
@@ -102,4 +103,39 @@ it('requires manual RF acknowledgement before arming and permits explicit disarm
   fireEvent.click(screen.getByText('codec.disarmRf'));
   await waitFor(()=>expect(mock.disarm).toHaveBeenCalledTimes(1));
   expect(mock.transmit).not.toHaveBeenCalled();
+});
+
+it('MSK144 operator changes TX period and uses a fixed 1500 Hz modulator',async()=>{
+  selected.mode='MSK144';
+  render(<MfskLiveReceiverPanel surface="operator"/>);
+  await waitFor(()=>expect(screen.getByText('codec.mskFixedTxAf')).toBeTruthy());
+  fireEvent.change(screen.getByLabelText('codec.message'),{target:{value:'K1ABC W9XYZ -10'}});
+  fireEvent.change(screen.getByLabelText('codec.mskPeriod'),{target:{value:'10'}});
+  fireEvent.click(screen.getByText('codec.manualTx'));
+  await waitFor(()=>expect(mock.transmit).toHaveBeenCalledWith(expect.objectContaining({
+    mode:'MSK144',audioHz:1500,mskPeriodSeconds:10,mskTxFirst:true,
+  })));
+  expect(screen.queryByLabelText('codec.txAfFrequency')).toBeNull();
+});
+it('WSPR requires beacon consent and cannot create a QSO',async()=>{
+  selected.mode='WSPR';
+  render(<MfskLiveReceiverPanel surface="operator"/>);
+  await waitFor(()=>expect(screen.getByText('codec.beaconAuthorization')).toBeTruthy());
+  fireEvent.change(screen.getByLabelText('codec.message'),{target:{value:'K1ABC FN42 37'}});
+  const tx=screen.getByText('codec.manualTx') as HTMLButtonElement;
+  expect(tx.disabled).toBe(true);
+  fireEvent.click(screen.getByLabelText('codec.beaconAuthorization'));
+  await waitFor(()=>expect(tx.disabled).toBe(false));
+  fireEvent.click(tx);
+  await waitFor(()=>expect(mock.transmit).toHaveBeenCalledWith(expect.objectContaining({
+    mode:'WSPR',beaconAuthorized:true,text:'K1ABC FN42 37',
+  })));
+  expect(screen.queryByText('codec.logConfirm')).toBeNull();
+});
+it('JTTY presents the same operator TX and manual QSO logging without Q65 controls',async()=>{
+  selected.mode='JTTY';
+  render(<MfskLiveReceiverPanel surface="operator"/>);
+  await waitFor(()=>expect(screen.getByText('codec.logConfirm')).toBeTruthy());
+  expect(screen.queryByText('codec.q65TxFirst')).toBeNull();
+  expect(screen.getByText('codec.manualTx')).toBeTruthy();
 });

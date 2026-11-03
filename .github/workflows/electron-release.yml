@@ -1115,6 +1115,18 @@ jobs:
             **Build:** ${{ steps.release_info.outputs.timestamp }}
             **Validation:** backend/full, frontend, native process isolation, package identity and platform CI.
 
+            ### Native digital modes in the existing radio workspace
+            - FT8/FT4 use the pinned Rust production codec with independent reference checks.
+            - Q65 (AP/EME averaging), WSPR, MSK144 and JTTY integrate into the existing mode selector, RX and operator panes.
+            - Native manual TX requires an explicit expiring operator/session RF authorization and a host-controlled physical PTT lease. RX never keys PTT.
+            - WSPR spots are local observations, not completed QSOs.
+
+            ### Release Candidate limitations
+            - Windows x64 and Linux x64/ARM64 only; no macOS packages.
+            - Hardware-specific CAT, AF, PTT and on-air QSO timing must be validated at each station.
+            - Upstream does not yet support MSK40 shorthand or MSK144 adaptive RX equalization.
+            - High-spread Watterson and fast-Doppler decoding parity is not established.
+
             ### Windows x64
             - NSIS installer: TX-5DR-${{ github.event.inputs.version }}-windows-x64-nsis.exe
             - ZIP archive: TX-5DR-${{ github.event.inputs.version }}-windows-x64.zip
