@@ -45,7 +45,18 @@ function record(name, fn, expected) {
 for(const [name,seconds,text,offset] of [
   ['FT8',15,'CQ K1ABC FN42',0.5],
   ['FT4',7.5,'CQ K1ABC FN42',0.5],
+  // Exhaust the entire Q65 variant registry, including the 300 s EME form.
+  // All are tested through the real Rust encoder and decoder, not mocked.
+  ['Q65-15A',15,'CQ K1ABC FN42',0.5],
+  ['Q65-30A',30,'CQ K1ABC FN42',0.5],
+  ['Q65-60A',60,'CQ K1ABC FN42',0.5],
   ['Q65-60B',60,'CQ K1ABC FN42',0.5],
+  ['Q65-60C',60,'CQ K1ABC FN42',0.5],
+  ['Q65-60D',60,'CQ K1ABC FN42',0.5],
+  ['Q65-60E',60,'CQ K1ABC FN42',0.5],
+  ['Q65-120D',120,'CQ K1ABC FN42',0.5],
+  ['Q65-120E',120,'CQ K1ABC FN42',0.5],
+  ['Q65-300A',300,'CQ K1ABC FN42',0.5],
   ['WSPR',120,'K1ABC FN42 37',2.0],
 ]){
   record(name,()=>{
