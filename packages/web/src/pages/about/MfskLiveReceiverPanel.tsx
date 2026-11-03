@@ -452,6 +452,8 @@ export function MfskLiveReceiverPanel({
           {armNotice && <p role="alert" className="text-xs text-danger">{armNotice}</p>}
         </div>}
         {mode==='MSK144' && <p className="text-xs text-default-500">{t('codec.mskFixedTxAf')}</p>}
+        {mode!=='WSPR' && <Input size="sm" label={t('codec.dxCall')}
+          value={dxCall} onValueChange={setDxCall} maxLength={24}/>}
         <Input size="sm" label={t('codec.message')} value={text} onValueChange={setText}
           isDisabled={txPending} maxLength={64}/>
         {(mode==='Q65'||mode==='MSK144') && <div className="flex flex-wrap gap-1">
@@ -463,12 +465,12 @@ export function MfskLiveReceiverPanel({
         {mode!=='MSK144' && <Input size="sm" type="number"
           label={t('codec.txAfFrequency')} value={txFrequency}
           onValueChange={setTxFrequency} isDisabled={txPending}/>} 
-        <div className="flex justify-end">
+        {(mode==='Q65'||mode==='MSK144') && <div className="flex justify-end">
           <Button size="sm" variant="light" className="min-w-8 px-2"
             title={txMoreOpen?t('codec.lessSettings'):t('codec.moreSettings')}
             aria-label={t('codec.moreSettings')} aria-expanded={txMoreOpen}
             onPress={()=>setTxMoreOpen(value=>!value)}>⋯</Button>
-        </div>
+        </div>}
         {txMoreOpen && <div className="space-y-3 rounded-md bg-default-50 p-2">
         {mode==='Q65' && <label className="text-xs flex gap-2 items-center">
           <input type="checkbox" checked={q65TxFirst}
@@ -517,7 +519,6 @@ export function MfskLiveReceiverPanel({
         {logOpen && <>
         <p className="text-xs text-default-500">{t('codec.logManualOnly')}</p>
         <div className="grid grid-cols-2 gap-2">
-          <Input size="sm" label={t('codec.dxCall')} value={dxCall} onValueChange={setDxCall} maxLength={24}/>
           <Input size="sm" label={t('codec.dxGrid')} value={dxGrid} onValueChange={setDxGrid} maxLength={6}/>
           <Input size="sm" label={t('codec.sentReport')} value={txReport} onValueChange={setTxReport} maxLength={16}/>
           <Input size="sm" label={t('codec.receivedReport')} value={rxReport} onValueChange={setRxReport} maxLength={16}/>
