@@ -63,6 +63,23 @@
     "decoded": "Decoded messages",
     "samples": "Simulated samples",
     "failed": "Simulation failed: inspect native module and server diagnostics",
-    "simNote": "Uses seeded AWGN and synthetic receiver PCM for functional testing only; not an RF or sensitivity acceptance test."
+    "simNote": "Uses seeded AWGN and synthetic receiver PCM for functional testing only; not an RF or sensitivity acceptance test.",
+    "liveTitle": "Live six-mode AF reception (experimental)",
+    "liveSubtitle": "Uses the current radio's demodulated AF audio with an isolated native decoder; RX can monitor alongside the legacy FT8/FT4 scheduler.",
+    "afFrequency": "AF centre (Hz)",
+    "averaging": "Q65 period averaging",
+    "emeDelay": "EME propagation delay",
+    "startRx": "Start receiver",
+    "stopRx": "Stop receiver",
+    "liveReady": "Receiving",
+    "liveStarting": "Starting",
+    "liveStopped": "Stopped",
+    "dropped": "Dropped chunks",
+    "rejectedSlots": "Skipped slots",
+    "workerFaults": "Decoder faults",
+    "liveNoEvents": "No decoded messages yet",
+    "liveNoTx": "Receive-only: this panel never requests PTT, transmits RF, or saves QSOs.",
+    "liveInvalidFrequency": "Enter AF frequency between 100 and 5500 Hz",
+    "liveOperationFailed": "Operation failed; inspect server logs"
   }
 }
