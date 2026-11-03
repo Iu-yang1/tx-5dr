@@ -15,6 +15,11 @@ on:
         required: false
         default: ''
 
+concurrency:
+  # Keep the latest PR validation; never cancel an official release dispatch.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: write
 

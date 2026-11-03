@@ -21,6 +21,11 @@ on:
         default: false
 
 # 授予 GITHUB_TOKEN 写入权限以创建 release
+concurrency:
+  # Keep the latest PR validation; never cancel an official release dispatch.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: write
 
