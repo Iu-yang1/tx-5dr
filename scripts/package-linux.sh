@@ -185,6 +185,9 @@ log "Cleaning node_modules (removing dev/frontend/build dependencies)..."
 
 # 1. Remove exact-match packages (dev tools, frontend, build tools, Electron)
 REMOVE_PACKAGES=(
+    # Do not ship legacy DSP; this is only a source/test comparison dependency.
+    wsjtx-lib
+
     # Electron & related
     electron @electron electron-builder @electron-builder electron-squirrel-startup
     electron-installer-common electron-installer-debian electron-installer-redhat

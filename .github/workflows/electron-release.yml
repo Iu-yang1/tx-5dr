@@ -523,9 +523,8 @@ jobs:
           fi
 
           if [ "$PLATFORM" = "linux" ]; then
-            if find "$APP_ROOT/node_modules/wsjtx-lib/prebuilds" -path "*/linux-*/libstdc++.so.6" -type f | grep -q .; then
-              echo "Packaged wsjtx-lib must not bundle libstdc++.so.6 on Linux Electron builds" >&2
-              find "$APP_ROOT/node_modules/wsjtx-lib/prebuilds" -path "*/linux-*/libstdc++.so.6" -type f >&2
+            if [ -e "$APP_ROOT/node_modules/wsjtx-lib" ]; then
+              echo "Legacy wsjtx-lib must not be present in production Electron package" >&2
               exit 1
             fi
 
@@ -547,8 +546,9 @@ jobs:
               ' "$@")
             }
 
-            run_packaged_import_order audify hamlib wsjtx-lib
-            run_packaged_import_order wsjtx-lib audify hamlib
+            run_packaged_import_order audify hamlib
+            run_packaged_import_order hamlib audify
+            "$NODE_BIN" -e "const n=require(process.argv[1]);if(!n.supportedModes().includes('Q65-60B'))throw new Error('MFSK native addon not functional')" "$APP_ROOT/packages/mfsk-native/mfsk-native.node"
           fi
 
           echo "=== Packaged Image Radio runtime smoke ==="

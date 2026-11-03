@@ -164,6 +164,7 @@ jobs:
           dpkg-deb -x "$DEB_FILE" "$EXTRACT_DIR"
           APP_ROOT="$EXTRACT_DIR/usr/share/tx5dr"
           test -s "$APP_ROOT/packages/mfsk-native/mfsk-native.node"
+          test ! -e "$APP_ROOT/node_modules/wsjtx-lib"
           node - "$APP_ROOT/packages/mfsk-native/mfsk-native.node" <<'NODE'
           const native=require(process.argv[2]);
           for(const mode of ['FT8','FT4','WSPR','Q65-60B','MSK144','JTTY']){

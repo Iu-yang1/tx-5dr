@@ -197,6 +197,8 @@ function cleanNonRuntimeFiles(nm) {
 
 function cleanPlatformPrebuilds(nm, platform, arch) {
   console.log(`Cleaning platform prebuilds for ${platform}-${arch}...`);
+  // Entire legacy codec is excluded from installable desktop runtimes.
+  rmrf(path.join(nm, 'wsjtx-lib'));
   const wsjtxPrebuilds = path.join(nm, 'wsjtx-lib', 'prebuilds');
   const hamlibPrebuilds = path.join(nm, 'hamlib', 'prebuilds');
   const serialportPrebuilds = path.join(nm, '@serialport', 'bindings-cpp', 'prebuilds');
