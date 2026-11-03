@@ -11,6 +11,11 @@ on:
         description: 'Release version (e.g., v1.0.0, leave empty for nightly)'
         required: false
         default: ''
+      windows_linux_only:
+        description: 'Release only Windows and Linux desktop; macOS requires Apple signing/notarization secrets'
+        required: false
+        type: boolean
+        default: false
 
 # 授予 GITHUB_TOKEN 写入权限以创建 release
 permissions:
@@ -21,32 +26,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: windows-2022
-            platform: win32
-            arch: x64
-            artifact_name: tx-5dr-windows-x64
-
-          - os: macos-latest
-            platform: darwin
-            arch: arm64
-            artifact_name: tx-5dr-macos-arm64
-
-          - os: macos-15-intel
-            platform: darwin
-            arch: x64
-            artifact_name: tx-5dr-macos-x64
-
-          - os: ubuntu-latest
-            platform: linux
-            arch: x64
-            artifact_name: tx-5dr-linux-x64
-
-          - os: ubuntu-24.04-arm
-            platform: linux
-            arch: arm64
-            artifact_name: tx-5dr-linux-arm64
-
+        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.windows_linux_only && '[{"os":"windows-2022","platform":"win32","arch":"x64","artifact_name":"tx-5dr-windows-x64"},{"os":"ubuntu-latest","platform":"linux","arch":"x64","artifact_name":"tx-5dr-linux-x64"},{"os":"ubuntu-24.04-arm","platform":"linux","arch":"arm64","artifact_name":"tx-5dr-linux-arm64"}]' || '[{"os":"windows-2022","platform":"win32","arch":"x64","artifact_name":"tx-5dr-windows-x64"},{"os":"macos-latest","platform":"darwin","arch":"arm64","artifact_name":"tx-5dr-macos-arm64"},{"os":"macos-15-intel","platform":"darwin","arch":"x64","artifact_name":"tx-5dr-macos-x64"},{"os":"ubuntu-latest","platform":"linux","arch":"x64","artifact_name":"tx-5dr-linux-x64"},{"os":"ubuntu-24.04-arm","platform":"linux","arch":"arm64","artifact_name":"tx-5dr-linux-arm64"}]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
 
@@ -1025,6 +1005,8 @@ jobs:
 
       - name: Validate app manifest
         shell: bash
+        env:
+          TX5DR_WINDOWS_LINUX_ONLY: ${{ inputs.windows_linux_only }}
         run: |
           node - <<'EOF'
           const fs = require('node:fs');
@@ -1044,17 +1026,19 @@ jobs:
             throw new Error('app manifest missing assets');
           }
           const hasMacArmDmg = manifest.assets.some((asset) => asset.platform === 'macos' && asset.arch === 'arm64' && asset.package_type === 'dmg' && asset.url_cn && asset.url_global);
-          if (!hasMacArmDmg) throw new Error('app manifest missing macOS arm64 dmg with dual urls');
+          if (process.env.TX5DR_WINDOWS_LINUX_ONLY !== 'true' && !hasMacArmDmg) throw new Error('app manifest missing macOS arm64 dmg with dual urls');
           const forbiddenMsi = manifest.assets.find((asset) => asset.package_type === 'msi' || asset.name.endsWith('.msi'));
           if (forbiddenMsi) throw new Error(`app manifest must not include MSI asset: ${forbiddenMsi.name}`);
           const requiredAssets = [
             ['windows', 'x64', 'exe'],
             ['windows', 'x64', 'zip'],
             ['windows', 'x64', '7z'],
-            ['macos', 'arm64', 'dmg'],
-            ['macos', 'arm64', 'zip'],
-            ['macos', 'x64', 'dmg'],
-            ['macos', 'x64', 'zip'],
+            ...(process.env.TX5DR_WINDOWS_LINUX_ONLY === 'true' ? [] : [
+              ['macos', 'arm64', 'dmg'],
+              ['macos', 'arm64', 'zip'],
+              ['macos', 'x64', 'dmg'],
+              ['macos', 'x64', 'zip'],
+            ]),
             ['linux', 'x64', 'AppImage'],
             ['linux', 'x64', 'deb'],
             ['linux', 'x64', 'rpm'],
@@ -1148,9 +1132,44 @@ jobs:
           prerelease: true
           makeLatest: false
 
+      # Explicit Windows/Linux stable release, preserving mandatory macOS signing
+      # and notarization requirements on the full official release path.
+      - name: Create Official Windows and Linux Release
+        if: github.event.inputs.version != '' && inputs.windows_linux_only
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ github.event.inputs.version }}
+          name: "TX-5DR ${{ github.event.inputs.version }} — Windows/Linux"
+          body: |
+            ## TX-5DR ${{ github.event.inputs.version }} — Windows/Linux Official Release
+            正式版：仅包含 Windows 和 Linux 桌面端。由于缺少 Apple 签名及公证凭据，本次**不包含 macOS 正式安装包**。
+
+            **Commit:** [${{ steps.release_info.outputs.short_sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
+            **Build:** ${{ steps.release_info.outputs.timestamp }}
+            **Validation:** backend/full, frontend, native process isolation, package identity and platform CI.
+
+            ### Windows x64
+            - NSIS installer: TX-5DR-${{ github.event.inputs.version }}-windows-x64-nsis.exe
+            - ZIP archive: TX-5DR-${{ github.event.inputs.version }}-windows-x64.zip
+            - 7z archive: TX-5DR-${{ github.event.inputs.version }}-windows-x64.7z
+
+            ### Linux desktop x64 / ARM64
+            - DEB, RPM, AppImage and ZIP packages for both architectures.
+
+            ### Important operational notes
+            - No macOS package is included. Never interpret missing macOS artifacts as signed or notarized.
+            - Hamlib uses an isolated native worker; verify real CAT/PTT behaviour on an actual radio before transmitting.
+            - SkyCAT port 4534 is a WSJT-X-only restricted rigctl proxy; independent TX-5DR frequency/mode writes to 4534 are acknowledged but not performed.
+            - WaveLog v1/v2 sync should be validated against actual accounts with a small sample before bulk sync.
+          artifacts: "release-assets/*"
+          token: ${{ secrets.GITHUB_TOKEN }}
+          draft: false
+          prerelease: false
+          makeLatest: true
+
       # Official Release
       - name: Create Official Release
-        if: github.event.inputs.version != ''
+        if: github.event.inputs.version != '' && !inputs.windows_linux_only
         uses: ncipollo/release-action@v1
         with:
           tag: ${{ github.event.inputs.version }}
