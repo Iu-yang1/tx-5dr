@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-2022, ubuntu-24.04-arm, macos-latest, macos-15-intel]
+        os: [ubuntu-24.04, windows-2022, ubuntu-24.04-arm]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -106,6 +106,8 @@ jobs:
         run: |
           yarn install --immutable
           yarn build
+      - name: Exercise existing radio UI RX and operator interaction regression
+        run: yarn workspace @tx5dr/web exec vitest run src/pages/about/MfskLiveReceiverPanel.test.tsx src/components/radio/digital/nativeDigitalSelection.test.ts
       - name: Audit production Rust selection, NAPI ABI and absence of eager legacy imports
         run: node packages/server/scripts/p9-codec-runtime-audit.cjs
       - name: Exercise all six real compiled server simulation paths

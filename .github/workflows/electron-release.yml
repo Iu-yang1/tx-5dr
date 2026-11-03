@@ -18,7 +18,7 @@ on:
         description: 'Release only Windows and Linux desktop; macOS requires Apple signing/notarization secrets'
         required: false
         type: boolean
-        default: false
+        default: true
 
 # 授予 GITHUB_TOKEN 写入权限以创建 release
 concurrency:
@@ -34,7 +34,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.windows_linux_only && '[{"os":"windows-2022","platform":"win32","arch":"x64","artifact_name":"tx-5dr-windows-x64"},{"os":"ubuntu-latest","platform":"linux","arch":"x64","artifact_name":"tx-5dr-linux-x64"},{"os":"ubuntu-24.04-arm","platform":"linux","arch":"arm64","artifact_name":"tx-5dr-linux-arm64"}]' || '[{"os":"windows-2022","platform":"win32","arch":"x64","artifact_name":"tx-5dr-windows-x64"},{"os":"macos-latest","platform":"darwin","arch":"arm64","artifact_name":"tx-5dr-macos-arm64"},{"os":"macos-15-intel","platform":"darwin","arch":"x64","artifact_name":"tx-5dr-macos-x64"},{"os":"ubuntu-latest","platform":"linux","arch":"x64","artifact_name":"tx-5dr-linux-x64"},{"os":"ubuntu-24.04-arm","platform":"linux","arch":"arm64","artifact_name":"tx-5dr-linux-arm64"}]') }}
+        # Release platforms: Windows x64, Linux x64 and Linux arm64.
+        include:
+          - {os: windows-2022, platform: win32, arch: x64, artifact_name: tx-5dr-windows-x64}
+          - {os: ubuntu-latest, platform: linux, arch: x64, artifact_name: tx-5dr-linux-x64}
+          - {os: ubuntu-24.04-arm, platform: linux, arch: arm64, artifact_name: tx-5dr-linux-arm64}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
 
@@ -978,7 +982,7 @@ jobs:
       - name: Validate app manifest
         shell: bash
         env:
-          TX5DR_WINDOWS_LINUX_ONLY: ${{ inputs.windows_linux_only }}
+          TX5DR_WINDOWS_LINUX_ONLY: 'true'
         run: |
           node - <<'EOF'
           const fs = require('node:fs');
@@ -1067,14 +1071,6 @@ jobs:
             - [**7z Archive**](https://github.com/${{ github.repository }}/releases/download/nightly-app/TX-5DR-nightly-windows-x64.7z) （压缩包，推荐）— LZMA2 compression, ~100MB smaller than ZIP, requires [7-Zip](https://www.7-zip.org/)
             - [**ZIP Archive**](https://github.com/${{ github.repository }}/releases/download/nightly-app/TX-5DR-nightly-windows-x64.zip) （压缩包）— larger file size
 
-            #### macOS (ARM64 — Apple Silicon)
-            - [**DMG Installer**](https://github.com/${{ github.repository }}/releases/download/nightly-app/TX-5DR-nightly-macos-arm64.dmg) （安装包）— recommended
-            - [**ZIP Archive**](https://github.com/${{ github.repository }}/releases/download/nightly-app/TX-5DR-nightly-macos-arm64.zip) （压缩包）
-
-            #### macOS (x64 — Intel)
-            - [**DMG Installer**](https://github.com/${{ github.repository }}/releases/download/nightly-app/TX-5DR-nightly-macos-x64.dmg) （安装包）— recommended
-            - [**ZIP Archive**](https://github.com/${{ github.repository }}/releases/download/nightly-app/TX-5DR-nightly-macos-x64.zip) （压缩包）
-
             #### Linux Desktop (x64) — Electron App
             - [**DEB Package**](https://github.com/${{ github.repository }}/releases/download/nightly-app/TX-5DR-nightly-linux-x64.deb) (Ubuntu/Debian)
             - [**RPM Package**](https://github.com/${{ github.repository }}/releases/download/nightly-app/TX-5DR-nightly-linux-x64.rpm) (Fedora/RHEL)
@@ -1096,7 +1092,7 @@ jobs:
 
             ### 🔧 System Requirements 系统要求
             - Node.js >= 22.15.1 (bundled / 已内置)
-            - Windows 10+ / macOS 11+ / Ubuntu 20.04+ / Fedora 35+
+            - Windows 10+ / Ubuntu 20.04+ / Fedora 35+
           allowUpdates: true
           removeArtifacts: true
           artifacts: "release-assets/*"
@@ -1104,17 +1100,16 @@ jobs:
           prerelease: true
           makeLatest: false
 
-      # Explicit Windows/Linux stable release, preserving mandatory macOS signing
-      # and notarization requirements on the full official release path.
+      # Windows/Linux only: -rc.N releases are prerelease, never latest.
       - name: Create Official Windows and Linux Release
-        if: github.event.inputs.version != '' && inputs.windows_linux_only
+        if: github.event.inputs.version != ''
         uses: ncipollo/release-action@v1
         with:
           tag: ${{ github.event.inputs.version }}
           name: "TX-5DR ${{ github.event.inputs.version }} — Windows/Linux"
           body: |
-            ## TX-5DR ${{ github.event.inputs.version }} — Windows/Linux Official Release
-            正式版：仅包含 Windows 和 Linux 桌面端。由于缺少 Apple 签名及公证凭据，本次**不包含 macOS 正式安装包**。
+            ## TX-5DR ${{ github.event.inputs.version }} — Windows/Linux
+            Windows x64、Linux x64/ARM64；-rc.N 为预发布候选版。不构建或发布 macOS。
 
             **Commit:** [${{ steps.release_info.outputs.short_sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
             **Build:** ${{ steps.release_info.outputs.timestamp }}
@@ -1136,63 +1131,8 @@ jobs:
           artifacts: "release-assets/*"
           token: ${{ secrets.GITHUB_TOKEN }}
           draft: false
-          prerelease: false
-          makeLatest: true
-
-      # Official Release
-      - name: Create Official Release
-        if: github.event.inputs.version != '' && !inputs.windows_linux_only
-        uses: ncipollo/release-action@v1
-        with:
-          tag: ${{ github.event.inputs.version }}
-          name: "TX-5DR ${{ github.event.inputs.version }}"
-          body: |
-            ## TX-5DR ${{ github.event.inputs.version }}
-
-            **Release Date** （发布日期）: ${{ steps.release_info.outputs.date }}
-            **Commit**: [${{ steps.release_info.outputs.short_sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
-
-            ### 🚀 What's New 新功能
-            - See [CHANGELOG](https://github.com/${{ github.repository }}/commits/main) for details.
-
-            ### 📦 Downloads 下载
-
-            #### Windows (x64)
-            - [**NSIS Installer**](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/TX-5DR-${{ github.event.inputs.version }}-windows-x64-nsis.exe) （安装包）— recommended for installation and auto-update
-            - [**7z Archive**](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/TX-5DR-${{ github.event.inputs.version }}-windows-x64.7z) （压缩包，推荐）— LZMA2 compression, ~100MB smaller than ZIP, requires [7-Zip](https://www.7-zip.org/)
-            - [**ZIP Archive**](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/TX-5DR-${{ github.event.inputs.version }}-windows-x64.zip) （压缩包）— larger file size
-
-            #### macOS (ARM64 — Apple Silicon)
-            - [**DMG Installer**](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/TX-5DR-${{ github.event.inputs.version }}-macos-arm64.dmg) （安装包）— recommended
-            - [**ZIP Archive**](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/TX-5DR-${{ github.event.inputs.version }}-macos-arm64.zip) （压缩包）
-
-            #### macOS (x64 — Intel)
-            - [**DMG Installer**](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/TX-5DR-${{ github.event.inputs.version }}-macos-x64.dmg) （安装包）— recommended
-            - [**ZIP Archive**](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/TX-5DR-${{ github.event.inputs.version }}-macos-x64.zip) （压缩包）
-
-            #### Linux Desktop (x64) — Electron App
-            - [**DEB Package**](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/TX-5DR-${{ github.event.inputs.version }}-linux-x64.deb) (Ubuntu/Debian)
-            - [**RPM Package**](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/TX-5DR-${{ github.event.inputs.version }}-linux-x64.rpm) (Fedora/RHEL)
-            - [**AppImage**](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/TX-5DR-${{ github.event.inputs.version }}-linux-x64.AppImage) — supports in-app auto-update
-            - [**ZIP Archive**](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/TX-5DR-${{ github.event.inputs.version }}-linux-x64.zip) （压缩包）
-
-            #### Linux Desktop (ARM64) — Electron App
-            - [**DEB Package**](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/TX-5DR-${{ github.event.inputs.version }}-linux-arm64.deb) (Ubuntu/Debian)
-            - [**RPM Package**](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/TX-5DR-${{ github.event.inputs.version }}-linux-arm64.rpm) (Fedora/RHEL)
-            - [**AppImage**](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/TX-5DR-${{ github.event.inputs.version }}-linux-arm64.AppImage) — supports in-app auto-update
-            - [**ZIP Archive**](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/TX-5DR-${{ github.event.inputs.version }}-linux-arm64.zip) （压缩包）
-
-            ### 🔧 System Requirements 系统要求
-            - Node.js >= 22.15.1 (bundled / 已内置)
-            - Windows 10+ / macOS 11+ / Ubuntu 20.04+ / Fedora 35+
-
-            ---
-            Built at （构建于）: ${{ steps.release_info.outputs.timestamp }}
-          artifacts: "release-assets/*"
-          token: ${{ secrets.GITHUB_TOKEN }}
-          draft: false
-          prerelease: false
-          makeLatest: true
+          prerelease: ${{ contains(github.event.inputs.version, '-rc.') }}
+          makeLatest: ${{ !contains(github.event.inputs.version, '-rc.') }}
 
       - name: Install ossutil
         if: env.OSS_ACCESS_KEY_ID != '' && env.OSS_ACCESS_KEY_SECRET != '' && env.OSS_BUCKET != '' && env.OSS_ENDPOINT != '' && env.OSS_BASE_URL != ''
