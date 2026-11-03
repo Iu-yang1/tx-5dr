@@ -63,6 +63,9 @@ The existing `RadioControl` mode selector is the only primary mode entry point. 
 - RF is **not automatically armed** by selecting a mode, connecting a rig or receiving AF. An operator with `RadioControl` permission must explicitly acknowledge their station, frequency and PTT readiness in the existing right pane. A per-process, ten-minute approval is bound to the physical radio connection generation, current native mode and receiver session generation. A mode change, engine stop, receiver restart or reconnect invalidates it; disarm requests interrupt a currently held native digital PTT lease.
 - The host continues to own actual PTT through `PhysicalTxCoordinator`. No successful QSO is inferred from decode events; the operator explicitly logs a completed exchange. WSPR spots are not QSOs.
 - MSK144 TX is fixed at 1500 Hz AF by the upstream synthesizer, independently of tunable RX AF. It supports standard 72 ms frames; legacy MSK40 shorthand and adaptive RX equalization are not implemented in the pinned upstream version.
+- Native RX configuration is validated before stopping an active receiver. The asynchronous startup waiter is bound to its receiver generation; timeout or acknowledgment from an older generation must never stop or validate a replacement session.
+- Post-demodulated AF ingress has two independent backpressure boundaries: pending resample callbacks (at most eight and at most one second of normalized 12 kHz samples) and pending native worker messages. A streaming gap fails closed rather than joining non-contiguous samples. A slotted-mode gap increments dropped-chunk statistics and the incomplete UTC window is rejected.
+- Child spawn and IPC write failures must transition native RX into stopped/fault state without escaping a radio audio callback or UTC polling timer. Explicit JTTY stop still flushes accepted AF before a terminal update.
 
 ## Evidence and remaining release limits
 
