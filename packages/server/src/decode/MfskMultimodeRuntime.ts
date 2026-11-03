@@ -53,7 +53,7 @@ export interface MfskSlotDecodeInput {
   /** A single complete or partial slot; exactly 12 kHz mono PCM. */
   final: boolean;
   ap?: {
-    myCall: string; myGrid: string; dxCall: string; dxGrid: string;
+    myCall: string; myGrid: string; dxCall: string; dxGrid?: string;
     progress: 0 | 1 | 2 | 3 | 4 | 5;
   };
 }

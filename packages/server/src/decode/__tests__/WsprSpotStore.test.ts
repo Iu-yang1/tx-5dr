@@ -2,7 +2,7 @@ import {describe,expect,it} from 'vitest';
 import {WsprSpotStore,parseStandardWsprSpot} from '../WsprSpotStore.js';
 import type {DigitalRxEvent} from '@tx5dr/contracts';
 
-function event(text:string,slot='WSPR-10',af=1500):DigitalRxEvent {
+function event(text:string,slot='WSPR-10',af=1500):Extract<DigitalRxEvent,{kind:'slot-decode'}> {
   return {kind:'slot-decode',mode:'WSPR',sessionId:'rx-1',
     slotId:slot,timestampMs:1800000000000,
     frequencyHz:af,text,snrDb:-25,dtSeconds:0.5,final:true};
