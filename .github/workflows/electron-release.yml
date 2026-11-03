@@ -499,6 +499,28 @@ jobs:
             "$NODE_BIN" -e "const n=require(process.argv[1]);if(!n.supportedModes().includes('Q65-60B'))throw new Error('MFSK native addon not functional')" "$APP_ROOT/packages/mfsk-native/mfsk-native.node"
           fi
 
+          echo "=== Packaged production digital preflight / server import smoke ==="
+          # The service must load from the ACTUAL packaged resources/app tree,
+          # where wsjtx-lib is a dev-only dependency and intentionally absent.
+          if [ -e "$APP_ROOT/node_modules/wsjtx-lib" ]; then
+            echo "Unexpected test-only wsjtx-lib dependency in user package" >&2
+            exit 1
+          fi
+          (cd "$SERVER_SCRIPT_DIR" && NODE_ENV=production "$NODE_BIN" --input-type=module -e '
+            const { join } = await import("node:path");
+            const { pathToFileURL } = await import("node:url");
+            const entry = pathToFileURL(join(process.cwd(), "../decode/DigitalMessagePreflightService.js"));
+            const { DigitalMessagePreflightService } = await import(entry.href);
+            const service = new DigitalMessagePreflightService();
+            for (const mode of ["FT8", "FT4"]) {
+              const result = await service.check({ mode, text: "CQ K1ABC FN42" });
+              if (!result.encodable) {
+                throw new Error("Packaged " + mode + " preflight failed: " + JSON.stringify(result));
+              }
+              console.log("Packaged production " + mode + " preflight OK");
+            }
+          ')
+
           echo "=== Packaged Image Radio runtime smoke ==="
           (cd "$SERVER_SCRIPT_DIR" && "$NODE_BIN" -e '
             const { PNG } = require("pngjs");

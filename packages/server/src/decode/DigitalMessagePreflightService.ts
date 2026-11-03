@@ -1,24 +1,36 @@
-import { WSJTXLib, WSJTXMode } from 'wsjtx-lib';
 import type { DigitalMessagePreflightRequest, DigitalMessagePreflightResult } from '@tx5dr/plugin-api';
-import { WSJTXNativeGate } from './WSJTXNativeGate.js';
+import {
+  loadMfskNative, verifyNativeWaveform,
+  type MfskNativeLoadResult,
+} from './MfskNativeAdapter.js';
 import { digitalMessageTextsMatch, normalizeDigitalMessageText } from './digitalMessageValidation.js';
 
+/**
+ * A production message preflight must use the SAME native Rust encoder as
+ * actual FT8/FT4 transmissions. In particular, do not eagerly import the
+ * test-only wsjtx-lib binding: it is intentionally absent in packaged apps.
+ */
 export class DigitalMessagePreflightService {
-  private readonly lib = new WSJTXLib({ maxThreads: 2 });
+  constructor(private readonly loadCodec: () => MfskNativeLoadResult = loadMfskNative) {}
 
   async check(request: DigitalMessagePreflightRequest): Promise<DigitalMessagePreflightResult> {
     const requestedText = normalizeDigitalMessageText(request.text);
     if (!requestedText) return { encodable: false, requestedText, reason: 'empty' };
     try {
-      const mode = request.mode === 'FT4' ? WSJTXMode.FT4 : WSJTXMode.FT8;
-      const result = await WSJTXNativeGate.run(() => this.lib.encode(mode, requestedText, 1500));
-      const transmittedText = normalizeDigitalMessageText(result.messageSent ?? '');
+      const codec = this.loadCodec();
+      if (!codec.ready) throw new Error(codec.reason);
+      const mode = request.mode === 'FT4' ? 'FT4' : 'FT8';
+      const waveform = codec.module.encodeSlotted(mode, requestedText, 1500);
+      const transmittedText = normalizeDigitalMessageText(waveform.canonicalText ?? '');
       if (!digitalMessageTextsMatch(requestedText, transmittedText)) {
         return { encodable: false, requestedText, transmittedText, reason: 'encoder_changed_text' };
       }
-      if (!result.audioData || result.audioData.length === 0) {
+      if (!waveform.pcmF32Le || waveform.sampleCount === 0) {
         return { encodable: false, requestedText, transmittedText, reason: 'encode_failed', error: 'empty_audio' };
       }
+      // Ensure native PCM is finite, bounded, and matches the declared
+      // sample rate/count. No malformed waveform may pass preflight.
+      verifyNativeWaveform(waveform, requestedText, mode);
       return { encodable: true, requestedText, transmittedText };
     } catch (error) {
       return {
