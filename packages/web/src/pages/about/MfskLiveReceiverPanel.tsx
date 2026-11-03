@@ -7,10 +7,10 @@ import { Q65SubmodeSchema, type DigitalCodecMode, type DigitalRxEvent,
 
 /** Receives post-demodulated AF from the application's live audio input.
  * Does not offer any PTT or RF TX control. Visible only to administrators. */
-export function MfskLiveReceiverPanel() {
+export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecMode} = {}) {
   const { t } = useTranslation('about');
   const [status,setStatus] = useState<MfskLiveRxStatus | null>(null);
-  const [mode,setMode] = useState<DigitalCodecMode>('Q65');
+  const [mode,setMode] = useState<DigitalCodecMode>(initialMode??'Q65');
   const [submode,setSubmode] = useState<Q65Submode>('Q65-60B');
   const [frequency,setFrequency] = useState('1500');
   const [averaging,setAveraging] = useState(false);
@@ -58,7 +58,7 @@ export function MfskLiveReceiverPanel() {
         <label htmlFor="mfsk-live-mode" className="text-sm">{t('codec.mode')}</label>
         <select id="mfsk-live-mode" value={mode} onChange={e=>setMode(e.target.value as DigitalCodecMode)}
           className="rounded-md border border-default-300 bg-content1 px-3 py-2 text-sm"
-          disabled={busy||status?.running}>
+          disabled={busy||status?.running||Boolean(initialMode)}>
           {(['FT8','FT4','Q65','WSPR','MSK144','JTTY'] as const).map(m=>
             <option key={m} value={m}>{m}</option>)}
         </select>
