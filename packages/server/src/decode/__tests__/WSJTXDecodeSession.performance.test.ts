@@ -12,7 +12,9 @@ it('reuses a native worker across repeated FT8/FT4 session cancellations', async
         const id = `native-${mode}-${i}`;
         const request: DecodeRequest = {
           slotId: id, decodeSessionId: id, decodeDepth: 3, decodeStage: mode === 'FT8' ? 41 : 'ft4-partial',
-          decodeFinalWindow: false, windowIdx: 0, mode, pcm, timestamp: Date.now(), windowOffsetMs: -1500, sampleRate: 12000,
+          decodeFinalWindow: false, windowIdx: 0, mode, pcm,
+          slotStartMs: Math.floor(Date.UTC(2026,7,26,12,0,0)/(mode==='FT8'?15_000:7_500))*(mode==='FT8'?15_000:7_500),
+          timestamp: Date.now(), windowOffsetMs: -1500, sampleRate: 12000,
         };
         await pool.decode(request);
         pool.cancelSession(id, 'transmit-skipped');

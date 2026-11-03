@@ -34,7 +34,14 @@ function encode(queue: WSJTXEncodeWorkQueue, request: EncodeRequest): Promise<En
     };
     queue.on('encodeComplete', complete);
     queue.on('encodeError', fail);
-    void queue.push(request);
+    // This helper feeds synthetic host audio into an isolated virtual
+    // session; use the explicit simulation identity, never an RF frame.
+    void queue.push({
+      ...request,
+      operatorId: request.operatorId.startsWith('simulation:')
+        ? request.operatorId : `simulation:${request.operatorId}`,
+      virtualSimulation: true,
+    });
   });
 }
 
@@ -80,7 +87,7 @@ describe('VirtualRadioSession real codec loop', () => {
       slot.set(scheduled[0]!.samples, MODES.FT8.transmitTiming / 1_000 * 12_000);
       const request: DecodeRequest = {
         slotId: `verify-${now}`,
-        mode: 'FT8', windowIdx: 0, pcm: slot.buffer, sampleRate: 12_000,
+        mode: 'FT8', windowIdx: 0, slotStartMs: Math.floor(now / MODES.FT8.slotMs) * MODES.FT8.slotMs, pcm: slot.buffer, sampleRate: 12_000,
         timestamp: now, windowOffsetMs: 0,
       };
       const reply = await verifyDecoder.decode(request);
@@ -143,6 +150,7 @@ describe('VirtualRadioSession real codec loop', () => {
       slot.set(scheduled[0]!.samples, MODES.FT8.transmitTiming / 1_000 * 12_000);
       const reply = await verifyDecoder.decode({
         slotId: `verify-three-${now}`, mode: 'FT8', windowIdx: 0,
+        slotStartMs: Math.floor(now / MODES.FT8.slotMs) * MODES.FT8.slotMs,
         pcm: slot.buffer, sampleRate: 12_000, timestamp: now, windowOffsetMs: 0,
       });
       expect(reply.frames.map((frame) => frame.message)).toEqual(expect.arrayContaining([
@@ -193,6 +201,7 @@ describe('VirtualRadioSession real codec loop', () => {
       slot.set(scheduled[0]!.samples, MODES.FT8.transmitTiming / 1_000 * 12_000);
       const reply = await decoder.decode({
         slotId: `verify-pileup-${now}`, mode: 'FT8', windowIdx: 0,
+        slotStartMs: Math.floor(now / MODES.FT8.slotMs) * MODES.FT8.slotMs,
         pcm: slot.buffer, sampleRate: 12_000, timestamp: now, windowOffsetMs: 0,
       });
       expect(reply.frames.map((frame) => frame.message)).toEqual(expect.arrayContaining(
@@ -239,6 +248,7 @@ describe('VirtualRadioSession real codec loop', () => {
       slot.set(scheduled[0]!.samples, MODES.FT4.transmitTiming / 1_000 * 12_000);
       const reply = await decoder.decode({
         slotId: `verify-ft4-${now}`, mode: 'FT4', windowIdx: 0,
+        slotStartMs: Math.floor(now / MODES.FT4.slotMs) * MODES.FT4.slotMs,
         pcm: slot.buffer, sampleRate: 12_000, timestamp: now, windowOffsetMs: 0,
       });
       expect(reply.frames.map((frame) => frame.message)).toContain('BG5DRB JA1AAA R PM95');
