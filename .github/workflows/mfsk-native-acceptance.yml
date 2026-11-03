@@ -98,3 +98,7 @@ jobs:
           yarn build
       - name: Exercise all six real compiled server simulation paths
         run: node packages/server/scripts/mfsk-sim-e2e.cjs
+      - name: Run real TX-5DR virtual-radio QSO regression on native FT8/FT4 backend
+        env:
+          TX5DR_CODEC_BACKEND: mfsk-native
+        run: yarn workspace @tx5dr/server test:virtual-radio-integration
