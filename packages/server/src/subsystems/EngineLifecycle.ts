@@ -476,7 +476,7 @@ export class EngineLifecycle {
           });
           logger.info('Native multimode receiver started',{mode:name});
         },
-        stop:async()=>{service.stop();},
+        stop:async()=>{await service.flushAndStop();},
         priority:5,dependencies:[],optional:false,
       },
       {

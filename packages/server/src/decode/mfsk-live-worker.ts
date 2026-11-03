@@ -46,7 +46,15 @@ function processCommand(message: RxCommand): void {
       return;
     }
     if (message.cmd==='stop') {
-      if(active && decoder) decoder.stop(active.id);
+      if(active && decoder) {
+        if(active.mode==='JTTY' && active.generation===message.generation){
+          // Flush only the JTTY terminal messages after all prior IPC audio
+          // has been accepted. Emit before 'stopped' so callers retain them.
+          const events=decoder.finishJtty(active.id,Date.now());
+          if(events.length)send({type:'events',generation:message.generation,events});
+        }
+        decoder.stop(active.id);
+      }
       active=null;
       decoder=null;
       send({ type:'stopped', generation: message.generation });

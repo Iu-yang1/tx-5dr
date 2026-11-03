@@ -161,6 +161,38 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
     return this.status();
   }
 
+  /**
+   * Gracefully finish a user-requested JTTY receive session. The child is
+   * still isolated and may crash or hang: a hard timeout always stops it.
+   * Other modes can stop immediately; no JTTY terminal frames are expected.
+   */
+  async flushAndStop(timeoutMs=2_000):Promise<MfskLiveStatus> {
+    if(!this.child||!this.ready||this.config?.mode!=='JTTY')return this.stop();
+    const child=this.child;
+    const generation=this.generation;
+    return new Promise(resolve=>{
+      let done=false;
+      const finish=()=>{
+        if(done)return;
+        done=true;
+        clearTimeout(timer);
+        child.off('message',onMessage);
+        if(this.child===child && this.generation===generation)this.stop();
+        resolve(this.status());
+      };
+      const onMessage=(payload:unknown)=>{
+        if(!payload||typeof payload!=='object')return;
+        const value=payload as {type?:string;generation?:number};
+        if(value.type==='stopped'&&value.generation===generation)finish();
+      };
+      const timer=setTimeout(finish,timeoutMs);
+      timer.unref();
+      child.on('message',onMessage);
+      try{child.send({cmd:'stop',generation});}
+      catch{finish();}
+    });
+  }
+
   stop():MfskLiveStatus {
     this.generation++;
     if(this.tick){clearInterval(this.tick);this.tick=null;}

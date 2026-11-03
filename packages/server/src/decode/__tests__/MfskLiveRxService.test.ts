@@ -119,4 +119,24 @@ describe('live receiver protects the real AF ingestion and native session bounda
     s.live.stop();
   });
 
+  it('retains the final JTTY reception-ended update before terminating its worker',async()=>{
+    const s=setup();
+    const active=s.live.start({mode:'JTTY'});
+    const worker=s.workers[0];
+    worker.emit('message',{type:'started',generation:active.generation});
+    const pending=s.live.flushAndStop();
+    expect(worker.messages.at(-1)).toMatchObject({cmd:'stop',generation:active.generation});
+    worker.emit('message',{type:'events',generation:active.generation,events:[{
+      kind:'message-update',sessionId:`live-${active.generation}`,
+      mode:'JTTY',timestampMs:1_800_000_000_000,frequencyHz:1500,
+      messageId:'stream-1',revision:0,state:'reception-ended',text:'CQ K1ABC',
+    }]});
+    worker.emit('message',{type:'stopped',generation:active.generation});
+    const stopped=await pending;
+    expect(stopped.running).toBe(false);
+    expect(worker.killed).toBe(true);
+    expect(s.live.recent(0)).toEqual([
+      expect.objectContaining({kind:'message-update',state:'reception-ended',text:'CQ K1ABC'}),
+    ]);
+  });
 });

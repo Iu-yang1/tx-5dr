@@ -1587,7 +1587,7 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
     await this.modeSwitchTail.catch(() => undefined);
     await this.stopTuneTone('engine stopped');
     this.mfskNativeTxService?.cancel();
-    this.mfskLiveRxService.stop();
+    await this.mfskLiveRxService.flushAndStop();
     try {
       return await this.engineLifecycle.stop();
     } finally {

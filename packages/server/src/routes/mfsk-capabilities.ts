@@ -101,7 +101,7 @@ export async function mfskCapabilityRoutes(fastify:FastifyInstance):Promise<void
   fastify.post('/live/stop',{preHandler:[requireAbility('manage','all')]},
     async(_request,reply)=>{
       const live=DigitalRadioEngine.getInstance().getMfskLiveRxService();
-      return reply.send(MfskLiveRxStatusSchema.parse(live.stop()));
+      return reply.send(MfskLiveRxStatusSchema.parse(await live.flushAndStop()));
     });
   fastify.get('/live/status',{preHandler:[requireAbility('manage','all')]},
     async(_request,reply)=>{
