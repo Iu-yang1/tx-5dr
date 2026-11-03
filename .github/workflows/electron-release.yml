@@ -1012,10 +1012,10 @@ jobs:
             --commit "${{ steps.release_info.outputs.short_sha }}" \
             --commit-title "${{ steps.release_info.outputs.commit_title }}" \
             --published-at "${{ steps.release_info.outputs.timestamp }}" \
-            --base-url "${{ secrets.OSS_BASE_URL }}" \
-            --object-prefix "tx-5dr/app/${{ steps.release_info.outputs.tag }}" \
-            --oss-base-url "${{ secrets.OSS_BASE_URL }}" \
-            --oss-object-prefix "tx-5dr/app/${{ steps.release_info.outputs.tag }}" \
+            --base-url "${{ secrets.OSS_BASE_URL || format('https://github.com/{0}/releases/download', github.repository) }}" \
+            --object-prefix "${{ secrets.OSS_BASE_URL && format('tx-5dr/app/{0}', steps.release_info.outputs.tag) || steps.release_info.outputs.tag }}" \
+            --oss-base-url "${{ secrets.OSS_BASE_URL || format('https://github.com/{0}/releases/download', github.repository) }}" \
+            --oss-object-prefix "${{ secrets.OSS_BASE_URL && format('tx-5dr/app/{0}', steps.release_info.outputs.tag) || steps.release_info.outputs.tag }}" \
             --github-base-url "https://github.com/${{ github.repository }}/releases/download" \
             --github-object-prefix "${{ steps.release_info.outputs.tag }}" \
             --assets-dir "publish-assets" \

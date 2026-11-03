@@ -195,6 +195,7 @@ jobs:
       - name: Build install-online.sh
         env:
           TX5DR_DOWNLOAD_BASE_URL: ${{ secrets.OSS_BASE_URL }}
+          TX5DR_INSTALL_RELEASE_TAG: ${{ github.event.inputs.version && format('{0}-server', github.event.inputs.version) || 'nightly-server' }}
         run: |
           bash scripts/build-install-script.sh
           cp dist/install-online.sh release-assets/ 2>/dev/null || true
@@ -268,10 +269,10 @@ jobs:
             --commit "${{ steps.release_info.outputs.short_sha }}" \
             --commit-title "${{ steps.release_info.outputs.commit_title }}" \
             --published-at "${{ steps.release_info.outputs.timestamp }}" \
-            --base-url "${{ secrets.OSS_BASE_URL }}" \
-            --object-prefix "tx-5dr/server/${{ steps.release_info.outputs.tag }}" \
-            --oss-base-url "${{ secrets.OSS_BASE_URL }}" \
-            --oss-object-prefix "tx-5dr/server/${{ steps.release_info.outputs.tag }}" \
+            --base-url "${{ secrets.OSS_BASE_URL || format('https://github.com/{0}/releases/download', github.repository) }}" \
+            --object-prefix "${{ secrets.OSS_BASE_URL && format('tx-5dr/server/{0}', steps.release_info.outputs.tag) || steps.release_info.outputs.tag }}" \
+            --oss-base-url "${{ secrets.OSS_BASE_URL || format('https://github.com/{0}/releases/download', github.repository) }}" \
+            --oss-object-prefix "${{ secrets.OSS_BASE_URL && format('tx-5dr/server/{0}', steps.release_info.outputs.tag) || steps.release_info.outputs.tag }}" \
             --github-base-url "https://github.com/${{ github.repository }}/releases/download" \
             --github-object-prefix "${{ steps.release_info.outputs.tag }}" \
             --assets-dir "publish-assets" \
