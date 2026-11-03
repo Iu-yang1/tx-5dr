@@ -51,6 +51,18 @@
     "virtualOnly": "Offline codec capabilities only, not an operational radio-mode selector.",
     "offlineReady": "Native interface loaded",
     "unavailable": "Unavailable",
-    "noRf": "Physical RF transmit remains disabled in this experimental implementation until P9 acceptance."
+    "noRf": "Physical RF transmit remains disabled in this experimental implementation until P9 acceptance.",
+    "simTitle": "Six-mode offline TX/RX loopback",
+    "mode": "Mode",
+    "submode": "Q65 submode",
+    "message": "Message to encode",
+    "run": "Run simulation",
+    "passed": "Original message recovered",
+    "notRecovered": "Message not recovered",
+    "transmitted": "Encoded message",
+    "decoded": "Decoded messages",
+    "samples": "Simulated samples",
+    "failed": "Simulation failed: inspect native module and server diagnostics",
+    "simNote": "Uses seeded AWGN and synthetic receiver PCM for functional testing only; not an RF or sensitivity acceptance test."
   }
 }

@@ -10,6 +10,8 @@ import {
 } from '@tx5dr/contracts';
 import { requireAbility } from '../auth/authPlugin.js';
 import { MFSK_NATIVE_MODULE_PATH } from '../decode/MfskNativeAdapter.js';
+import { MfskCodecSimulationRequestSchema, MfskCodecSimulationResponseSchema } from '@tx5dr/contracts';
+import { fileURLToPath } from 'node:url';
 
 const execAsync = promisify(execFile);
 const MODES: DigitalCodecMode[] = ['FT8','FT4','Q65','WSPR','MSK144','JTTY'];
@@ -76,5 +78,34 @@ export async function mfskCapabilityRoutes(fastify:FastifyInstance):Promise<void
       cachedAt=Date.now();
     }
     return reply.send(cached);
+  });
+
+  // Only one CPU-intensive native simulation at a time per server process.
+  // Runs in a disposable child; malformed native code cannot crash Fastify.
+  let simulationInFlight=false;
+  fastify.post('/simulate', {
+    preHandler:[requireAbility('manage','all')],
+  },async (request,reply)=>{
+    const payload = MfskCodecSimulationRequestSchema.parse(request.body);
+    if(simulationInFlight){
+      return reply.code(429).send({success:false,error:'Codec simulation is already running'});
+    }
+    simulationInFlight=true;
+    try {
+      const script=fileURLToPath(new URL('../decode/mfsk-sim-worker.js',import.meta.url));
+      const { stdout }=await execAsync(process.execPath,[
+        script,JSON.stringify(payload),
+      ],{timeout:120_000,maxBuffer:64*1024,windowsHide:true});
+      const response=MfskCodecSimulationResponseSchema.parse(JSON.parse(stdout));
+      return reply.send(response);
+    }catch(error){
+      const detail=error instanceof Error?error.message:String(error);
+      fastify.log.warn({detail},'Isolated native simulation failed');
+      return reply.code(422).send({
+        success:false,error:'Native offline simulation failed; inspect server diagnostics',
+      });
+    }finally{
+      simulationInFlight=false;
+    }
   });
 }

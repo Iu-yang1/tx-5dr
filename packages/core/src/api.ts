@@ -569,6 +569,13 @@ function normalizeOperatorRequest<T extends CreateRadioOperatorRequest | UpdateR
 
 export const api = {
   /** Isolated probe only; cannot authorize real RF transmissions. */
+  async simulateMfskCodec(
+    payload: import('@tx5dr/contracts').MfskCodecSimulationRequest,
+  ): Promise<import('@tx5dr/contracts').MfskCodecSimulationResponse> {
+    return apiRequest<import('@tx5dr/contracts').MfskCodecSimulationResponse>('/mfsk/simulate',{
+      method:'POST',body:JSON.stringify(payload),
+    });
+  },
   async getMfskCodecProbe(): Promise<import('@tx5dr/contracts').MfskCodecProbeResponse> {
     return apiRequest<import('@tx5dr/contracts').MfskCodecProbeResponse>('/mfsk/capabilities');
   },

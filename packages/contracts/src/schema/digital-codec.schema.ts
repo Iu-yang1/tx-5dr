@@ -143,3 +143,32 @@ export const MfskCodecProbeResponseSchema = z.object({
   error: z.string().optional(),
 });
 export type MfskCodecProbeResponse = z.infer<typeof MfskCodecProbeResponseSchema>;
+
+/** All test transmission in this API is synthetic: no PTT, no RF and no logbook. */
+export const MfskCodecSimulationRequestSchema = z.object({
+  mode: DigitalCodecModeSchema,
+  q65Submode: Q65SubmodeSchema.optional(),
+  text: z.string().trim().min(1).max(64),
+  audioFrequencyHz: z.number().finite().min(100).max(5500).default(1500),
+  noiseAmplitude: z.number().finite().min(0).max(0.025).default(0.002),
+}).superRefine((value, ctx) => {
+  if (value.mode !== 'Q65' && value.q65Submode !== undefined) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Q65 submode is only valid for Q65', path: ['q65Submode'] });
+  }
+});
+export type MfskCodecSimulationRequest = z.infer<typeof MfskCodecSimulationRequestSchema>;
+
+export const MfskCodecSimulationResponseSchema = z.object({
+  mode: DigitalCodecModeSchema,
+  submode: Q65SubmodeSchema.nullable(),
+  canonicalText: z.string(),
+  receivedTexts: z.array(z.string()).max(64),
+  messageRecovered: z.boolean(),
+  samples: z.number().int().positive(),
+  sampleRate: z.literal(12_000),
+  encodeMs: z.number().finite().nonnegative(),
+  decodeMs: z.number().finite().nonnegative(),
+  physicalTxEnabled: z.literal(false),
+  simulationOnly: z.literal(true),
+});
+export type MfskCodecSimulationResponse = z.infer<typeof MfskCodecSimulationResponseSchema>;
