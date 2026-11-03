@@ -10,7 +10,9 @@ describe('production default Rust codec migration',()=>{
   it('keeps deterministic legacy comparison tests available without shipping it as primary',()=>{
     expect(resolveCodecBackend(undefined,'test')).toBe('wsjtx-lib');
     expect(resolveCodecBackend('mfsk-native','test')).toBe('mfsk-native');
-    expect(resolveCodecBackend('wsjtx-lib','production')).toBe('wsjtx-lib');
+    expect(resolveCodecBackend('wsjtx-lib','development')).toBe('wsjtx-lib');
+    expect(()=>resolveCodecBackend('wsjtx-lib','production')).toThrow(/development and test/);
+    expect(()=>resolveCodecBackend('wsjtx-lib',undefined)).toThrow(/development and test/);
   });
   it('rejects unknown backend values; there is no automatic fallback',()=>{
     expect(()=>resolveCodecBackend('invalid','production')).toThrow(/Unknown/);

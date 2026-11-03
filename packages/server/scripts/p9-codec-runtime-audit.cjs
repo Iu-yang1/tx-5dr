@@ -34,7 +34,9 @@ for(const relative of [
     path.join(root,'packages/server/dist/decode/codec-backend.js')).href);
   assert.equal(selection.resolveCodecBackend(undefined,'production'),'mfsk-native');
   assert.equal(selection.resolveCodecBackend(undefined,'development'),'mfsk-native');
-  assert.equal(selection.resolveCodecBackend('wsjtx-lib','production'),'wsjtx-lib');
+  assert.throws(()=>selection.resolveCodecBackend('wsjtx-lib','production'),
+    /development and test/);
+  assert.equal(selection.resolveCodecBackend('wsjtx-lib','test'),'wsjtx-lib');
   assert.throws(()=>selection.resolveCodecBackend('bogus','production'));
   console.log('P9 Rust default + native ABI + zero eager legacy imports verified.');
 })().catch(error=>{console.error(error);process.exitCode=1});

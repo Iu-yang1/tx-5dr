@@ -71,6 +71,20 @@ record('MSK144',()=>{
   const samples=withChannel(tx,5,0);
   return native.decodeMsk144Recording(samples,1500);
 }, /K1ABC/);
+// The actual MSK144 physical scheduler ends on a complete 72ms frame
+// boundary and reserves 700ms before the next RX interval. Verify that
+// preserving only those full frames still produces a real, decodable ping.
+record('MSK144-UTC-safe-frames',()=>{
+  const tx=native.encodeMsk144Standard('K1ABC','K2ABC','-10',5);
+  const maxSamples=Math.floor(((5000-700)*12)/864)*864;
+  const count=Math.min(tx.sampleCount,maxSamples);
+  assert(count>=864 && count%864===0);
+  const safeTx={
+    ...tx,sampleCount:count,
+    pcmF32Le:tx.pcmF32Le.subarray(0,count*4),
+  };
+  return native.decodeMsk144Recording(withChannel(safeTx,5,0.1),1500);
+}, /K1ABC/);
 record('JTTY',()=>{
   const tx=native.encodeJtty('CQ K1ABC',1500);
   const samples=withChannel(tx,Math.max(3,tx.sampleCount/Fs+0.8),0.2);
