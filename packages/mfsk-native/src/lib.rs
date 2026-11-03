@@ -195,6 +195,180 @@ pub fn decode_msk144_recording(pcm_f32_le: Buffer, audio_hz: f64) -> Result<Vec<
     Ok(rows)
 }
 
+/// Persistent per-channel, per-mode receiver. The Node worker owns these
+/// handles and must cancel/dispose the session when its generation changes.
+#[napi]
+pub struct SlottedSession {
+    mode: String,
+    inner: std::sync::Mutex<AnyDecoder>,
+}
+
+#[napi]
+impl SlottedSession {
+    #[napi(constructor)]
+    pub fn new(mode: String) -> Result<Self> {
+        let protocol = Mode::from_name(&mode)
+            .ok_or_else(|| invalid(format!("unknown slotted mode: {mode}")))?;
+        Ok(Self { mode, inner: std::sync::Mutex::new(AnyDecoder::with_defaults(protocol)) })
+    }
+
+    #[napi]
+    pub fn decode(
+        &self, pcm_f32_le: Buffer, period_index: Option<i32>, early_prefix: Option<bool>,
+    ) -> Result<Vec<NativeDecodeRow>> {
+        let prefix = early_prefix.unwrap_or(false);
+        if prefix && self.mode != "FT8" {
+            return Err(invalid("early-prefix state is currently implemented only for FT8"));
+        }
+        let audio = from_pcm(&pcm_f32_le)?;
+        let mut slot = SlotInput::f32(&audio);
+        slot.period = period_index.map(i64::from);
+        let mut decoder = self.inner.lock().map_err(|_| invalid("decoder lock poisoned"))?;
+        let decoded = if prefix { decoder.decode_prefix(&slot) } else { decoder.decode(&slot) };
+        Ok(decoded.rows.into_iter().map(|r| NativeDecodeRow {
+            text: r.decoded.text,
+            frequency_hz: r.decoded.freq_hz as f64,
+            snr_db: r.decoded.snr_db as f64,
+            dt_seconds: r.decoded.dt_sec as f64,
+        }).collect())
+    }
+
+    #[napi]
+    pub fn set_parameters(&self, depth: u32, averaging: bool, rx_hz: Option<f64>, tolerance_hz: Option<f64>) -> Result<()> {
+        let depth = match depth {
+            1 => Depth::Fast,
+            2 => Depth::Normal,
+            3 => Depth::Deep,
+            _ => return Err(invalid("decode depth must be 1, 2 or 3")),
+        };
+        let mut d = self.inner.lock().map_err(|_| invalid("decoder lock poisoned"))?;
+        let params = d.params_mut();
+        params.depth = depth;
+        params.averaging = averaging;
+        if let Some(f) = rx_hz {
+            params.rx_freq_hz = Some(validate_audio_frequency(f)?);
+        }
+        if let Some(t) = tolerance_hz {
+            if !t.is_finite() || t <= 0.0 || t > 5000.0 {
+                return Err(invalid("invalid frequency tolerance"));
+            }
+            params.tol_hz = Some(t as f32);
+        }
+        Ok(())
+    }
+
+    #[napi]
+    pub fn clear(&self) -> Result<()> {
+        self.inner.lock().map_err(|_| invalid("decoder lock poisoned"))?.clear();
+        Ok(())
+    }
+}
+
+/// A persistent continuous receiver: JTTY messages have stable identifiers
+/// and are emitted on growing, completed, expired, and end-of-reception updates.
+#[napi]
+pub struct JttySession {
+    inner: std::sync::Mutex<mfsk_core::jtty::rx::Stream>,
+}
+
+#[napi]
+impl JttySession {
+    #[napi(constructor)]
+    pub fn new(audio_hz: f64) -> Result<Self> {
+        let mut p = mfsk_core::jtty::rx::Params::default();
+        p.f0_hz = validate_audio_frequency(audio_hz)?;
+        let rx = mfsk_core::jtty::rx::Stream::new(Arc::new(mfsk_core::jtty::rx::Receiver::new()), p);
+        Ok(Self { inner: std::sync::Mutex::new(rx) })
+    }
+
+    #[napi]
+    pub fn push(&self, pcm_f32_le: Buffer) -> Result<Vec<NativeJttyUpdate>> {
+        let audio = from_pcm(&pcm_f32_le)?;
+        let pcm: Vec<i16> = audio.iter().map(|&s| (s * 32767.0).round().clamp(-32768.0,32767.0) as i16).collect();
+        let mut updates = Vec::new();
+        let mut guard = self.inner.lock().map_err(|_| invalid("JTTY receiver lock poisoned"))?;
+        guard.push(&pcm, &mut |u| updates.push(jtty_update(u)));
+        Ok(updates)
+    }
+
+    #[napi]
+    pub fn finish(&self) -> Result<Vec<NativeJttyUpdate>> {
+        let mut updates = Vec::new();
+        self.inner.lock().map_err(|_| invalid("JTTY receiver lock poisoned"))?
+            .finish(&mut |u| updates.push(jtty_update(u)));
+        Ok(updates)
+    }
+
+    #[napi]
+    pub fn reset(&self) -> Result<()> {
+        self.inner.lock().map_err(|_| invalid("JTTY receiver lock poisoned"))?.reset();
+        Ok(())
+    }
+}
+
+fn jtty_update(u: mfsk_core::jtty::assemble::MessageUpdate) -> NativeJttyUpdate {
+    use mfsk_core::jtty::assemble::UpdateKind;
+    let state = match u.kind {
+        UpdateKind::Growing => "growing",
+        UpdateKind::Complete => "complete",
+        UpdateKind::Expired => "expired",
+        UpdateKind::ReceptionEnded => "reception-ended",
+        _ => "reception-ended",
+    };
+    NativeJttyUpdate {
+        id: u.id.to_string(), text: u.text, state: state.to_owned(),
+        frequency_hz: u.f1_hz as f64, start_seconds: u.start_s,
+        end_seconds: u.end_s, snr_db: u.snr_db as f64,
+    }
+}
+
+/// MSK144 is an inherently sliding-window stream; the UI must not wait for
+/// an FT-style complete decode window before publishing the ping.
+#[napi]
+pub struct Msk144Session {
+    inner: std::sync::Mutex<mfsk_core::msk144::decode::Stream>,
+}
+
+#[napi]
+impl Msk144Session {
+    #[napi(constructor)]
+    pub fn new(audio_hz: f64, tolerance_hz: f64) -> Result<Self> {
+        let f = validate_audio_frequency(audio_hz)?;
+        if !tolerance_hz.is_finite() || tolerance_hz <= 0.0 || tolerance_hz > 5000.0 {
+            return Err(invalid("invalid MSK144 tolerance"));
+        }
+        Ok(Self {
+            inner: std::sync::Mutex::new(
+                mfsk_core::msk144::decode::Stream::new(f,tolerance_hz as f32,Depth::Deep,None)
+            ),
+        })
+    }
+
+    #[napi]
+    pub fn push(&self, pcm_f32_le: Buffer) -> Result<Vec<NativeDecodeRow>> {
+        let audio = from_pcm(&pcm_f32_le)?;
+        let pcm: Vec<i16> = audio.iter().map(|&s| (s * 32767.0).round().clamp(-32768.0,32767.0) as i16).collect();
+        let mut rows = Vec::new();
+        self.inner.lock().map_err(|_| invalid("MSK144 receiver lock poisoned"))?
+            .push(&pcm, &mut |r| rows.push(NativeDecodeRow {
+                text:r.message, frequency_hz:r.freq_hz as f64, snr_db:r.snr_db as f64,dt_seconds:r.t_s,
+            }));
+        Ok(rows)
+    }
+
+    #[napi]
+    pub fn new_period(&self) -> Result<()> {
+        self.inner.lock().map_err(|_| invalid("MSK144 receiver lock poisoned"))?.new_period();
+        Ok(())
+    }
+
+    #[napi]
+    pub fn reset(&self) -> Result<()> {
+        self.inner.lock().map_err(|_| invalid("MSK144 receiver lock poisoned"))?.reset();
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
