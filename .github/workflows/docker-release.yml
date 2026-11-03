@@ -71,10 +71,16 @@ jobs:
           COMMIT_STAMP=$(git show -s --date=format-local:%Y%m%d%H%M --format=%cd "${{ github.sha }}")
           HOST_VERSION=$(node scripts/host-version.mjs --channel nightly --build-stamp "$COMMIT_STAMP" --commit "${{ github.sha }}")
           if [ -n "${{ github.event.inputs.tag }}" ]; then HOST_VERSION="${{ github.event.inputs.tag }}"; fi
+          SOURCE_VERSION=$(node -p "require('./package.json').version")
+          IS_RC_SOURCE=false
+          if [[ "${{ github.event.inputs.tag }}" == *-rc.* || "$SOURCE_VERSION" == *-rc.* ]]; then
+            IS_RC_SOURCE=true
+          fi
+          echo "is_rc_source=$IS_RC_SOURCE" >> "$GITHUB_OUTPUT"
 
-          # RC releases NEVER overwrite :latest; stable and nightly retain it.
+          # A push to main containing -rc.N must never retag :latest.
           TAGS="${IMAGE}:${SHORT_SHA}"
-          if [[ "${{ github.event.inputs.tag }}" != *-rc.* ]]; then
+          if [ "$IS_RC_SOURCE" != "true" ]; then
             TAGS="${IMAGE}:latest,${TAGS}"
           fi
 
@@ -190,7 +196,8 @@ jobs:
           echo "- [GitHub Repository](https://github.com/${{ github.repository }})" >> $GITHUB_STEP_SUMMARY
 
       - name: Create or Update Nightly Docker Release
-        if: github.event_name != 'pull_request'
+        # RC on main push must not mutate nightly-docker.
+        if: github.event_name != 'pull_request' && (steps.tags.outputs.is_rc_source != 'true' || github.event.inputs.tag != '')
         uses: ncipollo/release-action@v1
         with:
           tag: ${{ github.event.inputs.tag != '' && format('{0}-docker', github.event.inputs.tag) || 'nightly-docker' }}
@@ -303,7 +310,7 @@ jobs:
 
       - name: Generate OSS docker manifest
         # RC is tagged separately in GHCR; it must not write nightly/latest OSS indexes.
-        if: env.OSS_ACCESS_KEY_ID != '' && env.OSS_ACCESS_KEY_SECRET != '' && env.OSS_BUCKET != '' && env.OSS_ENDPOINT != '' && env.OSS_BASE_URL != '' && !contains(github.event.inputs.tag, '-rc.')
+        if: env.OSS_ACCESS_KEY_ID != '' && env.OSS_ACCESS_KEY_SECRET != '' && env.OSS_BUCKET != '' && env.OSS_ENDPOINT != '' && env.OSS_BASE_URL != '' && !contains(github.event.inputs.tag, '-rc.') && steps.tags.outputs.is_rc_source != 'true'
         run: |
           node scripts/generate-oss-manifest.mjs \
             --product docker \
@@ -320,7 +327,7 @@ jobs:
             --docker-digest "${{ steps.docker_build.outputs.digest }}"
 
       - name: Upload docker metadata to OSS
-        if: env.OSS_ACCESS_KEY_ID != '' && env.OSS_ACCESS_KEY_SECRET != '' && env.OSS_BUCKET != '' && env.OSS_ENDPOINT != '' && env.OSS_BASE_URL != '' && !contains(github.event.inputs.tag, '-rc.')
+        if: env.OSS_ACCESS_KEY_ID != '' && env.OSS_ACCESS_KEY_SECRET != '' && env.OSS_BUCKET != '' && env.OSS_ENDPOINT != '' && env.OSS_BASE_URL != '' && !contains(github.event.inputs.tag, '-rc.') && steps.tags.outputs.is_rc_source != 'true'
         run: |
           ossutil cp "oss-metadata/docker/latest.json" "oss://${OSS_BUCKET}/tx-5dr/docker/nightly-docker/latest.json" --force -c "${RUNNER_TEMP}/.ossutilconfig"
           ossutil cp "oss-metadata/docker/latest.json" "oss://${OSS_BUCKET}/tx-5dr/docker/latest.json" --force -c "${RUNNER_TEMP}/.ossutilconfig"

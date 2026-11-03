@@ -597,7 +597,9 @@ jobs:
           ossutil cp "oss-metadata/server/latest.json" "oss://${OSS_BUCKET}/tx-5dr/server/${{ steps.release_info.outputs.channel_path }}/latest.json" --force -c "${RUNNER_TEMP}/.ossutilconfig"
           # Versioned RC and /rc/latest.json are safe. Do not re-point
           # the ordinary server latest manifest or installer to a prerelease.
-          if [ "${{ steps.release_info.outputs.channel_path }}" != "rc" ]; then
+          SOURCE_VERSION=$(node -p "require('./package.json').version")
+          if [ "${{ steps.release_info.outputs.channel_path }}" != "rc" ] &&
+             [[ "$SOURCE_VERSION" != *-rc.* ]]; then
             ossutil cp "oss-metadata/server/latest.json" "oss://${OSS_BUCKET}/tx-5dr/server/latest.json" --force -c "${RUNNER_TEMP}/.ossutilconfig"
             if [ -f "publish-assets/install-online.sh" ]; then
               ossutil cp "publish-assets/install-online.sh" "oss://${OSS_BUCKET}/tx-5dr/server/latest/install-online.sh" --force -c "${RUNNER_TEMP}/.ossutilconfig"
