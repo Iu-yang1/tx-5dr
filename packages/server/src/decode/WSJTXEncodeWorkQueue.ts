@@ -4,6 +4,7 @@ import { resampleAudioProfessional } from '../utils/audioUtils.js';
 import { createLogger } from '../utils/logger.js';
 import { WSJTXNativeGate } from './WSJTXNativeGate.js';
 import { digitalMessageTextsMatch, normalizeDigitalMessageText } from './digitalMessageValidation.js';
+import { loadMfskNative, verifyNativeWaveform, type MfskNativeModule } from './MfskNativeAdapter.js';
 
 const logger = createLogger('EncodeWorkQueue');
 
@@ -45,19 +46,28 @@ export interface EncodeWorkQueueEvents {
  */
 export class WSJTXEncodeWorkQueue extends EventEmitter<EncodeWorkQueueEvents> {
   private readonly maxConcurrency: number;
-  private readonly lib: WSJTXLib;
+  private readonly lib: WSJTXLib | null;
+  private readonly native: MfskNativeModule | null;
   private activeCount = 0;
   private readonly pending: Array<{
     request: EncodeRequest;
     resolve: () => void;
   }> = [];
   
-  constructor(maxConcurrency: number = 2) {
+  constructor(maxConcurrency: number = 2, nativeForTests?: MfskNativeModule) {
     super();
     this.maxConcurrency = Number.isFinite(maxConcurrency)
       ? Math.max(1, Math.floor(maxConcurrency))
       : 1;
-    this.lib = new WSJTXLib({ maxThreads: 4 });
+    if (process.env.TX5DR_CODEC_BACKEND === 'mfsk-native' || nativeForTests) {
+      const loaded = nativeForTests ? { ready: true as const, module: nativeForTests } : loadMfskNative();
+      if (!loaded.ready) throw new Error(loaded.reason);
+      this.native = loaded.module;
+      this.lib = null;
+    } else {
+      this.native = null;
+      this.lib = new WSJTXLib({ maxThreads: 4 });
+    }
     logger.info('encode work queue initialized', { maxConcurrency: this.maxConcurrency });
   }
   
@@ -100,12 +110,33 @@ export class WSJTXEncodeWorkQueue extends EventEmitter<EncodeWorkQueueEvents> {
     try {
       const startTime = performance.now();
 
+      // Native mode is explicitly opted into; a missing module fails closed.
+      if (this.native) {
+        const mode = request.mode === 'FT4' ? 'FT4' : 'FT8';
+        const waveform = this.native.encodeSlotted(mode, request.message, request.frequency);
+        const samples = verifyNativeWaveform(waveform, request.message, mode);
+        const encodeResult: EncodeResult & { request: EncodeRequest } = {
+          operatorId: request.operatorId,
+          streamId: request.streamId,
+          trackId: request.trackId,
+          audioData: samples,
+          sampleRate: waveform.sampleRate,
+          duration: samples.length / waveform.sampleRate,
+          success: true,
+          request,
+        };
+        this.emit('encodeComplete', encodeResult);
+        return;
+      }
+      const lib = this.lib;
+      if (!lib) throw new Error('No codec backend configured');
+
       // 确定模式
       const mode = request.mode === 'FT4' ? WSJTXMode.FT4 : WSJTXMode.FT8;
 
       // 调用原生库编码
       const { audioData: audioFloat32, messageSent, sampleRate: resultSampleRate } = await WSJTXNativeGate.run(
-        () => this.lib.encode(
+        () => lib.encode(
           mode,
           request.message,
           request.frequency
@@ -129,7 +160,7 @@ export class WSJTXEncodeWorkQueue extends EventEmitter<EncodeWorkQueueEvents> {
       const expectedDuration = mode === WSJTXMode.FT8 ? 12.64 : 6.0;
       const encodeSampleRate = Number.isFinite(resultSampleRate)
         ? resultSampleRate
-        : this.lib.getSampleRate(mode);
+        : lib.getSampleRate(mode);
       const actualDuration = audioFloat32.length / encodeSampleRate;
       const maxSamples = Math.floor(expectedDuration * encodeSampleRate * 1.5);
       let finalAudio = audioFloat32;
