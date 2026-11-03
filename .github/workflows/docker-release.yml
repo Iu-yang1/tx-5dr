@@ -3,6 +3,9 @@ name: Build and Release Docker Image
 on:
   push:
     branches: [ main ]
+    paths-ignore:
+      - 'release/official-version.txt'
+      - '.github/workflows/official-release-dispatch.yml'
   pull_request:
     branches: [ main ]
   workflow_dispatch:

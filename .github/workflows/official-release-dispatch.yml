@@ -31,6 +31,10 @@ jobs:
           [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid version: $VERSION"; exit 1; }
           PACKAGE_VERSION=$(node -p "require('./package.json').version")
           test "$VERSION" = "v$PACKAGE_VERSION" || { echo "Release version $VERSION does not match package.json $PACKAGE_VERSION"; exit 1; }
+          if gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Desktop release $VERSION already exists, refusing to replace";
+            exit 1
+          fi
           for suffix in server android-runtime docker; do
             if gh release view "$VERSION-$suffix" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
               echo "Release $VERSION-$suffix already exists, refusing to replace";
@@ -39,12 +43,13 @@ jobs:
           done
           echo "RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
 
-      - name: Start official Linux Server, Android Runtime and Docker releases
+      - name: Start official Windows/Linux Desktop, Server, Android and Docker releases
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          gh workflow run electron-release.yml --repo "$GITHUB_REPOSITORY" --ref main --field "version=$RELEASE_VERSION" --field "windows_linux_only=true"
           gh workflow run server-release.yml --repo "$GITHUB_REPOSITORY" --ref main --field "version=$RELEASE_VERSION"
           gh workflow run android-runtime-release.yml --repo "$GITHUB_REPOSITORY" --ref main --field "version=$RELEASE_VERSION"
           gh workflow run docker-release.yml --repo "$GITHUB_REPOSITORY" --ref main --field "tag=$RELEASE_VERSION"
