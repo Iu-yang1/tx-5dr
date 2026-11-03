@@ -109,6 +109,7 @@ it('MSK144 operator changes TX period and uses a fixed 1500 Hz modulator',async(
   selected.mode='MSK144';
   render(<MfskLiveReceiverPanel surface="operator"/>);
   await waitFor(()=>expect(screen.getByText('codec.mskFixedTxAf')).toBeTruthy());
+  fireEvent.click(screen.getByText('⋯'));
   fireEvent.change(screen.getByLabelText('codec.message'),{target:{value:'K1ABC W9XYZ -10'}});
   fireEvent.change(screen.getByLabelText('codec.mskPeriod'),{target:{value:'10'}});
   fireEvent.click(screen.getByText('codec.manualTx'));
@@ -135,7 +136,35 @@ it('WSPR requires beacon consent and cannot create a QSO',async()=>{
 it('JTTY presents the same operator TX and manual QSO logging without Q65 controls',async()=>{
   selected.mode='JTTY';
   render(<MfskLiveReceiverPanel surface="operator"/>);
-  await waitFor(()=>expect(screen.getByText('codec.logConfirm')).toBeTruthy());
+  await waitFor(()=>expect(screen.getByText('codec.logTitle')).toBeTruthy());
+  expect(screen.queryByText('codec.logConfirm')).toBeNull();
+  fireEvent.click(screen.getAllByText('⋯')[1]);
+  expect(screen.getByText('codec.logConfirm')).toBeTruthy();
   expect(screen.queryByText('codec.q65TxFirst')).toBeNull();
   expect(screen.getByText('codec.manualTx')).toBeTruthy();
+});
+
+it('keeps RX tuning and AP hypotheses collapsed until More is selected',async()=>{
+  render(<MfskLiveReceiverPanel initialMode="Q65" surface="receiver"/>);
+  await waitFor(()=>expect(mock.events).toHaveBeenCalled());
+  expect(screen.getByText('codec.applyRx')).toBeTruthy();
+  expect(screen.queryByText('codec.apTitle')).toBeNull();
+  expect(screen.queryByLabelText('codec.rxTolerance')).toBeNull();
+  fireEvent.click(screen.getByText('⋯'));
+  expect(screen.getByText('codec.apTitle')).toBeTruthy();
+  expect(screen.getByLabelText('codec.rxTolerance')).toBeTruthy();
+  expect(screen.getByText('codec.rxDepth')).toBeTruthy();
+  fireEvent.click(screen.getByText('⋯'));
+  expect(screen.queryByText('codec.apTitle')).toBeNull();
+});
+
+it('keeps Q65 TX timeslot and QSO log collapsed without hiding RF safety',async()=>{
+  render(<MfskLiveReceiverPanel surface="operator"/>);
+  await waitFor(()=>expect(screen.getByText('codec.armRf')).toBeTruthy());
+  expect(screen.getByText('codec.armAcknowledgement')).toBeTruthy();
+  expect(screen.queryByText('codec.q65TxFirst')).toBeNull();
+  expect(screen.queryByText('codec.logConfirm')).toBeNull();
+  fireEvent.click(screen.getAllByText('⋯')[0]);
+  expect(screen.getByText('codec.q65TxFirst')).toBeTruthy();
+  expect(mock.arm).not.toHaveBeenCalled();
 });
