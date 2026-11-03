@@ -35,7 +35,10 @@ jobs:
       - name: Build Rust Node-API addon (fixed mfsk-core v0.15.0)
         shell: bash
         run: |
-          cargo test --manifest-path packages/mfsk-native/Cargo.toml --release
+          # Node-API symbols are resolved by the hosting Node process on Linux.
+          # A standalone Rust test binary cannot link those symbols, so typecheck
+          # the test targets then perform a real .node load + protocol smoke below.
+          cargo check --manifest-path packages/mfsk-native/Cargo.toml --all-targets --release
           cargo build --manifest-path packages/mfsk-native/Cargo.toml --release
       - name: Prepare runtime addon
         shell: bash
