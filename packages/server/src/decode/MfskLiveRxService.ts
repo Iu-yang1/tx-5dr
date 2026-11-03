@@ -42,6 +42,7 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
   private config: MfskLiveConfig|null=null;
   private readonly now:()=>number;
   private readonly audio:AudioStreamManager;
+  private readonly spawnWorker:(entry:string)=>ChildProcess;
   private generation=0;
   private ready=false;
   private ring:RingBuffer|null=null;
@@ -57,8 +58,11 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
   private readonly history:DigitalRxEvent[]=[];
   private readonly onPcm=(samples:Float32Array,rate:number)=>this.receiveAudio(samples,rate);
 
-  constructor(audio:AudioStreamManager, now:()=>number=Date.now) {
-    super();this.audio=audio;this.now=now;
+  constructor(audio:AudioStreamManager, now:()=>number=Date.now,
+    spawnWorker:(entry:string)=>ChildProcess=(entry)=>fork(entry,[],{
+      execArgv:[],serialization:'advanced',stdio:['ignore','ignore','pipe','ipc'],
+    })) {
+    super();this.audio=audio;this.now=now;this.spawnWorker=spawnWorker;
   }
 
   status():MfskLiveStatus {
@@ -98,9 +102,7 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
     // application's standard 60 s FT8 ring. Keep 1 s timing slack.
     this.ring=definition.slotMs===null?null:new RingBuffer(12000,definition.slotMs+1000,this.now);
     const url=fileURLToPath(new URL('./mfsk-live-worker.js',import.meta.url));
-    const child=fork(url,[],{
-      execArgv:[],serialization:'advanced',stdio:['ignore','ignore','pipe','ipc'],
-    });
+    const child=this.spawnWorker(url);
     this.child=child;
     child.on('message',(payload:unknown)=>this.onWorkerMessage(generation,payload));
     child.on('error',(e)=>this.fail(generation,e.message));
