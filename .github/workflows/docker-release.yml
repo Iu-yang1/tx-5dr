@@ -3,6 +3,8 @@ name: Build and Release Docker Image
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
     inputs:
       tag:
@@ -12,6 +14,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 env:
   DOCKER_IMAGE_NAME: tx-5dr
@@ -41,13 +44,17 @@ jobs:
       - name: Generate image tags
         id: tags
         run: |
-          # Docker Hub 用户名从 secrets 获取
+          # Docker Hub is optional. If credentials are absent, publish to GHCR
+          # using the repository-scoped GITHUB_TOKEN rather than a placeholder.
           DOCKER_USERNAME="${{ secrets.DOCKER_HUB_USERNAME }}"
-
-          # 如果用户名未设置，使用默认值（仅用于显示，不会推送）
-          if [ -z "$DOCKER_USERNAME" ]; then
-            echo "⚠️ Warning: DOCKER_HUB_USERNAME not set"
-            DOCKER_USERNAME="your-dockerhub-username"
+          DOCKER_TOKEN="${{ secrets.DOCKER_HUB_TOKEN }}"
+          if [ -n "$DOCKER_USERNAME" ] && [ -n "$DOCKER_TOKEN" ]; then
+            IMAGE="${DOCKER_USERNAME}/${DOCKER_IMAGE_NAME}"
+            echo "docker_hub_enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
+            echo "docker_hub_enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Docker Hub credentials absent; using GitHub Container Registry."
           fi
 
           # 生成标签
@@ -57,16 +64,17 @@ jobs:
           HOST_VERSION=$(node scripts/host-version.mjs --channel nightly --build-stamp "$COMMIT_STAMP" --commit "${{ github.sha }}")
 
           # 基础标签
-          TAGS="${DOCKER_USERNAME}/${DOCKER_IMAGE_NAME}:latest"
-          TAGS="${TAGS},${DOCKER_USERNAME}/${DOCKER_IMAGE_NAME}:${SHORT_SHA}"
+          TAGS="${IMAGE}:latest"
+          TAGS="${TAGS},${IMAGE}:${SHORT_SHA}"
 
           # 如果是手动触发且指定了标签
           if [ -n "${{ github.event.inputs.tag }}" ]; then
-            TAGS="${TAGS},${DOCKER_USERNAME}/${DOCKER_IMAGE_NAME}:${{ github.event.inputs.tag }}"
+            TAGS="${TAGS},${IMAGE}:${{ github.event.inputs.tag }}"
           fi
 
           echo "tags=${TAGS}" >> $GITHUB_OUTPUT
           echo "docker_username=${DOCKER_USERNAME}" >> $GITHUB_OUTPUT
+          echo "image=${IMAGE}" >> $GITHUB_OUTPUT
           echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
           echo "host_version=${HOST_VERSION}" >> $GITHUB_OUTPUT
           echo "build_stamp=${COMMIT_STAMP}" >> $GITHUB_OUTPUT
@@ -92,10 +100,19 @@ jobs:
             network=host
 
       - name: Login to Docker Hub
+        if: github.event_name != 'pull_request' && steps.tags.outputs.docker_hub_enabled == 'true'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+      - name: Login to GHCR (GitHub Token fallback)
+        if: github.event_name != 'pull_request' && steps.tags.outputs.docker_hub_enabled != 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
 
       - name: Build and push Docker image
         id: docker_build
@@ -103,10 +120,10 @@ jobs:
         with:
           context: .
           platforms: ${{ env.PLATFORMS }}
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.tags.outputs.tags }}
-          cache-from: type=registry,ref=${{ steps.tags.outputs.docker_username }}/${{ env.DOCKER_IMAGE_NAME }}:buildcache
-          cache-to: type=registry,ref=${{ steps.tags.outputs.docker_username }}/${{ env.DOCKER_IMAGE_NAME }}:buildcache,mode=max
+          cache-from: type=gha,scope=tx5dr-docker
+          cache-to: type=gha,scope=tx5dr-docker,mode=max
           build-args: |
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
             VCS_REF=${{ github.sha }}
@@ -122,12 +139,13 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
 
       - name: Update Docker Hub description
+        if: github.event_name != 'pull_request' && steps.tags.outputs.docker_hub_enabled == 'true'
         uses: peter-evans/dockerhub-description@v3
         continue-on-error: true
         with:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
-          repository: ${{ steps.tags.outputs.docker_username }}/${{ env.DOCKER_IMAGE_NAME }}
+          repository: ${{ steps.tags.outputs.image }}
           readme-filepath: ./docker/README.md
 
       - name: Build summary
@@ -135,7 +153,7 @@ jobs:
           echo "## 🎉 Docker 镜像构建成功" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 📦 镜像信息" >> $GITHUB_STEP_SUMMARY
-          echo "- **仓库**: \`${{ steps.tags.outputs.docker_username }}/${{ env.DOCKER_IMAGE_NAME }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **仓库**: \`${{ steps.tags.outputs.image }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **架构**: \`linux/amd64, linux/arm64\`" >> $GITHUB_STEP_SUMMARY
           echo "- **提交**: \`${{ steps.tags.outputs.short_sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -147,24 +165,25 @@ jobs:
           echo "### 🚀 使用方法" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
           echo "# 拉取最新镜像" >> $GITHUB_STEP_SUMMARY
-          echo "docker pull ${{ steps.tags.outputs.docker_username }}/${{ env.DOCKER_IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ steps.tags.outputs.image }}:latest" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "# 运行容器" >> $GITHUB_STEP_SUMMARY
-          echo "docker run -d -p 8076:80 --name tx-5dr ${{ steps.tags.outputs.docker_username }}/${{ env.DOCKER_IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo "docker run -d -p 8076:80 --name tx-5dr ${{ steps.tags.outputs.image }}:latest" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "# 或使用 docker-compose" >> $GITHUB_STEP_SUMMARY
           echo "docker-compose up -d" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 🔗 链接" >> $GITHUB_STEP_SUMMARY
-          echo "- [Docker Hub]( https://hub.docker.com/r/${{ steps.tags.outputs.docker_username }}/${{ env.DOCKER_IMAGE_NAME }})" >> $GITHUB_STEP_SUMMARY
+          echo "- [Docker Hub]( https://hub.docker.com/r/${{ steps.tags.outputs.image }})" >> $GITHUB_STEP_SUMMARY
           echo "- [GitHub Repository](https://github.com/${{ github.repository }})" >> $GITHUB_STEP_SUMMARY
 
       - name: Create or Update Nightly Docker Release
+        if: github.event_name != 'pull_request'
         uses: ncipollo/release-action@v1
         with:
-          tag: nightly-docker
-          name: "Nightly Build — Docker Image"
+          tag: ${{ github.event.inputs.tag != '' && format('{0}-docker', github.event.inputs.tag) || 'nightly-docker' }}
+          name: ${{ github.event.inputs.tag != '' && format('TX-5DR Docker {0}', github.event.inputs.tag) || 'Nightly Build — Docker Image' }}
           body: |
             ## TX-5DR Nightly Build — Docker Image Docker 镜像
 
@@ -178,11 +197,11 @@ jobs:
 
             ```bash
             # Pull image / 拉取镜像
-            docker pull ${{ steps.tags.outputs.docker_username }}/${{ env.DOCKER_IMAGE_NAME }}:latest
+            docker pull ${{ steps.tags.outputs.image }}:latest
 
             # Run / 启动
             docker run -d -p 8076:80 --name tx-5dr \
-              ${{ steps.tags.outputs.docker_username }}/${{ env.DOCKER_IMAGE_NAME }}:latest
+              ${{ steps.tags.outputs.image }}:latest
 
             # View admin token / 查看管理员令牌
             docker exec tx-5dr cat /app/data/config/.admin-token
@@ -194,7 +213,7 @@ jobs:
             version: '3.8'
             services:
               tx5dr:
-                image: ${{ steps.tags.outputs.docker_username }}/${{ env.DOCKER_IMAGE_NAME }}:latest
+                image: ${{ steps.tags.outputs.image }}:latest
                 container_name: tx5dr
                 restart: unless-stopped
                 ports:
@@ -226,13 +245,13 @@ jobs:
             - `linux/arm64` (aarch64)
 
             ### 🔗 Links 链接
-            - [Docker Hub](https://hub.docker.com/r/${{ steps.tags.outputs.docker_username }}/${{ env.DOCKER_IMAGE_NAME }})
+            - [Docker Hub](https://hub.docker.com/r/${{ steps.tags.outputs.image }})
             - [Desktop App / 桌面应用](https://github.com/${{ github.repository }}/releases/tag/nightly-app)
             - [Linux Server / 服务器版](https://github.com/${{ github.repository }}/releases/tag/nightly-server)
-          allowUpdates: true
+          allowUpdates: ${{ github.event.inputs.tag == '' }}
           artifacts: ""
           token: ${{ secrets.GITHUB_TOKEN }}
-          prerelease: true
+          prerelease: ${{ github.event.inputs.tag == '' }}
           makeLatest: false
 
       - name: Install ossutil
@@ -284,7 +303,7 @@ jobs:
             --base-url "${OSS_BASE_URL}" \
             --object-prefix "tx-5dr/docker/nightly-docker" \
             --output "oss-metadata/docker/latest.json" \
-            --docker-image "${{ steps.tags.outputs.docker_username }}/${{ env.DOCKER_IMAGE_NAME }}" \
+            --docker-image "${{ steps.tags.outputs.image }}" \
             --docker-tags "${{ steps.tags.outputs.tags }}" \
             --docker-digest "${{ steps.docker_build.outputs.digest }}"
 
