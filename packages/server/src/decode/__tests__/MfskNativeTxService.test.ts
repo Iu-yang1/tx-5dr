@@ -122,4 +122,31 @@ describe('native six-mode transmit protocol and physical lease boundaries',()=>{
     expect(c.encoded).not.toHaveBeenCalled();
   });
 
+  it('accepts all four MSK144 T/R periods and rejects a period on other modes',async()=>{
+    const cfg=context('MSK144');
+    const selected:Array<number|undefined>=[];
+    const service=new MfskNativeTxService({
+      ...cfg.deps,
+      receiver:()=>({mode:'MSK144',ready:true}),
+      encode:async(request)=>{
+        selected.push(request.mskPeriodSeconds);
+        return {audioData:new Float32Array(12_000),sampleRate:12_000,
+          canonicalText:'K1ABC K2ABC -10'};
+      },
+    });
+    for(const seconds of [5,10,15,30] as const){
+      const outcome=await service.send({mode:'MSK144',text:'K1ABC K2ABC -10',
+        operatorId:'op1',audioHz:1500,mskPeriodSeconds:seconds});
+      expect(outcome.durationMs).toBe(1000);
+    }
+    expect(selected).toEqual([5,10,15,30]);
+    await expect(service.send({mode:'MSK144',text:'K1ABC K2ABC -10',
+      operatorId:'op1',audioHz:1500,mskPeriodSeconds:20 as 5}))
+      .rejects.toThrow();
+    await expect(new MfskNativeTxService(cfg.deps).send({
+      mode:'Q65',text:'CQ K1ABC FN42',operatorId:'op1',
+      audioHz:1500,mskPeriodSeconds:15,
+    })).rejects.toThrow();
+  });
+
 });

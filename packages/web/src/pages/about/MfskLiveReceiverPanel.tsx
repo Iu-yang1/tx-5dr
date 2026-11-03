@@ -29,6 +29,7 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
   const [txStatus,setTxStatus] = useState<{rfEnabled:boolean;busy:boolean}>({rfEnabled:false,busy:false});
   const [text,setText] = useState('CQ K1ABC FN42');
   const [beaconAuthorized,setBeaconAuthorized] = useState(false);
+  const [mskPeriod,setMskPeriod] = useState<5|10|15|30>(5);
   const [txPending,setTxPending] = useState(false);
   const [txNotice,setTxNotice] = useState<string | null>(null);
   const [dxCall,setDxCall] = useState('');
@@ -130,6 +131,7 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
       mode,operatorId:currentOperatorId,text:text.trim(),audioHz:hz,
       ...(mode==='Q65'?{q65Submode:submode}:{}),
       ...(mode==='WSPR'?{beaconAuthorized}:{}),
+      ...(mode==='MSK144'?{mskPeriodSeconds:mskPeriod}:{}),
     }).then(()=>setTxNotice(t('codec.txComplete')))
       .catch(()=>setTxNotice(t('codec.txFailed')))
       .finally(()=>setTxPending(false));
@@ -222,6 +224,15 @@ export function MfskLiveReceiverPanel({initialMode}: {initialMode?:DigitalCodecM
         <p className="text-sm font-medium">{t('codec.txTitle')}</p>
         <Input size="sm" label={t('codec.message')} value={text} onValueChange={setText}
           isDisabled={txPending} maxLength={64}/>
+        {mode==='MSK144' && <div className="flex gap-2 items-center">
+          <label htmlFor="mfsk-msk-period" className="text-xs">{t('codec.mskPeriod')}</label>
+          <select id="mfsk-msk-period" value={mskPeriod}
+            disabled={txPending||status?.running&&txStatus.busy}
+            onChange={e=>setMskPeriod(Number(e.target.value) as 5|10|15|30)}
+            className="rounded-md border border-default-300 bg-content1 px-3 py-2 text-sm">
+            {[5,10,15,30].map(seconds=><option key={seconds} value={seconds}>{seconds}s</option>)}
+          </select>
+        </div>}
         {mode==='WSPR' && <label className="text-xs flex gap-2 items-center">
           <input type="checkbox" checked={beaconAuthorized} onChange={e=>setBeaconAuthorized(e.target.checked)}
             disabled={txPending}/>

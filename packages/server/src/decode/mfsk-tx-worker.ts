@@ -15,7 +15,7 @@ process.once('message',(raw:unknown)=>{
       mode:input.mode,
       ...(input.mode==='Q65'?{q65Submode:input.q65Submode??'Q65-60B'}:{}),
       audioFrequencyHz:input.audioFrequencyHz,
-    },input.text,5);
+    },input.text,input.mskPeriodSeconds??5);
     const bytes=Buffer.from(tx.pcm.buffer,tx.pcm.byteOffset,tx.pcm.byteLength);
     process.send?.({type:'waveform',data:bytes,sampleRate:tx.sampleRate,
       canonicalText:tx.canonicalText});

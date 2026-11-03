@@ -116,6 +116,7 @@
     "apStage3": "Roger report",
     "apStage4": "Rogers",
     "apStage5": "Signoff",
-    "apGuide": "AP hypotheses are enabled only with valid station call, station grid and DX call. Apply receiver settings to restart decoding."
+    "apGuide": "AP hypotheses are enabled only with valid station call, station grid and DX call. Apply receiver settings to restart decoding.",
+    "mskPeriod": "MSK144 T/R period"
   }
 }

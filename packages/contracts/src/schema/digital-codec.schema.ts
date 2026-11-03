@@ -151,9 +151,13 @@ export const MfskCodecSimulationRequestSchema = z.object({
   text: z.string().trim().min(1).max(64),
   audioFrequencyHz: z.number().finite().min(100).max(5500).default(1500),
   noiseAmplitude: z.number().finite().min(0).max(0.025).default(0.002),
+  mskPeriodSeconds: z.union([z.literal(5),z.literal(10),z.literal(15),z.literal(30)]).optional(),
 }).superRefine((value, ctx) => {
   if (value.mode !== 'Q65' && value.q65Submode !== undefined) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Q65 submode is only valid for Q65', path: ['q65Submode'] });
+  }
+  if (value.mode !== 'MSK144' && value.mskPeriodSeconds !== undefined) {
+    ctx.addIssue({ code:z.ZodIssueCode.custom, message:'MSK144 period is only valid for MSK144', path:['mskPeriodSeconds'] });
   }
 });
 export type MfskCodecSimulationRequest = z.infer<typeof MfskCodecSimulationRequestSchema>;
@@ -230,6 +234,7 @@ export const MfskPhysicalTxRequestSchema = z.object({
   text:z.string().trim().min(1).max(64),
   audioHz:z.number().finite().min(100).max(5500),
   q65Submode:Q65SubmodeSchema.optional(),
+  mskPeriodSeconds: z.union([z.literal(5),z.literal(10),z.literal(15),z.literal(30)]).optional(),
   beaconAuthorized:z.boolean().default(false),
 }).superRefine((value,ctx)=>{
   if(value.mode==='WSPR'&&!value.beaconAuthorized){
@@ -237,6 +242,9 @@ export const MfskPhysicalTxRequestSchema = z.object({
   }
   if(value.mode!=='Q65'&&value.q65Submode){
     ctx.addIssue({code:z.ZodIssueCode.custom,path:['q65Submode'],message:'Q65-only submode'});
+  }
+  if(value.mode!=='MSK144'&&value.mskPeriodSeconds!==undefined){
+    ctx.addIssue({code:z.ZodIssueCode.custom,path:['mskPeriodSeconds'],message:'MSK144-only period'});
   }
 });
 export type MfskPhysicalTxRequest = z.infer<typeof MfskPhysicalTxRequestSchema>;

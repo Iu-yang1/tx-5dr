@@ -16,6 +16,7 @@ export interface MfskTxRequest {
   operatorId: string;
   audioHz: number;
   q65Submode?: Q65Submode;
+  mskPeriodSeconds?: 5|10|15|30;
   /** Explicit opt-in for 120-second WSPR beacon transmission. */
   beaconAuthorized?: boolean;
 }
@@ -133,6 +134,7 @@ export class MfskNativeTxService {
     MfskCodecSimulationRequestSchema.parse({
       mode:request.mode,text:request.text,
       audioFrequencyHz:request.audioHz,q65Submode:request.q65Submode,
+      mskPeriodSeconds:request.mskPeriodSeconds,
     });
     if(request.mode==='WSPR'&&!request.beaconAuthorized){
       throw new Error('WSPR beacon transmission requires explicit authorization');
@@ -192,6 +194,7 @@ export function encodeMfskInChild(request:MfskTxRequest):Promise<MfskTxWaveform>
     });
     child.send({mode:request.mode,text:request.text,operatorId:request.operatorId,
       audioFrequencyHz:request.audioHz,
-      ...(request.q65Submode?{q65Submode:request.q65Submode}:{})});
+      ...(request.q65Submode?{q65Submode:request.q65Submode}:{}),
+      ...(request.mskPeriodSeconds?{mskPeriodSeconds:request.mskPeriodSeconds}:{})});
   });
 }
