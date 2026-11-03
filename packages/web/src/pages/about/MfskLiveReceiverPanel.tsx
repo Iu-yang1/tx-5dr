@@ -432,9 +432,9 @@ export function MfskLiveReceiverPanel({
           </label>
           <div className="flex flex-wrap items-center gap-2">
             <Button size="sm" variant="flat" color="warning" isLoading={armPending}
-              isDisabled={armPending||!rfAcknowledged||!receiverMatches||!currentOperatorId}
+              isDisabled={armPending||txStatus.busy||!rfAcknowledged||!receiverMatches||!currentOperatorId}
               onPress={()=>changeArm(true)}>{t('codec.armRf')}</Button>
-            <Button size="sm" variant="flat" isDisabled={armPending||!txStatus.rfEnabled}
+            <Button size="sm" variant="flat" isDisabled={armPending||(!txStatus.rfEnabled&&!txStatus.busy&&!txPending)}
               onPress={()=>changeArm(false)}>{t('codec.disarmRf')}</Button>
             <span className="text-xs text-default-500">
               {txStatus.rfEnabled?t('codec.armRemaining',{seconds:Math.ceil(txStatus.remainingMs/1000)}):t('codec.rfLocked')}
