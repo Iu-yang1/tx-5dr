@@ -47,4 +47,32 @@ for(let i=0;i<1200;i++)burst.writeFloatLE(sh.pcmF32Le.readFloatLE(i*4),(920+i)*4
 const rx=eqSession.push(burst);
 assert(rx.some(row=>row.text==='<K1ABC W9XYZ> RRR'),
   'MSK40 native sliding-window receiver did not decode the offset burst');
+// Train through the real native streaming RX for multiple 5s periods.
+// Do not accept a polynomial trained from arbitrary peak correlation or
+// repeated frames within one period as equivalent to independent QSO cycles.
+const trainedSession=new native.Msk144Session(1500,40);
+trainedSession.configureEqualizer(true,'W9XYZ');
+const repeated=native.encodeMsk144Standard('K1ABC','W9XYZ','-10',5);
+assert.equal(repeated.sampleRate,12000);
+let observed=0;
+for(let period=0;period<7;period++){
+  trainedSession.newPeriod();
+  for(let offset=0;offset<repeated.sampleCount;offset+=4096){
+    const end=Math.min(repeated.sampleCount,offset+4096);
+    const chunk=repeated.pcmF32Le.subarray(offset*4,end*4);
+    observed+=trainedSession.push(chunk).filter(row=>row.text.includes('W9XYZ')).length;
+  }
+}
+const training=trainedSession.equalizerStatus();
+assert(observed>=5,'MSK144 native streaming decoder failed to acquire 5 on-air-like periods');
+assert(training.trainingFrames>=5,
+  'MSK144 trainer never accumulated 5 verified independent frames: '+JSON.stringify(training));
+assert(training.trained,
+  'MSK144 adaptive phase equalizer never promoted a coherent clean training set: '+JSON.stringify(training));
+trainedSession.configureEqualizer(true,'K2ABC');
+assert.equal(trainedSession.equalizerStatus().trained,false,
+  'Changing DX identity must invalidate prior equalizer coefficients');
+trainedSession.reset();
+assert.equal(trainedSession.equalizerStatus().enabled,false,
+  'Receiver reset must discard adaptive equalizer state');
 console.log('Six-mode NAPI load, TX and experimental MSK40 offline loopback passed.');
