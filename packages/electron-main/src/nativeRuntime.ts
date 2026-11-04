@@ -32,6 +32,30 @@ export interface NativeModuleCheckResult {
 
 export const DEGRADABLE_NATIVE_MODULES = new Set(['node-datachannel']);
 
+/**
+ * A bundled runtime that cannot be launched is an application startup error,
+ * not evidence that an individual Node-API module is incompatible.
+ * Keep it a structured failure so the startup UI can show an actionable path.
+ */
+export function buildNativeModuleSpawnFailureResult(
+  executable: string,
+  error: unknown,
+): NativeModuleCheckResult {
+  const description = error instanceof Error ? error.message : String(error);
+  return {
+    success: false,
+    modules: [{
+      name: 'portable-node-runtime',
+      ok: false,
+      error: `Unable to execute bundled Node runtime "${executable}": ${description}. Verify the executable architecture, file integrity and extracted package.`,
+    }],
+    crashedModule: null,
+    exitCode: null,
+    signal: null,
+    timeout: false,
+  };
+}
+
 function joinPathList(entries: Array<string | undefined>, separator: string): string {
   return entries.filter((entry): entry is string => Boolean(entry)).join(separator);
 }
