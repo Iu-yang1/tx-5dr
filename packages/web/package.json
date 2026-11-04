@@ -1,6 +1,6 @@
 {
   "name": "@tx5dr/web",
-  "version": "1.0.1-rc.4",
+  "version": "1.0.1-rc.5",
   "type": "module",
   "scripts": {
     "build": "vite build",
