@@ -52,6 +52,12 @@ export interface MfskNativeModule {
   };
   Msk144Session: new (audioHz: number, toleranceHz: number) => {
     push(pcmF32Le: Buffer): MfskNativeRow[];
+    configureShorthand(enabled: boolean, call1: string, call2: string): void;
+    configureEqualizer(enabled: boolean, dxCall: string): void;
+    equalizerStatus(): {
+      enabled: boolean; trained: boolean; trainingFrames: number;
+      residualRmsRad: number; coefficients: number[];
+    };
     newPeriod(): void;
     reset(): void;
   };
@@ -86,7 +92,7 @@ export function validateNativeModule(module: unknown): MfskNativeLoadResult {
       return { ready: false, reason: 'missing required protocol families in native build' };
     }
     const version = native.codecVersion();
-    if (!version.startsWith('mfsk-core/0.15.0;')) {
+    if (!version.startsWith('mfsk-core/0.15.1;')) {
       return { ready: false, reason: `unexpected native codec version ${version}` };
     }
     return { ready: true, module: native, version, nativeModes: [...nativeModes] };

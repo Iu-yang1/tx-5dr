@@ -1,0 +1,68 @@
+name: Strict paired FT8/FT4 Watterson-Doppler P9 acceptance
+
+on:
+  # Run the complete 18-scenario validation on this integration branch once.
+  # Subsequent code-only pushes do not restart the expensive matrix.
+  push:
+    branches: [integration/mfsk-core-v0.15.1-p9]
+    paths: ['.github/workflows/mfsk-watterson-strict.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: strict-watterson-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  fading-threshold:
+    name: ${{ matrix.mode }} 2sigma=${{ matrix.spread }}Hz doppler=${{ matrix.doppler }}Hzps
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        mode: [FT8, FT4]
+        spread: [1, 10, 30]
+        doppler: [0, 10, 20]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build exact SHA native Rust codec
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --manifest-path packages/mfsk-native/Cargo.toml --release
+          cp packages/mfsk-native/target/release/libtx5dr_mfsk_native.so packages/mfsk-native/mfsk-native.node
+          node packages/mfsk-native/smoke.cjs
+      - name: Install independent WSJT-X reference (test-only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y libasound2-dev libpulse-dev libhamlib-dev libhamlib4 libopus-dev build-essential python3-dev pkg-config
+          corepack enable
+          corepack prepare yarn@4.9.1 --activate
+          yarn install --immutable --mode=skip-build
+          npm rebuild wsjtx-lib --no-save --foreground-scripts
+          node --input-type=module -e "const {WSJTXLib,WSJTXMode}=await import('wsjtx-lib'); if(!WSJTXLib||!WSJTXMode)throw Error('Missing independent reference')"
+      - name: Require both 50pct crossings and paired-bootstrap 0.5dB limit
+        env:
+          MFSK_MODE: ${{ matrix.mode }}
+          MFSK_SPREAD_HZ: ${{ matrix.spread }}
+          MFSK_DOPPLER_RATE: ${{ matrix.doppler }}
+        shell: bash
+        run: node packages/server/scripts/watterson-strict-acceptance.cjs
+      - name: Preserve raw paired statistics even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: strict-watterson-${{ matrix.mode }}-${{ matrix.spread }}hz-${{ matrix.doppler }}hzps-${{ github.sha }}
+          path: packages/server/scripts/reference-threshold-*.json
+          if-no-files-found: warn
+          retention-days: 30

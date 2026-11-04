@@ -20,6 +20,10 @@ export interface MfskLiveConfig {
   averaging?: boolean;
   emeDelay?: boolean;
   apContext?: MfskApContext;
+  msk144Rx?: {
+    dxCall:string;myCall?:string;
+    shorthand?:boolean;adaptiveEqualizer?:boolean;
+  };
 }
 export interface MfskLiveStatus {
   running: boolean;
@@ -183,6 +187,9 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
     if(config.averaging && config.mode!=='Q65')throw new Error('Averaging only supported for Q65');
     if(config.emeDelay && config.mode!=='Q65')throw new Error('EME delay only supported for Q65');
     if(config.apContext && config.mode!=='Q65')throw new Error('AP context only supported for Q65');
+    if(config.msk144Rx && config.mode!=='MSK144'){
+      throw new Error('MSK144 receive options require MSK144 mode');
+    }
 
     this.stop();
     this.generation++;
@@ -227,6 +234,7 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
         depth:config.depth??3,averaging:config.averaging??false,
         emeDelay:config.emeDelay??false,
         apContext:config.apContext,
+        msk144Rx:config.msk144Rx,
       }});
     }catch(error){
       this.fail(generation,`Native receiver startup IPC failed: ${error instanceof Error?error.message:String(error)}`);

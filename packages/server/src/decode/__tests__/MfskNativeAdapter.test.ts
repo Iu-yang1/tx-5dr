@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { validateNativeModule, verifyNativeWaveform } from '../MfskNativeAdapter.js';
 
 const testModule = () => ({
-  codecVersion: () => 'mfsk-core/0.15.0; tx5dr-napi/0.1.0',
+  codecVersion: () => 'mfsk-core/0.15.1; tx5dr-napi/0.1.0',
   supportedModes: () => ['FT8', 'FT4', 'Q65-60B', 'WSPR', 'MSK144', 'JTTY'],
   encodeSlotted: () => ({}),
   decodeSlotted: () => [],

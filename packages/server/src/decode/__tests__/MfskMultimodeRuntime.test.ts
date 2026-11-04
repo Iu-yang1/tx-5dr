@@ -3,7 +3,8 @@ import { MfskMultimodeRuntime } from '../MfskMultimodeRuntime.js';
 import type { MfskNativeModule } from '../MfskNativeAdapter.js';
 
 function mockNative() {
-  const counters={slotted:[] as string[],msk:0,jtty:0,emitted:0};
+  const counters={slotted:[] as string[],msk:0,jtty:0,emitted:0,
+    equalizer:[] as Array<[boolean,string]>,shorthand:[] as Array<[boolean,string,string]>};
   const native={
     supportedModes:()=>[
       'FT8','FT4','WSPR','Q65-15A','Q65-60B','Q65-300A','MSK144','JTTY',
@@ -20,6 +21,10 @@ function mockNative() {
     },
     Msk144Session:class{
       constructor(_f:number,_t:number){}
+      configureEqualizer(enabled:boolean,dx:string){counters.equalizer.push([enabled,dx]);}
+      configureShorthand(enabled:boolean,my:string,dx:string){
+        counters.shorthand.push([enabled,my,dx]);
+      }
       push(){counters.msk++;return [{text:'K1ABC K2ABC -10',frequencyHz:1500,snrDb:-3,dtSeconds:0.4}]}
       reset(){}
       newPeriod(){}
@@ -92,6 +97,28 @@ describe('multi-mode native simulation runtime',()=>{
     expect(runtime.pushStream('m',0,0,1080,new Float32Array(480))).toEqual([]);
     expect(runtime.pushStream('m',1,0,1080,new Float32Array(480))).toHaveLength(1);
     expect(counters.msk).toBe(2);
+  });
+
+  it('MSK144 requires explicit paired calls and guarded equalizer settings',()=>{
+    const {native,counters}=mockNative();
+    const runtime=new MfskMultimodeRuntime(native);
+    expect(()=>runtime.begin({sessionId:'x',mode:'Q65',
+      msk144Rx:{dxCall:'K2ABC',adaptiveEqualizer:true}})).toThrow(/MSK144/);
+    expect(()=>runtime.begin({sessionId:'x',mode:'MSK144',
+      msk144Rx:{dxCall:'K2ABC',shorthand:true}})).toThrow(/known MY/);
+    expect(()=>runtime.begin({sessionId:'x',mode:'MSK144',toleranceHz:300,
+      msk144Rx:{dxCall:'K2ABC',myCall:'K1ABC',shorthand:true}}))
+      .toThrow(/250 Hz/);
+    runtime.begin({sessionId:'msk40',mode:'MSK144',
+      msk144Rx:{dxCall:'K2ABC',myCall:'K1ABC',
+        shorthand:true,adaptiveEqualizer:true}});
+    expect(counters.equalizer).toEqual([[true,'K2ABC']]);
+    expect(counters.shorthand).toEqual([[true,'K1ABC','K2ABC']]);
+    runtime.reset('msk40');
+    expect(counters.equalizer).toHaveLength(2);
+    expect(counters.shorthand).toHaveLength(2);
+    runtime.stop('msk40');
+    expect('requestPtt' in runtime).toBe(false);
   });
 
   it('JTTY preserves identity, revisions and final reception lifecycle',()=>{

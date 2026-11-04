@@ -104,10 +104,8 @@ export class WSJTXEncodeWorkQueue extends EventEmitter<EncodeWorkQueueEvents> {
       this.native = null;
       // Only comparison and explicit compatibility runs import the legacy
       // binary. The production Rust path never evaluates wsjtx-lib.
-      this.lib = import('wsjtx-lib').then(module=>({
-        lib:new module.WSJTXLib({maxThreads:4}),
-        enums:module.WSJTXMode,
-      }));
+      this.lib = import('./WSJTXEncodeComparisonBackend.js')
+        .then(module=>module.createLegacyEncodeBackend(4));
     }
     logger.info('encode work queue initialized', { maxConcurrency: this.maxConcurrency });
   }

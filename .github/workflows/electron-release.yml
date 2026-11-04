@@ -421,6 +421,9 @@ jobs:
 
           RESOURCES_DIR="$(cd "$RESOURCES_DIR" && pwd)"
           APP_ROOT="$RESOURCES_DIR/app"
+          # Audit all nested/aliased runtime dependency trees, not only the
+          # top-level node_modules/wsjtx-lib directory.
+          node scripts/audit-wsjtx-production.mjs "$APP_ROOT"
           NODE_EXE="node"
           if [ "$PLATFORM" = "win32" ]; then
             NODE_EXE="node.exe"
@@ -673,7 +676,40 @@ jobs:
           grep -Fx 'Icon=tx-5dr' "${RPM_DESKTOP}"
           grep -Fx 'Categories=Utility;AudioVideo;' "${RPM_DESKTOP}"
 
+          # Audit the artifacts that will actually be uploaded, not only
+          # electron-builder's original unpacked staging directory.
+          DEB_APP="${DEB_TMP}/root/opt/TX-5DR/resources/app"
+          test -d "${DEB_APP}"
+          node scripts/audit-wsjtx-production.mjs "${DEB_APP}"
+          RPM_APP_TMP=$(mktemp -d)
+          (cd "${RPM_APP_TMP}" && rpm2cpio "${RPM_FILE}" | cpio -idm --quiet)
+          RPM_APP="${RPM_APP_TMP}/opt/TX-5DR/resources/app"
+          test -d "${RPM_APP}"
+          node scripts/audit-wsjtx-production.mjs "${RPM_APP}"
+
+          echo "Linux DEB and RPM installed payloads audited for forbidden production wsjtx-lib"
           echo "✅ Linux deb/rpm metadata verified"
+
+      - name: Audit distributed Windows ZIP and 7z payloads for legacy runtime codec
+        if: matrix.platform == 'win32'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ZIP_FILE=$(find out/electron-builder -maxdepth 1 -name '*.zip' -type f | head -1)
+          SEVEN_FILE=$(find out/electron-builder -maxdepth 1 -name '*.7z' -type f | head -1)
+          test -n "${ZIP_FILE}" && test -n "${SEVEN_FILE}"
+          ZIP_FILE=$(realpath "${ZIP_FILE}")
+          SEVEN_FILE=$(realpath "${SEVEN_FILE}")
+          TMP_ROOT=$(mktemp -d)
+          trap 'rm -rf "${TMP_ROOT}"' EXIT
+          for archive in "${ZIP_FILE}" "${SEVEN_FILE}"; do
+            mkdir -p "${TMP_ROOT}/payload"
+            7z x -y "-o${TMP_ROOT}/payload" "${archive}" >/dev/null
+            APP_ROOT=$(find "${TMP_ROOT}/payload" -type d -path '*/resources/app' -print -quit)
+            test -n "${APP_ROOT}"
+            node scripts/audit-wsjtx-production.mjs "${APP_ROOT}"
+            rm -rf "${TMP_ROOT}/payload"
+          done
 
       - name: Verify bundled VC runtime (Windows)
         if: matrix.platform == 'win32'

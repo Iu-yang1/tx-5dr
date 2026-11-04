@@ -11,7 +11,7 @@ crate-type = ["cdylib"]
 [dependencies]
 napi = { version = "2.16", default-features = false, features = ["napi4"] }
 napi-derive = "2.16"
-mfsk-core = { version = "=0.15.0", default-features = false, features = [
+mfsk-core = { version = "=0.15.1", git = "https://github.com/Iu-yang1/mfsk-core-tx5dr", rev = "9b48880d730988d2b0b526a918565368743a146a", default-features = false, features = [
   "std", "fft-rustfft", "ft8", "ft4", "wspr", "q65", "msk144", "jtty", "parallel"
 ] }
 

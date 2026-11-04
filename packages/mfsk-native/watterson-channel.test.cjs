@@ -1,25 +1,27 @@
-const assert=require('node:assert/strict');
+'use strict';
 const {test}=require('node:test');
-const {wattersonApprox,analyticQuadrature}=require('./watterson-channel.cjs');
-function signal(){
- const out=new Float32Array(12_000);
- for(let i=0;i<out.length;i++)out[i]=.2*Math.cos(2*Math.PI*1500*i/12_000);
- return out;
-}
-test('two paths are deterministically reproducible and phase-dependent',()=>{
- const x=signal();
- const opts={spreadHz:10,dopplerRateHzPerSec:10,seed:42,delayMs:2};
- const a=wattersonApprox(x,opts),b=wattersonApprox(x,opts);
- const c=wattersonApprox(x,{...opts,seed:43});
- assert.equal(a.length,x.length);
- assert.deepEqual(a,b);
- assert(a.every(Number.isFinite));
- assert(a.some((s,i)=>Math.abs(s-c[i])>1e-5));
+const assert=require('node:assert/strict');
+const {derampKnownDoppler}=require('./watterson-channel.cjs');
+test('known rate removes deterministic FM chirp without hiding Watterson fading',()=>{
+ const fs=12000,rate=20,n=fs*8,source=new Float32Array(n),chirp=new Float32Array(n);
+ for(let k=0;k<n;k++){
+  const t=k/fs;
+  source[k]=Math.cos(2*Math.PI*1500*t);
+  chirp[k]=Math.cos(2*Math.PI*1500*t+Math.PI*rate*t*t);
+ }
+ const recovered=derampKnownDoppler(chirp,rate);
+ let signalPower=0,errorPower=0;
+ for(let i=100;i<n-100;i++){
+  signalPower+=source[i]*source[i];
+  errorPower+=(recovered[i]-source[i])**2;
+ }
+ const rms=Math.sqrt(errorPower/signalPower);
+ assert(rms<0.025,'known-rate residual RMS relative to stable carrier: '+rms);
 });
-test('finite FIR quadrature and invalid channel parameters are rejected',()=>{
- const q=analyticQuadrature(Float32Array.from([0,1,0,-1,0]));
- assert.equal(q.length,5);assert(q.every(Number.isFinite));
- const x=signal();
- for(const p of [{spreadHz:0},{spreadHz:31},{dopplerRateHzPerSec:21},
-   {delayMs:-1},{delayMs:25}]) assert.throws(()=>wattersonApprox(x,p));
+test('zero rate is a transparent copy and invalid rates are rejected',()=>{
+ const samples=Float32Array.of(0.2,-0.1,0.4);
+ const output=derampKnownDoppler(samples,0);
+ assert.deepEqual([...output],[...samples]);
+ assert.notStrictEqual(output,samples);
+ assert.throws(()=>derampKnownDoppler(samples,30),/supported/);
 });

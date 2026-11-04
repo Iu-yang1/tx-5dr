@@ -13,6 +13,38 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  source-reference:
+    name: Official WSJT-X six-mode bidirectional reference
+    uses: ./.github/workflows/mfsk-wsjtx-source-reference.yml
+
+  fork-dsp:
+    name: MSK40 / MSK144 DSP from exact fork commit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assert TX-5DR manifest pins the expected fork SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F '9b48880d730988d2b0b526a918565368743a146a' packages/mfsk-native/Cargo.toml
+          grep -F 'Iu-yang1/mfsk-core-tx5dr' packages/mfsk-native/Cargo.toml
+      - name: Checkout immutable DSP fork source, not upstream HEAD
+        uses: actions/checkout@v4
+        with:
+          repository: Iu-yang1/mfsk-core-tx5dr
+          ref: 9b48880d730988d2b0b526a918565368743a146a
+          path: mfsk-tx5dr-fork
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Strict MSK40 reference vectors, actual burst acquisition, equalizer training
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo check -p mfsk-core --features full --manifest-path mfsk-tx5dr-fork/Cargo.toml
+          cargo test -p mfsk-core --features full --lib msk144::msk40 --manifest-path mfsk-tx5dr-fork/Cargo.toml -- --nocapture
+          cargo test -p mfsk-core --features full --lib msk144::equalizer --manifest-path mfsk-tx5dr-fork/Cargo.toml -- --nocapture
+          cargo test -p mfsk-core --features full --lib msk144:: --manifest-path mfsk-tx5dr-fork/Cargo.toml -- --nocapture
+
   native:
     name: Native ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -20,14 +52,25 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-2022, ubuntu-24.04-arm]
+        os: [ubuntu-24.04, windows-2022, ubuntu-24.04-arm, macos-15-intel, macos-15]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
       - uses: dtolnay/rust-toolchain@stable
-      - name: Build Rust Node-API addon (fixed mfsk-core v0.15.0)
+      - name: Confirm runner's real target ABI
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ matrix.os }}" in
+            ubuntu-24.04|windows-2022|macos-15-intel) expected=x64 ;;
+            ubuntu-24.04-arm|macos-15) expected=arm64 ;;
+            *) echo "Unknown target" >&2; exit 1 ;;
+          esac
+          actual="$(node -p 'process.arch')"
+          test "$actual" = "$expected" || { echo "Expected $expected but Node is $actual" >&2; exit 1; }
+      - name: Build Rust Node-API addon (fixed mfsk-core v0.15.1)
         shell: bash
         run: |
           # Node-API symbols are resolved by the hosting Node process on Linux.
@@ -71,7 +114,7 @@ jobs:
   # A native .node that works in isolation can still be unusable by the real
   # TypeScript server. This job validates the actual compiled server pipeline.
   server-runtime:
-    needs: native
+    needs: [native, fork-dsp, source-reference]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -149,6 +192,23 @@ jobs:
           path: packages/server/scripts/reference-crosscodec-report.json
           if-no-files-found: ignore
           retention-days: 14
+      - name: Download same-SHA official WSJT-X source-built bidirectional evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: wsjtx-source-bidirectional-${{ github.sha }}
+          path: packages/server/scripts
+      - name: Self-test release codec-exclusion auditor
+        run: node --test scripts/audit-wsjtx-production.test.mjs
+      - name: Enforce independent six-mode two-way WSJT-X oracle coverage
+        run: node packages/server/scripts/p9-interoperability-coverage.cjs
+      - name: Upload full reference coverage gaps and evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mfsk-p9-reference-coverage-${{ github.sha }}
+          path: packages/server/scripts/p9-reference-coverage-report.json
+          retention-days: 30
+          if-no-files-found: warn
       - name: Run real TX-5DR virtual-radio QSO regression on native FT8/FT4 backend
         env:
           TX5DR_CODEC_BACKEND: mfsk-native

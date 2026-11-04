@@ -16,7 +16,7 @@ assert.equal(service.devDependencies['wsjtx-lib'],'2.2.0',
 const addon=path.join(root,'packages/mfsk-native/mfsk-native.node');
 assert(fs.statSync(addon).size>10_000,'native addon missing or suspiciously small');
 const native=require(addon);
-assert.match(native.codecVersion(),/^mfsk-core\/0\.15\.0;/);
+assert.match(native.codecVersion(),/^mfsk-core\/0\.15\.1;/);
 for(const mode of ['FT8','FT4','WSPR','Q65-60B','MSK144','JTTY']){
   assert(native.supportedModes().includes(mode),`native mode absent: ${mode}`);
 }
