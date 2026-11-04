@@ -502,6 +502,23 @@ jobs:
             "$NODE_BIN" -e "const n=require(process.argv[1]);if(!n.supportedModes().includes('Q65-60B'))throw new Error('MFSK native addon not functional')" "$APP_ROOT/packages/mfsk-native/mfsk-native.node"
           fi
 
+          if [ "$PLATFORM" = "win32" ]; then
+            echo "=== Windows packaged portable Node execution / native module check ==="
+            (
+              export NODE_ENV=production
+              export APP_RESOURCES="$RESOURCES_DIR"
+              export NODE_PATH="$APP_ROOT/node_modules"
+              export PATH="$(cygpath -w "$RESOURCES_DIR/bin/$TRIPLET");$(cygpath -w "$RESOURCES_DIR/native");$(cygpath -wp "$PATH")"
+              "$NODE_BIN" --version
+              ACTUAL_NODE_ARCH="$("$NODE_BIN" -p 'process.arch')"
+              test "$ACTUAL_NODE_ARCH" = "$ARCH" || {
+                echo "Bundled Node architecture mismatch: $ACTUAL_NODE_ARCH != $ARCH" >&2
+                exit 1
+              }
+              (cd "$SERVER_SCRIPT_DIR" && "$NODE_BIN" check-native-modules.js)
+            )
+          fi
+
           echo "=== Packaged production digital preflight / server import smoke ==="
           # The service must load from the ACTUAL packaged resources/app tree,
           # where wsjtx-lib is a dev-only dependency and intentionally absent.
@@ -708,6 +725,15 @@ jobs:
             APP_ROOT=$(find "${TMP_ROOT}/payload" -type d -path '*/resources/app' -print -quit)
             test -n "${APP_ROOT}"
             node scripts/audit-wsjtx-production.mjs "${APP_ROOT}"
+            # A valid win-unpacked build does not prove ZIP/7z kept a runnable
+            # Windows PE binary. Probe the actual extracted portable Node too.
+            PACKED_NODE="$(dirname "$APP_ROOT")/bin/win32-x64/node.exe"
+            test -f "$PACKED_NODE" || { echo "Missing portable Node in $archive" >&2; exit 1; }
+            "$PACKED_NODE" --version
+            test "$("$PACKED_NODE" -p 'process.arch')" = x64 || {
+              echo "Invalid portable Node architecture in $archive" >&2
+              exit 1
+            }
             rm -rf "${TMP_ROOT}/payload"
           done
 
