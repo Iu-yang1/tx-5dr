@@ -30,16 +30,14 @@ for(const given of roots){
    }
    if(entry.isDirectory()){
      stack.push(full);
-   }else if(entry.isFile() && /\\.(?:js|cjs|mjs)$/i.test(entry.name)
+   }else if(entry.isFile() && /\.(?:js|cjs|mjs)$/i.test(entry.name)
        && /(?:^|[\\/])packages[\\/][^\\/]+[\\/]dist(?:[\\/]|$)/.test(full)){
-     // Electron runs compiled JS from the app's production dist. A missing
-     // physical dependency is not enough: unresolved dynamic imports would
-     // still crash on startup or silently reactivate the legacy backend.
+     // Scan the actual compiled production runtime, not test-only sources.
      productionModules++;
      const js=fs.readFileSync(full,'utf8');
-     if(/\\b(?:require|import)\\s*\\(\\s*['"]wsjtx-lib(?:\\/[^'"]*)?['"]\\s*\\)/.test(js)
-       || /\\bfrom\\s*['"]wsjtx-lib(?:\\/[^'"]*)?['"]/.test(js)
-       || /\\bimport\\s*['"]wsjtx-lib(?:\\/[^'"]*)?['"]/.test(js)){
+     if(/\b(?:require|import)\s*\(\s*['"]wsjtx-lib(?:\/[^'"]*)?['"]\s*\)/.test(js)
+       || /\bfrom\s*['"]wsjtx-lib(?:\/[^'"]*)?['"]/.test(js)
+       || /\bimport\s*['"]wsjtx-lib(?:\/[^'"]*)?['"]/.test(js)){
        forbidden.push(full+' compiled production import of wsjtx-lib');
      }
    }else if(entry.name==='package.json' && entry.isFile()){
