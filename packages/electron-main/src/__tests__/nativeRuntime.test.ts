@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildChildRuntimeEnv,
+  buildNativeModuleSpawnFailureResult,
   buildNativeModuleCheckExitResult,
   isDegradableNativeModuleCheckFailure,
 } from '../nativeRuntime.js';
@@ -43,6 +44,23 @@ describe('native runtime child environment', () => {
 });
 
 describe('native module check result handling', () => {
+  it('converts Windows spawn EFTYPE into a diagnostic rather than throwing', () => {
+    const nodeExe = 'D:\\TX5DR\\resources\\bin\\win32-x64\\node.exe';
+    const error = Object.assign(new Error('spawn EFTYPE'), { code: 'EFTYPE' });
+    const result = buildNativeModuleSpawnFailureResult(nodeExe, error);
+
+    expect(result.success).toBe(false);
+    expect(result.crashedModule).toBeNull();
+    expect(result.timeout).toBe(false);
+    expect(result.modules).toEqual([{
+      name: 'portable-node-runtime',
+      ok: false,
+      error: expect.stringContaining('spawn EFTYPE'),
+    }]);
+    expect(result.modules[0].error).toContain(nodeExe);
+    expect(isDegradableNativeModuleCheckFailure(result)).toBe(false);
+  });
+
   it('treats parsed module failures as unsuccessful even when the checker exits cleanly', () => {
     const result = buildNativeModuleCheckExitResult({
       code: 0,
