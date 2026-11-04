@@ -1,0 +1,22 @@
+name: aislop one-time code review (2026-11-04)
+on:
+  push:
+    branches:
+      - audit/aislop-20261104
+    paths:
+      - '.github/workflows/aislop-one-time-20261104.yml'
+permissions:
+  contents: read
+jobs:
+  audit:
+    name: aislop AI Code Quality Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Run aislop
+        uses: scanaislop/aislop@v0.18.1
+        with:
+          version: '0.18.1'
+          format: human
