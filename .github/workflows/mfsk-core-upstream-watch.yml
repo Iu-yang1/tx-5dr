@@ -1,0 +1,83 @@
+name: Watch mfsk-core stable releases (draft updates only)
+
+on:
+  schedule:
+    - cron: '23 2 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: upstream-mfsk-core-watch
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  update:
+    runs-on: ubuntu-24.04
+    if: github.repository == 'Iu-yang1/tx-5dr'
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve stable upstream tag and immutable commit
+        id: upstream
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="$(gh api repos/jl1nie/mfsk-core/releases/latest --jq '.tag_name')"
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Nonstable tag $tag" >&2; exit 1; }
+          sha="$(gh api "repos/jl1nie/mfsk-core/commits/$tag" --jq '.sha')"
+          [[ "$sha" =~ ^[a-f0-9]{40}$ ]] || exit 1
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - name: Update exact crate and native ABI guards
+        id: update
+        shell: bash
+        env:
+          TARGET_VERSION: ${{ steps.upstream.outputs.version }}
+          TARGET_SHA: ${{ steps.upstream.outputs.sha }}
+        run: |
+          set -euo pipefail
+          python3 scripts/update-mfsk-core.py "$TARGET_VERSION" "$TARGET_SHA"
+          if git diff --quiet; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Create a draft upgrade PR without merging or publishing
+        if: steps.update.outputs.changed == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.upstream.outputs.version }}
+          TAG: ${{ steps.upstream.outputs.tag }}
+          UPSTREAM_SHA: ${{ steps.upstream.outputs.sha }}
+        run: |
+          set -euo pipefail
+          branch="automation/mfsk-core-v$VERSION"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
+            echo "Existing upgrade branch preserved; no overwrite."
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -c "$branch"
+          git add packages/mfsk-native/Cargo.toml packages/mfsk-native/src/lib.rs \
+            packages/mfsk-native/smoke.cjs packages/server/src/decode/MfskNativeAdapter.ts \
+            packages/server/src/routes/mfsk-capabilities.ts packages/server/scripts/p9-codec-runtime-audit.cjs \
+            packages/server/src/decode/__tests__/MfskNativeAdapter.test.ts \
+            .github/workflows/mfsk-native-acceptance.yml docs/decisions/mfsk-six-mode-migration.md
+          git commit -m "chore(mfsk): propose $TAG for validation"
+          git push origin "HEAD:refs/heads/$branch"
+          gh pr create --draft --base main --head "$branch" \
+            --title "chore(mfsk): stage $TAG for full P9 validation" \
+            --body "Upstream release: $TAG. Upstream commit: $UPSTREAM_SHA. This PR updates exact Rust and ABI pins only. MSK40 shorthand, adaptive MSK144 equalization, strict Watterson/Doppler 50 percent thresholds, full six-mode interoperability, five-platform packaging and production wsjtx-lib exclusion require independent evidence. Do not merge or create a Release without all P9 gates verified on the same SHA."
+          # GitHub-token PR pushes do not trigger regular PR workflows.
+          # workflow_dispatch runs create validation evidence, never publish.
+          gh workflow run mfsk-native-acceptance.yml --ref "$branch"
+          gh workflow run mfsk-sensitivity.yml --ref "$branch"
