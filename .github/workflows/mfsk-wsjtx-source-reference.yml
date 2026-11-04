@@ -40,7 +40,7 @@ jobs:
             libboost-all-dev libfftw3-dev libhamlib-dev libusb-1.0-0-dev \
             qtbase5-dev qttools5-dev qttools5-dev-tools \
             qtmultimedia5-dev libqt5serialport5-dev libqt5websockets5-dev \
-            libqt5sql5-sqlite libasound2-dev libpulse-dev
+            libqt5sql5-sqlite libasound2-dev libpulse-dev portaudio19-dev
       - name: Build official 3.3.0-beta5 independent reference programs
         shell: bash
         run: |
@@ -48,7 +48,7 @@ jobs:
           test "$(git -C wsjtx-independent rev-parse HEAD)" = "d89fe30ca1dfd3c38def8f17228f09f042829f95"
           cmake -S wsjtx-independent -B wsjtx-ref-build -GNinja \
             -DWSJT_ENABLE_TESTS=OFF -DWSJT_GENERATE_DOCS=OFF \
-            -DWSJT_BUILD_UTILS=OFF -DWSJT_FORTRAN_LIBRARY_VARIANTS=NON_OPENMP_ONLY
+            -DWSJT_BUILD_UTILS=OFF -DWSJT_SKIP_QMAP=ON -DWSJT_FORTRAN_LIBRARY_VARIANTS=NON_OPENMP_ONLY
           cmake --build wsjtx-ref-build --target wsjt-codec wsprd --parallel 4
           test -x wsjtx-ref-build/wsjt-codec
           test -x wsjtx-ref-build/wsprd
