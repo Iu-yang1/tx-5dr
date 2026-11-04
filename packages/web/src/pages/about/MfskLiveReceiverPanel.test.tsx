@@ -21,6 +21,7 @@ const mock = vi.hoisted(() => ({
     events: [],
   })),
   txStatus: vi.fn(async () => ({ rfEnabled: true, busy: false, remainingMs: 90000 })),
+  wsprSpots: vi.fn(async () => ({ spots: [] as unknown[] })),
 }));
 
 vi.mock('@heroui/react', () => ({
@@ -48,7 +49,7 @@ vi.mock('@tx5dr/core', () => ({ api: {
   startMfskLiveRx:mock.start,
   stopMfskLiveRx:mock.stop,
   transmitMfsk:mock.transmit,
-  getMfskLiveWsprSpots:vi.fn(async()=>({spots:[]})),
+  getMfskLiveWsprSpots:mock.wsprSpots,
 }}));
 
 afterEach(()=>{cleanup();vi.clearAllMocks();selected.mode='Q65';});
@@ -162,4 +163,32 @@ it('keeps Q65 timeslot and QSO options collapsed without the RF consent gate',as
   fireEvent.click(screen.getAllByText('⋯')[0]);
   expect(screen.getByText('codec.q65TxFirst')).toBeTruthy();
   expect(screen.queryByText('codec.armRf')).toBeNull();
+});
+
+it('rounds Q65/MSK144/JTTY decoded SNR and AF frequency without changing source precision',async()=>{
+  const source={kind:'slot-decode',sessionId:'session1',mode:'Q65',timestampMs:Date.UTC(2026,10,4,8,50,7),
+    frequencyHz:2714.935, snrDb:-8.954, text:'CQ K1ABC FN42'};
+  mock.events.mockResolvedValueOnce({
+    status:{ready:true,running:true,physicalTxEnabled:false,mode:'Q65',
+      q65Submode:'Q65-60B',generation:7,received:1,droppedAudioChunks:0,rejectedSlots:0,workerFaults:0},
+    events:[source],
+  });
+  render(<MfskLiveReceiverPanel initialMode="Q65" surface="receiver"/>);
+  await waitFor(()=>expect(screen.getByText('CQ K1ABC FN42')).toBeTruthy());
+  expect(screen.getByText('2715')).toBeTruthy();
+  expect(screen.getByText('-9')).toBeTruthy();
+  expect(screen.queryByText('2714.9')).toBeNull();
+  expect(screen.queryByText('-9.0')).toBeNull();
+});
+
+it('rounds the WSPR spot strength and AF frequency consistently',async()=>{
+  selected.mode='WSPR';
+  mock.wsprSpots.mockResolvedValueOnce({
+    spots:[{slotId:'one',callsign:'K1ABC',grid:'FN42',powerDbm:37,
+      snrDb:-27.67,audioHz:1498.73,receivedAtMs:Date.UTC(2026,10,4,8,50,0)}],
+  });
+  render(<MfskLiveReceiverPanel initialMode="WSPR" surface="receiver"/>);
+  await waitFor(()=>expect(screen.getByText('K1ABC')).toBeTruthy());
+  expect(screen.getByText('-28')).toBeTruthy();
+  expect(screen.getByText('1499')).toBeTruthy();
 });
