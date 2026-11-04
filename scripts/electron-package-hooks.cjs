@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
 
 function rmrf(target) {
   try {
@@ -391,7 +391,7 @@ async function packageAfterCopy({ appRoot, resourcesDir, platform, arch }) {
   try { cleanPlatformPrebuilds(nm, platform, arch); } catch (error) { console.warn('prebuild cleanup warning:', error.message || error); }
   // The source workspace retains legacy comparison tests, but production
   // runtime must not contain either compiled WSJT-X comparison entrypoint.
-  execSync(`node ${shellQuote(path.join(__dirname, 'prune-wsjtx-comparison.mjs'))} ${shellQuote(appRoot)}`,
+  execFileSync(process.execPath, [path.join(__dirname, 'prune-wsjtx-comparison.mjs'), appRoot],
     {stdio:'inherit'});
   assertPackagedImageRadioRuntime(nm, platform, arch);
   // A successful source build is not sufficient: prove the actual packed
