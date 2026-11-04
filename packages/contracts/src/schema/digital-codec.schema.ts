@@ -266,11 +266,8 @@ export const MfskPhysicalTxRequestSchema = z.object({
   q65TxFirst:z.boolean().optional(),
   mskPeriodSeconds: z.union([z.literal(5),z.literal(10),z.literal(15),z.literal(30)]).optional(),
   mskTxFirst: z.boolean().optional(),
-  beaconAuthorized:z.boolean().default(false),
+  beaconAuthorized:z.boolean().optional(),
 }).superRefine((value,ctx)=>{
-  if(value.mode==='WSPR'&&!value.beaconAuthorized){
-    ctx.addIssue({code:z.ZodIssueCode.custom,path:['beaconAuthorized'],message:'WSPR beacon requires explicit authorization'});
-  }
   if(value.mode!=='Q65'&&value.q65Submode){
     ctx.addIssue({code:z.ZodIssueCode.custom,path:['q65Submode'],message:'Q65-only submode'});
   }

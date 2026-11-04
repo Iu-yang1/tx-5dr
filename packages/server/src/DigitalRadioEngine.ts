@@ -411,9 +411,6 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
       now:()=>this.clockSource.now(),
       transmitAudio:request=>this.physicalTxCoordinator.transmitAudio(request),
       stopTuneTone:()=>this.stopTuneTone('native digital transmitter started'),
-      // Only an explicit in-app approval tied to the current physical rig,
-      // native mode and RX generation can enable a guarded manual TX.
-      rfAllowed:operatorId=>this.mfskRfArmGate.allowedForOperator(operatorId),
     });
     // A native worker crash or a receiver restart is an RF boundary, not
     // merely a decode warning. Cancel an uncommitted UTC send immediately

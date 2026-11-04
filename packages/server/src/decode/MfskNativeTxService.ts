@@ -22,7 +22,7 @@ export interface MfskTxRequest {
   mskPeriodSeconds?: 5|10|15|30;
   /** Even UTC period is the first (Tx First) phase. Default: true. */
   mskTxFirst?: boolean;
-  /** Explicit opt-in for 120-second WSPR beacon transmission. */
+  /** Legacy wire field accepted for old clients; manual send is the TX trigger. */
   beaconAuthorized?: boolean;
 }
 export interface MfskTxWaveform {
@@ -40,8 +40,6 @@ export interface MfskTxAdmission {
   now(): number;
   transmitAudio(request:PhysicalAudioTransmissionRequest):Promise<PhysicalTxResult>;
   stopTuneTone():Promise<void>;
-  /** True ONLY after P9 TX eligibility and explicit RF enable are verified. */
-  rfAllowed(operatorId:string):boolean;
   sleep?(ms:number):Promise<void>;
   encode?(request:MfskTxRequest):Promise<MfskTxWaveform>;
 }
@@ -60,9 +58,8 @@ export function isMfskPhysicalTxConfirmed(outcome:MfskTxOutcome):boolean {
 
 
 /**
- * Physical TX cannot be entered by merely having an mfsk-core addon loaded.
- * Require mode ownership, PTT/physical lease, operator auth (checked by route)
- * plus an independent product-level RF readiness gate.
+ * Mode-correct native transmission uses the existing physical audio/PTT
+ * coordinator, with user-triggered scheduling and normal end-of-frame PTT release.
  */
 export class MfskNativeTxService {
   private epoch=0;
@@ -85,12 +82,10 @@ export class MfskNativeTxService {
     finally{detach();}
   }
   isBusy():boolean {return this.busy;}
-  isRfEnabled(operatorId:string):boolean {return this.deps.rfAllowed(operatorId);}
 
   async send(request:MfskTxRequest):Promise<MfskTxOutcome> {
     if(this.busy)throw new Error('A native transmit operation is already pending');
     this.validateRequest(request);
-    if(!this.deps.rfAllowed(request.operatorId))throw new Error('Native RF TX requires explicit operator authorization');
     this.assertPreconditions(request);
     const epoch=this.epoch;
     const controller=new AbortController();
@@ -199,13 +194,9 @@ export class MfskNativeTxService {
     if(request.mode==='MSK144'&&request.audioHz!==1500){
       throw new Error('MSK144 physical TX has a fixed 1500 Hz audio centre');
     }
-    if(request.mode==='WSPR'&&!request.beaconAuthorized){
-      throw new Error('WSPR beacon transmission requires explicit authorization');
-    }
   }
   private assertPreconditions(r:MfskTxRequest,epoch=this.epoch):void {
     if(epoch!==this.epoch)throw new Error('Native TX cancelled by a newer mode or radio generation');
-    if(!this.deps.rfAllowed(r.operatorId))throw new Error('Native RF TX disabled');
     if(!this.deps.isRunning()||this.deps.mode()!==r.mode){
       throw new Error('Native TX mode is not the active running radio engine mode');
     }
