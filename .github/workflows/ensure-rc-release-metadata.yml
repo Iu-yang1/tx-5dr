@@ -1,0 +1,63 @@
+name: Ensure RC release metadata
+
+# Release upload workflows can race when changing prerelease/latest metadata.
+# Reconcile the public state after publication without touching release assets.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ensure-rc-release-metadata.yml'
+  release:
+    types: [published, edited]
+  workflow_run:
+    workflows:
+      - Build and Release Electron App
+      - Build and Release Linux Server
+      - Build and Release Docker Image
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tx5dr-rc-release-metadata
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ensure release candidates are marked prerelease, never latest
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const versionedRc = /^v\d+\.\d+\.\d+-rc\.\d+(?:-(?:server|docker))?$/;
+            const releases = await github.paginate(github.rest.repos.listReleases, {
+              owner, repo, per_page: 100,
+            });
+            let corrected = 0;
+            for (const release of releases) {
+              if (release.draft || !versionedRc.test(release.tag_name)) continue;
+              if (!release.prerelease) {
+                await github.rest.repos.updateRelease({
+                  owner, repo, release_id: release.id,
+                  prerelease: true, make_latest: 'false',
+                });
+                corrected += 1;
+              }
+              const verified = (await github.rest.repos.getRelease({
+                owner, repo, release_id: release.id,
+              })).data;
+              if (!verified.prerelease) {
+                throw new Error('RC release incorrectly marked stable: ' + release.tag_name);
+              }
+              core.info(release.tag_name + ': prerelease verified');
+            }
+            core.summary.addRaw(
+              'Reconciled RC release metadata. Corrected ' + corrected +
+              ' release(s); no assets or tags were changed.'
+            );
+            await core.summary.write();
