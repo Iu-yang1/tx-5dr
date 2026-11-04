@@ -18,6 +18,7 @@ import {
 import { faGithub } from '@fortawesome/free-brands-svg-icons';
 import { SpectrumDisplay } from '../components/radio/spectrum/SpectrumDisplay';
 import { JttyReceiveTerminal } from '../components/radio/digital/JttyReceiveTerminal';
+import { NativeDigitalRxPreferencesSync } from '../components/radio/digital/NativeDigitalRxPreferencesSync';
 import { SlotPacksMessageDisplay } from '../components/radio/digital/SlotPacksMessageDisplay';
 import { RadioMetersPanel } from '../components/radio/control/RadioMetersPanel';
 import { RemoteAccessPopover } from '../components/system/RemoteAccessPopover';
@@ -202,6 +203,8 @@ export const LeftLayout: React.FC = React.memo(() => {
           <ClockDisplay />
         </div>
       </div>
+
+      <NativeDigitalRxPreferencesSync />
 
       {/* 主要内容区域 */}
       <div className="flex-1 px-2 pb-2 md:px-5 md:pb-5 min-h-0 flex flex-col gap-2 md:gap-4">
