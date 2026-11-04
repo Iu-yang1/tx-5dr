@@ -98,6 +98,8 @@ module.exports = {
     compression: 'normal',
   },
   nsis: {
+    // Fail an installation whose post-extraction portable Node is not executable.
+    include: 'build/installer.nsh',
     artifactName: 'TX-5DR-${version}-windows-${arch}-nsis.${ext}',
     oneClick: false,
     perMachine: false,
