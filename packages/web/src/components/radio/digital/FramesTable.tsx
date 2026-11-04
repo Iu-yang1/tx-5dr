@@ -503,7 +503,7 @@ const MessageRow = React.memo<MessageRowProps>(({
       </div>
       {!isNarrow && (
         <div className="text-xs text-right font-mono">
-          {formatDecodedDt(message.dt)}
+          {group.frequencyContext?.mode === 'MSK144' && message.db !== 'TX' ? '—' : formatDecodedDt(message.dt)}
         </div>
       )}
       <div className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-center font-mono tabular-nums">{formatDecodedAfHz(message.freq)}</div>
