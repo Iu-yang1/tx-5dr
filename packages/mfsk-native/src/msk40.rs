@@ -91,6 +91,69 @@ fn shorthand_bits(hash12: u16, report: usize) -> [u8; 40] {
     bits
 }
 
+// WSJT-X bpdecode40.f90's (32,16) parity-check matrix in transmitted
+// codeword order. Kept separate from mfsk-core's LDPC(128,90) codec.
+const CHECKS: [&[usize]; 16] = [
+    &[1,7,12,18,21,27,31], &[2,8,13,18,24,28],
+    &[2,9,14,19,23,29], &[3,8,12,20,23,30],
+    &[4,8,15,19,22,31], &[1,6,13,19,25,30],
+    &[5,9,16,21,25,26], &[3,10,11,18,26,32],
+    &[6,9,15,20,27,32], &[5,10,13,22,27],
+    &[4,7,14,20,26,28], &[4,10,12,17,25,29],
+    &[1,11,16,22,28,29], &[2,11,15,17,21,30],
+    &[3,6,14,16,24,31], &[5,7,17,23,24,32],
+];
+
+/// Standalone log-domain BP core following WSJT-X bpdecode40.f90.
+///
+/// Positive LLR means bit=1. Returns the 16-bit MSK40 hash+report payload
+/// after parity checks pass; an accepted codeword alone is NOT an accepted
+/// on-air decode: sync, signal quality, hash legitimacy and frame validation
+/// belong to the surrounding receiver.
+#[allow(dead_code)]
+fn decode_soft_codeword(llr: &[f32; 32]) -> Option<u16> {
+    if llr.iter().any(|x| !x.is_finite() || x.abs() > 1e6) { return None; }
+    let mut check_to_bit = [[0f32; 7]; 16];
+    let mut posterior = [0f32; 32];
+    for _ in 0..=5 {
+        posterior.copy_from_slice(llr);
+        for (check, bits) in CHECKS.iter().enumerate() {
+            for (edge, pos) in bits.iter().enumerate() {
+                posterior[*pos-1] += check_to_bit[check][edge];
+            }
+        }
+        let hard = posterior.map(|x| if x > 0.0 { 1u8 } else { 0 });
+        let valid = CHECKS.iter().all(|bits|
+            bits.iter().fold(0u8, |xor, pos| xor ^ hard[*pos-1]) == 0
+        );
+        if valid {
+            let mut payload = 0u16;
+            for bit in 0..16 {
+                payload |= (hard[COLORDER[16+bit]] as u16) << bit;
+            }
+            return Some(payload);
+        }
+        // Fortran bpdecode40: toc=posterior-tov; tanhtoc=tanh(-toc/2)
+        // then tov=2*atanh(-product_other(tanhtoc)). Clip near ±1 for
+        // numerical stability without turning impossible parity into NaN.
+        let mut next = [[0f32; 7]; 16];
+        for (check, bits) in CHECKS.iter().enumerate() {
+            for edge in 0..bits.len() {
+                let mut product=1f32;
+                for other in 0..bits.len() {
+                    if other==edge { continue; }
+                    let pos=bits[other]-1;
+                    let extrinsic=posterior[pos]-check_to_bit[check][other];
+                    product *= (-0.5*extrinsic).tanh();
+                }
+                next[check][edge]=2.0*(-product).clamp(-0.999_999,0.999_999).atanh();
+            }
+        }
+        check_to_bit=next;
+    }
+    None
+}
+
 fn tones(hash12: u16, report: usize) -> [u8; 40] {
     let bits = shorthand_bits(hash12, report);
     let sign = |i: usize| 2 * bits[i] as i32 - 1;
@@ -203,6 +266,22 @@ mod tests {
         assert_eq!(symbols.iter().map(|b| char::from(b'0'+*b)).collect::<String>(),
                    "1000011001000001100010111100100110000101");
     }
+    #[test]
+    fn wsjt_ldpc32_soft_core_matches_reference_codeword() {
+        let expected=0xfa2eu16;
+        let bits=shorthand_bits(0x0fa2,14);
+        let soft=core::array::from_fn::<f32,32,_>(|k|
+            if bits[k+8]!=0 { 7.0 } else { -7.0 });
+        assert_eq!(decode_soft_codeword(&soft), Some(expected));
+        // A hard-sliced bit flip with weak confidence should be repaired
+        // only when all 16 parity checks have converged.
+        let mut noisy=soft;
+        noisy[8]=if bits[16]==0 {1.0} else {-1.0};
+        assert_eq!(decode_soft_codeword(&noisy),Some(expected));
+        let bad=[f32::NAN;32];
+        assert_eq!(decode_soft_codeword(&bad),None);
+    }
+
     #[test]
     fn known_call_shorthand_round_trip_and_noise_rejection() {
         let tx=synthesize("K1ABC","W9XYZ","RRR",5).unwrap();
