@@ -28,7 +28,7 @@ assert.throws(() => native.encodeMsk144Standard('K1ABC','K2ABC','-10',17), /peri
 // list until the full legacy short-ping receiver and adaptive equalizer exist.
 assert.equal(typeof native.encodeMsk40Shorthand,'function');
 assert.equal(typeof native.decodeMsk40KnownCalls,'function');
-assert(native.codecVersion().includes('tx5dr-fork/ba92290fca5e'));
+assert(native.codecVersion().includes('tx5dr-fork/ff302c4f30ce'));
 const eqSession=new native.Msk144Session(1500,12);
 assert.equal(eqSession.equalizerStatus().enabled,false);
 eqSession.configureEqualizer(true,'W9XYZ');
@@ -41,4 +41,10 @@ const sh=native.encodeMsk40Shorthand('K1ABC','W9XYZ','RRR',5);
 assert.equal(sh.sampleCount,54_000);
 assert.equal(native.decodeMsk40KnownCalls(sh.pcmF32Le,'K1ABC','W9XYZ'),'<K1ABC W9XYZ> RRR');
 assert.equal(native.decodeMsk40KnownCalls(Buffer.alloc(240*3*4),'K1ABC','W9XYZ'),null);
+// Exercise actual streaming MSK40 sync/demod/BP, not just the template matcher.
+const burst=Buffer.alloc(7168*4);
+for(let i=0;i<1200;i++)burst.writeFloatLE(sh.pcmF32Le.readFloatLE(i*4),(920+i)*4);
+const rx=eqSession.push(burst);
+assert(rx.some(row=>row.text==='<K1ABC W9XYZ> RRR'),
+  'MSK40 native sliding-window receiver did not decode the offset burst');
 console.log('Six-mode NAPI load, TX and experimental MSK40 offline loopback passed.');
