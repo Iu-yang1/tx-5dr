@@ -82,6 +82,10 @@ export function MfskLiveReceiverPanel({
   const [contactStartMs,setContactStartMs] = useState(() => Date.now());
   const [qsoBusy,setQsoBusy] = useState(false);
   const [qsoNotice,setQsoNotice] = useState<string|null>(null);
+  // Presentation-only disclosures: receive/transmit safety and DSP state remain server-owned.
+  const [rxMoreOpen,setRxMoreOpen] = useState(false);
+  const [txMoreOpen,setTxMoreOpen] = useState(false);
+  const [logOpen,setLogOpen] = useState(false);
 
 
   useEffect(()=>{
@@ -281,74 +285,22 @@ export function MfskLiveReceiverPanel({
       .finally(()=>setTxPending(false));
   };
 
-  return <Card shadow="none" className="h-full overflow-y-auto">
-    <CardBody className="gap-3 px-3 py-3">
+  return <Card shadow="none" className="h-full min-h-0 overflow-hidden bg-transparent">
+    <CardBody className={surface==='receiver'
+      ? 'flex h-full min-h-0 flex-col gap-2 p-1'
+      : 'h-full min-h-0 overflow-y-auto overscroll-contain gap-3 p-2'}>
       {surface==='receiver' && <>
-      <h2 className="text-base font-semibold">{t('codec.liveTitle')}</h2>
-      <p className="text-xs text-default-500">{t('codec.liveSubtitle')}</p>
-      <div className="flex flex-wrap gap-3 items-center">
-        <span className="rounded-md bg-default-100 px-3 py-2 text-sm font-semibold">{mode}</span>
-        {mode==='Q65' && <>
-          <label htmlFor="mfsk-live-q65" className="text-sm">{t('codec.submode')}</label>
-          <select id="mfsk-live-q65" value={submode} onChange={e=>{setSubmode(e.target.value as Q65Submode);setSubmodeDirty(true);}}
-            className="rounded-md border border-default-300 bg-content1 px-3 py-2 text-sm"
-            disabled={busy}>
-            {Q65SubmodeSchema.options.map(m=><option key={m} value={m}>{m}</option>)}
-          </select>
-        </>}
-        <Input size="sm" className="max-w-[140px]" type="number"
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-default-200 bg-content1 p-2">
+        <span className="rounded-md bg-default-100 px-2 py-1 text-sm font-semibold">{mode}</span>
+        {mode==='Q65' && <select id="mfsk-live-q65" aria-label={t('codec.submode')}
+          value={submode} onChange={e=>{setSubmode(e.target.value as Q65Submode);setSubmodeDirty(true);}}
+          className="max-w-[130px] rounded-md border border-default-300 bg-content1 px-2 py-1 text-xs"
+          disabled={busy}>
+          {Q65SubmodeSchema.options.map(m=><option key={m} value={m}>{m}</option>)}
+        </select>}
+        <Input size="sm" className="w-32" type="number"
           label={t('codec.afFrequency')} value={frequency} onValueChange={setFrequency}
           isDisabled={busy}/>
-        {mode!=='JTTY' && <Input size="sm" className="max-w-[130px]" type="number"
-          label={t('codec.rxTolerance')} value={tolerance} onValueChange={setTolerance}
-          isDisabled={busy}/>}
-        {mode!=='JTTY' && <label htmlFor="mfsk-depth" className="text-xs">
-          {t('codec.rxDepth')}
-          <select id="mfsk-depth" value={decodeDepth} disabled={busy}
-            onChange={e=>setDecodeDepth(Number(e.target.value) as 1|2|3)}
-            className="ml-2 rounded-md border border-default-300 bg-content1 px-2 py-2 text-sm">
-            <option value={1}>{t('codec.rxFast')}</option>
-            <option value={2}>{t('codec.rxNormal')}</option>
-            <option value={3}>{t('codec.rxDeep')}</option>
-          </select>
-        </label>}
-      </div>
-      {mode==='Q65' && <div className="flex flex-wrap gap-5 text-sm">
-        <label><input type="checkbox" checked={averaging}
-          disabled={busy} onChange={e=>setAveraging(e.target.checked)}/> {t('codec.averaging')}</label>
-        <label><input type="checkbox" checked={emeDelay}
-          disabled={busy} onChange={e=>setEmeDelay(e.target.checked)}/> {t('codec.emeDelay')}</label>
-      </div>}
-      {mode==='Q65'&&<section className="rounded-md border border-default-200 p-2 space-y-2">
-        <p className="text-xs font-medium">{t('codec.apTitle')}</p>
-        <div className="grid grid-cols-2 gap-2">
-          <Input size="sm" maxLength={24} value={apMyCall} onValueChange={setApMyCall}
-            label={t('codec.apMyCall')}/>
-          <Input size="sm" maxLength={6} value={apMyGrid} onValueChange={setApMyGrid}
-            label={t('codec.apMyGrid')}/>
-          <Input size="sm" maxLength={24} value={apDxCall} onValueChange={setApDxCall}
-            label={t('codec.apDxCall')}/>
-          <Input size="sm" maxLength={6} value={apDxGrid} onValueChange={setApDxGrid}
-            label={t('codec.apDxGrid')}/>
-        </div>
-        <div className="flex flex-wrap gap-2 items-center">
-          <label className="text-xs" htmlFor="mfsk-ap-progress">{t('codec.apProgress')}</label>
-          <select id="mfsk-ap-progress" value={apProgress}
-            onChange={e=>setApProgress(Number(e.target.value) as 0|1|2|3|4|5)}
-            className="rounded-md border border-default-300 bg-content1 px-2 py-1 text-xs">
-            {([0,1,2,3,4,5] as const).map(n=>
-              <option key={n} value={n}>{t(`codec.apStage${n}`)}</option>)}
-          </select>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" variant="flat" isLoading={apApplying}
-            isDisabled={apApplying||!status?.ready||status.mode!=='Q65'}
-            onPress={updateAp}>{t('codec.apApply')}</Button>
-          <span className="text-xs text-default-500">{apNotice}</span>
-        </div>
-        <p className="text-xs text-default-500">{t('codec.apGuide')}</p>
-      </section>}
-      <div className="flex flex-wrap gap-2 items-center">
         <Button size="sm" color="primary" onPress={()=>run(true)}
           isDisabled={busy||!maySwitchMode} isLoading={busy}>
           {status?.running?t('codec.applyRx'):t('codec.startRx')}
@@ -358,15 +310,72 @@ export function MfskLiveReceiverPanel({
         <span className="text-xs text-default-500">
           {status?.ready?t('codec.liveReady'):status?.running?t('codec.liveStarting'):t('codec.liveStopped')}
         </span>
+        <Button size="sm" variant="light" className="ml-auto min-w-8 px-2"
+          title={rxMoreOpen?t('codec.lessSettings'):t('codec.moreSettings')}
+          aria-label={t('codec.moreSettings')} aria-expanded={rxMoreOpen}
+          onPress={()=>setRxMoreOpen(value=>!value)}>⋯</Button>
       </div>
-      {!!status && <p className="text-xs text-default-500">
-        RX: {status.received} · {t('codec.dropped')}: {status.droppedAudioChunks} ·
-        {t('codec.rejectedSlots')}: {status.rejectedSlots} ·
-        {t('codec.workerFaults')}: {status.workerFaults}
-      </p>}
+      {rxMoreOpen && <section className="space-y-3 rounded-xl border border-default-200 bg-content1 p-3">
+        <p className="text-xs text-default-500">{t('codec.liveSubtitle')}</p>
+        <div className="flex flex-wrap items-center gap-3">
+          {mode!=='JTTY' && <Input size="sm" className="max-w-[140px]" type="number"
+            label={t('codec.rxTolerance')} value={tolerance} onValueChange={setTolerance}
+            isDisabled={busy}/>}
+          {mode!=='JTTY' && <label htmlFor="mfsk-depth" className="text-xs">
+            {t('codec.rxDepth')}
+            <select id="mfsk-depth" value={decodeDepth} disabled={busy}
+              onChange={e=>setDecodeDepth(Number(e.target.value) as 1|2|3)}
+              className="ml-2 rounded-md border border-default-300 bg-content1 px-2 py-2 text-sm">
+              <option value={1}>{t('codec.rxFast')}</option>
+              <option value={2}>{t('codec.rxNormal')}</option>
+              <option value={3}>{t('codec.rxDeep')}</option>
+            </select>
+          </label>}
+        </div>
+        {mode==='Q65' && <div className="flex flex-wrap gap-5 text-sm">
+          <label><input type="checkbox" checked={averaging}
+            disabled={busy} onChange={e=>setAveraging(e.target.checked)}/> {t('codec.averaging')}</label>
+          <label><input type="checkbox" checked={emeDelay}
+            disabled={busy} onChange={e=>setEmeDelay(e.target.checked)}/> {t('codec.emeDelay')}</label>
+        </div>}
+        {mode==='Q65' && <section className="rounded-md border border-default-200 p-2 space-y-2">
+          <p className="text-xs font-medium">{t('codec.apTitle')}</p>
+          <div className="grid grid-cols-2 gap-2">
+            <Input size="sm" maxLength={24} value={apMyCall} onValueChange={setApMyCall}
+              label={t('codec.apMyCall')}/>
+            <Input size="sm" maxLength={6} value={apMyGrid} onValueChange={setApMyGrid}
+              label={t('codec.apMyGrid')}/>
+            <Input size="sm" maxLength={24} value={apDxCall} onValueChange={setApDxCall}
+              label={t('codec.apDxCall')}/>
+            <Input size="sm" maxLength={6} value={apDxGrid} onValueChange={setApDxGrid}
+              label={t('codec.apDxGrid')}/>
+          </div>
+          <div className="flex flex-wrap gap-2 items-center">
+            <label className="text-xs" htmlFor="mfsk-ap-progress">{t('codec.apProgress')}</label>
+            <select id="mfsk-ap-progress" value={apProgress}
+              onChange={e=>setApProgress(Number(e.target.value) as 0|1|2|3|4|5)}
+              className="rounded-md border border-default-300 bg-content1 px-2 py-1 text-xs">
+              {([0,1,2,3,4,5] as const).map(n=>
+                <option key={n} value={n}>{t(`codec.apStage${n}`)}</option>)}
+            </select>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" variant="flat" isLoading={apApplying}
+              isDisabled={apApplying||!status?.ready||status.mode!=='Q65'}
+              onPress={updateAp}>{t('codec.apApply')}</Button>
+            <span className="text-xs text-default-500">{apNotice}</span>
+          </div>
+          <p className="text-xs text-default-500">{t('codec.apGuide')}</p>
+        </section>}
+        {!!status && <p className="text-xs text-default-500">
+          RX: {status.received} · {t('codec.dropped')}: {status.droppedAudioChunks} ·
+          {t('codec.rejectedSlots')}: {status.rejectedSlots} ·
+          {t('codec.workerFaults')}: {status.workerFaults}
+        </p>}
+      </section>}
       {status?.lastError && <p role="alert" className="text-xs text-danger">{status.lastError}</p>}
       {error && <p role="alert" className="text-xs text-danger">{error}</p>}
-      <div className="min-h-40 max-h-[50vh] overflow-y-auto rounded-md border border-default-200">
+      <div className="min-h-[12rem] flex-1 overflow-y-auto rounded-xl border border-default-200 bg-content1">
         {displayEvents.length===0 ?
           <p className="p-3 text-sm text-default-500">{t('codec.liveNoEvents')}</p>
           : <table className="w-full text-left text-xs">
@@ -407,7 +416,7 @@ export function MfskLiveReceiverPanel({
       </section>}
       </>}
       {surface==='operator' && <>
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-default-200 bg-content1 p-3">
         <span className="text-sm font-semibold">{t('codec.operatorSelect')}</span>
         <select aria-label={t('codec.operatorSelect')} className="rounded-md border border-default-300 bg-content1 px-2 py-1 text-sm"
           value={currentOperatorId??''}
@@ -422,7 +431,7 @@ export function MfskLiveReceiverPanel({
           {t('codec.manageOperators')}
         </Button>
       </div>
-      <div className="rounded-md border border-default-200 p-3 space-y-3">
+      <div className="rounded-xl border border-default-200 bg-content1 p-3 space-y-3">
         <p className="text-sm font-medium">{t('codec.txTitle')} · {mode}{mode==='Q65'? ` (${activeSubmode})`:''}</p>
         {mayArmRf && <div className="rounded-md border border-default-200 p-2 space-y-2">
           <label className="flex gap-2 text-xs items-start">
@@ -443,6 +452,8 @@ export function MfskLiveReceiverPanel({
           {armNotice && <p role="alert" className="text-xs text-danger">{armNotice}</p>}
         </div>}
         {mode==='MSK144' && <p className="text-xs text-default-500">{t('codec.mskFixedTxAf')}</p>}
+        {mode!=='WSPR' && <Input size="sm" label={t('codec.dxCall')}
+          value={dxCall} onValueChange={setDxCall} maxLength={24}/>}
         <Input size="sm" label={t('codec.message')} value={text} onValueChange={setText}
           isDisabled={txPending} maxLength={64}/>
         {(mode==='Q65'||mode==='MSK144') && <div className="flex flex-wrap gap-1">
@@ -454,6 +465,13 @@ export function MfskLiveReceiverPanel({
         {mode!=='MSK144' && <Input size="sm" type="number"
           label={t('codec.txAfFrequency')} value={txFrequency}
           onValueChange={setTxFrequency} isDisabled={txPending}/>} 
+        {(mode==='Q65'||mode==='MSK144') && <div className="flex justify-end">
+          <Button size="sm" variant="light" className="min-w-8 px-2"
+            title={txMoreOpen?t('codec.lessSettings'):t('codec.moreSettings')}
+            aria-label={t('codec.moreSettings')} aria-expanded={txMoreOpen}
+            onPress={()=>setTxMoreOpen(value=>!value)}>⋯</Button>
+        </div>}
+        {txMoreOpen && <div className="space-y-3 rounded-md bg-default-50 p-2">
         {mode==='Q65' && <label className="text-xs flex gap-2 items-center">
           <input type="checkbox" checked={q65TxFirst}
             onChange={e=>setQ65TxFirst(e.target.checked)} disabled={txPending}/>
@@ -473,6 +491,7 @@ export function MfskLiveReceiverPanel({
             onChange={e=>setMskTxFirst(e.target.checked)} disabled={txPending}/>
           {t('codec.mskTxFirst')}
         </label>}
+        </div>}
         {mode==='WSPR' && <label className="text-xs flex gap-2 items-center">
           <input type="checkbox" checked={beaconAuthorized} onChange={e=>setBeaconAuthorized(e.target.checked)}
             disabled={txPending}/>
@@ -489,11 +508,17 @@ export function MfskLiveReceiverPanel({
         </div>
         {txNotice && <p className="text-xs" role="status">{txNotice}</p>}
       </div>
-      {(mode==='Q65'||mode==='JTTY'||mode==='MSK144') && <section className="rounded-md border border-default-200 p-3 space-y-2">
-        <p className="text-sm font-medium">{t('codec.logTitle')}</p>
+      {(mode==='Q65'||mode==='JTTY'||mode==='MSK144') && <section className="rounded-xl border border-default-200 bg-content1 p-3 space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm font-medium">{t('codec.logTitle')}</p>
+          <Button size="sm" variant="light" className="min-w-8 px-2"
+            title={logOpen?t('codec.logCollapse'):t('codec.logExpand')}
+            aria-label={t('codec.logExpand')} aria-expanded={logOpen}
+            onPress={()=>setLogOpen(value=>!value)}>⋯</Button>
+        </div>
+        {logOpen && <>
         <p className="text-xs text-default-500">{t('codec.logManualOnly')}</p>
         <div className="grid grid-cols-2 gap-2">
-          <Input size="sm" label={t('codec.dxCall')} value={dxCall} onValueChange={setDxCall} maxLength={24}/>
           <Input size="sm" label={t('codec.dxGrid')} value={dxGrid} onValueChange={setDxGrid} maxLength={6}/>
           <Input size="sm" label={t('codec.sentReport')} value={txReport} onValueChange={setTxReport} maxLength={16}/>
           <Input size="sm" label={t('codec.receivedReport')} value={rxReport} onValueChange={setRxReport} maxLength={16}/>
@@ -511,6 +536,7 @@ export function MfskLiveReceiverPanel({
             isDisabled={!currentOperatorId||!dxCall.trim()||qsoBusy}
             onPress={recordQso}>{t('codec.logConfirm')}</Button>
         </div>
+        </>}
         {qsoNotice && <p className="text-xs" role="status">{qsoNotice}</p>}
       </section>}
       <p className="text-xs text-default-500">{t('codec.liveNoTx')}</p>
