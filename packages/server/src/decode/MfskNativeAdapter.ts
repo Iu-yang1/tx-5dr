@@ -86,7 +86,7 @@ export function validateNativeModule(module: unknown): MfskNativeLoadResult {
       return { ready: false, reason: 'missing required protocol families in native build' };
     }
     const version = native.codecVersion();
-    if (!version.startsWith('mfsk-core/0.15.0;')) {
+    if (!version.startsWith('mfsk-core/0.15.1;')) {
       return { ready: false, reason: `unexpected native codec version ${version}` };
     }
     return { ready: true, module: native, version, nativeModes: [...nativeModes] };

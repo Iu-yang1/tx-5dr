@@ -5,7 +5,7 @@ Status: **P2–P8 implemented on PR #23; P9 pending current-head acceptance and 
 ## Fixed upstream and application baselines
 
 - Application: `Iu-yang1/tx-5dr` `main` at `d684a561bf775a91be276049cd49e9642bcce259` (2026-11-03).
-- Rust upstream: `jl1nie/mfsk-core` `v0.15.0` at `18b37c068e150541b051944db2a94f30bc6c36af`.
+- Rust upstream: `jl1nie/mfsk-core` `v0.15.1` at `a26c7de6246eb2a7a44d2529cb24981b1f867d16` (2026-11-03). WSJT-X golden WAV inputs remain pinned separately to the v0.15.0 corpus for stable before/after comparison.
 - Legacy reference: `wsjtx-lib@2.2.0` is now a test/development-only dependency in `packages/server/package.json`. Production uses the pinned Rust addon and fails closed if it is absent.
 - Desired release: FT8, FT4, Q65 (ten actual submodes), WSPR, MSK144, JTTY; RX and TX for all six. `wsjtx-lib` must not remain a production codec after P9.
 
@@ -24,13 +24,13 @@ Status: **P2–P8 implemented on PR #23; P9 pending current-head acceptance and 
 
 ## Verified protocol boundary
 
-The `mfsk-ffi` v0.15.0 header provides `mfsk_decoder_*` for slotted modes, `mfsk_jtty_*` and `mfsk_msk144_*` for non-slotted modes, plus separate encoding and synthesis calls. JTTY cannot be forced through the slotted API; the JTTY upstream analysis describes a variable-frame continuous mode. Modes compiled into the native library are **not** equal to operational capabilities in TX-5DR.
+The `mfsk-ffi` v0.15.1 header provides `mfsk_decoder_*` for slotted modes, `mfsk_jtty_*` and `mfsk_msk144_*` for non-slotted modes, plus separate encoding and synthesis calls. JTTY cannot be forced through the slotted API; the JTTY upstream analysis describes a variable-frame continuous mode. Modes compiled into the native library are **not** equal to operational capabilities in TX-5DR.
 
 Exact Q65 names in mfsk-core are `Q65-15A`, `Q65-30A`, `Q65-60A` through `Q65-60E`, `Q65-120D/E`, and `Q65-300A`. FT8 early-prefix handling is not equivalent to every legacy 41/47/49/50 checkpoint; a silent remap is forbidden.
 
 ## Resolved package licensing audit
 
-The root package metadata now declares `GPL-3.0-only` consistently with the existing repository `LICENSE` and the pinned `mfsk-core v0.15.0`. This metadata fix does not alter ownership or imply that unrelated third-party components share the same copyright holder.
+The root package metadata now declares `GPL-3.0-only` consistently with the existing repository `LICENSE` and the pinned `mfsk-core v0.15.1`. This metadata fix does not alter ownership or imply that unrelated third-party components share the same copyright holder.
 
 ## P0–P9 simulated acceptance gates
 
@@ -79,3 +79,8 @@ A [default-branch GitHub Actions watcher](https://github.com/Iu-yang1/tx-5dr/act
 The watcher inspects only PR #23 `integration/mfsk-six-mode-p0-p9` and the matching **current HEAD or up-to-date synthetic merge SHA**, never accepts previous commits' successes, and requires all eight validation workflows. The five native CI platform jobs, independent native `server-runtime` replay and all five Electron desktop platforms must succeed, not be skipped or cancelled. GitHub-hosted infrastructure failures at checkout or Node/Rust setup may be retried **once**. Deterministic decoder, security and frontend failures must be fixed in source code; the watcher creates an actionable GitHub issue and does **not** weaken test gates.
 
 Once the full matrix is green the watcher can mark the PR ready and attempt to merge under the repository's normal branch protection, using an exact head-SHA assertion. A successful merge initiates Electron, Linux Server, Docker and Android Runtime **nightly** build workflows explicitly because ordinary `GITHUB_TOKEN` pushes do not automatically trigger chained GitHub Actions workflows. Nightly build artifacts are *not* an official versioned release. The watcher is a CI controller, not an autonomous AI coder: source defects still require a real corrective PR commit. Physical RF characterization remains outside CI evidence.
+
+
+## 0.15.1 migration guard (2026-11-04)
+
+The upstream 0.15.1 release improves FT8 real-recording recall, time-offset reporting/subtraction, fine-sync deduplication, blind CQ AP and bit metrics. Upstream explicitly retains the MSK40 shorthand TX/RX and adaptive MSK144 receive equalization as unported functionality; the release upgrade alone **does not** complete those TX-5DR P9 requirements. The legacy golden WAV corpus is intentionally fixed at the previous source SHA, while the native codec version is advanced. Four-mode reference interoperability via wsjtx-lib remains a **test-only** dependency, and this change is not proof of five-platform runtime packaging or full fading-channel 50% decode thresholds.

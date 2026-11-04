@@ -20,14 +20,25 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-2022, ubuntu-24.04-arm]
+        os: [ubuntu-24.04, windows-2022, ubuntu-24.04-arm, macos-15-intel, macos-15]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
       - uses: dtolnay/rust-toolchain@stable
-      - name: Build Rust Node-API addon (fixed mfsk-core v0.15.0)
+      - name: Confirm runner's real target ABI
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ matrix.os }}" in
+            ubuntu-24.04|windows-2022|macos-15-intel) expected=x64 ;;
+            ubuntu-24.04-arm|macos-15) expected=arm64 ;;
+            *) echo "Unknown target" >&2; exit 1 ;;
+          esac
+          actual="$(node -p 'process.arch')"
+          test "$actual" = "$expected" || { echo "Expected $expected but Node is $actual" >&2; exit 1; }
+      - name: Build Rust Node-API addon (fixed mfsk-core v0.15.1)
         shell: bash
         run: |
           # Node-API symbols are resolved by the hosting Node process on Linux.

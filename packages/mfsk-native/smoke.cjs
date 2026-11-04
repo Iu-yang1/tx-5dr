@@ -7,7 +7,7 @@ const modes = native.supportedModes();
 for (const mode of ['FT8', 'FT4', 'WSPR', 'Q65-60B', 'MSK144', 'JTTY']) {
   assert(modes.includes(mode), `native module missing ${mode}`);
 }
-assert.match(native.codecVersion(), /mfsk-core\/0\.15\.0/);
+assert.match(native.codecVersion(), /mfsk-core\/0\.15\.1/);
 for (const [mode, message] of [
   ['FT8', 'CQ K1ABC FN42'],
   ['FT4', 'CQ K1ABC FN42'],
