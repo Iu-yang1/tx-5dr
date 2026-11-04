@@ -180,7 +180,8 @@ if 'tx5dr_online_install_missing_package' not in install_src:
     sys.exit(1)
 
 release_tag = os.environ.get('TX5DR_INSTALL_RELEASE_TAG', 'nightly-server')
-if not re.fullmatch(r'(?:nightly|v\d+\.\d+\.\d+)-server', release_tag):
+# Accept both stable and release-candidate server tags.
+if not re.fullmatch(r'(?:nightly|v\d+\.\d+\.\d+(?:-rc\.\d+)?)-server', release_tag):
     raise SystemExit('Invalid TX5DR_INSTALL_RELEASE_TAG: '+release_tag)
 repo_assignment = f'TX5DR_GITHUB_REPO="${{TX5DR_GITHUB_REPO:-{repo}}}"\n'
 release_assignment = f'TX5DR_INSTALL_RELEASE_TAG="${{TX5DR_INSTALL_RELEASE_TAG:-{release_tag}}}"\n'
