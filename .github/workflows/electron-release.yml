@@ -254,11 +254,25 @@ jobs:
             URL="https://nodejs.org/dist/v${NODE_VERSION}/${PKG}"
             echo "Downloading ${URL}"
             curl -fsSL -o ${PKG} ${URL}
+            # Validate Node's signed release manifest BEFORE extracting or copying.
+            curl -fsSL -o node-shasums.txt "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt"
+            ARCHIVE_SHA=$(awk -v artifact="${PKG}" '$2 == artifact { print $1; exit }' node-shasums.txt)
+            test -n "$ARCHIVE_SHA" || { echo "Official Node archive checksum missing" >&2; exit 1; }
+            printf '%s  %s\n' "$ARCHIVE_SHA" "${PKG}" | sha256sum -c -
             # Use 7z to extract zip on Windows runner (tar may not handle zip)
             7z x -y "${PKG}"
             SRC_DIR=$(echo node-v${NODE_VERSION}-win-${ARCH})
             mkdir -p resources/bin/${TRIPLET}
             cp -f ${SRC_DIR}/node.exe resources/bin/${TRIPLET}/node.exe
+            OFFICIAL_NODE_SHA=$(awk -v artifact="win-${ARCH}/node.exe" '$2 == artifact { print $1; exit }' node-shasums.txt)
+            test -n "$OFFICIAL_NODE_SHA" || { echo "Official Node binary checksum missing" >&2; exit 1; }
+            printf '%s  %s\n' "$OFFICIAL_NODE_SHA" "resources/bin/${TRIPLET}/node.exe" | sha256sum -c -
+            test "$(resources/bin/${TRIPLET}/node.exe --version)" = "v${NODE_VERSION}" || {
+              echo "Official Node executable failed version check" >&2; exit 1;
+            }
+            test "$(resources/bin/${TRIPLET}/node.exe -p 'process.arch')" = "$ARCH" || {
+              echo "Official Node executable architecture mismatch" >&2; exit 1;
+            }
             cp -f ${SRC_DIR}/LICENSE resources/licenses/nodejs-LICENSE || true
 
             # Bundle MSVC runtime DLLs app-locally so portable archives work on clean Windows installs.
@@ -502,6 +516,23 @@ jobs:
             "$NODE_BIN" -e "const n=require(process.argv[1]);if(!n.supportedModes().includes('Q65-60B'))throw new Error('MFSK native addon not functional')" "$APP_ROOT/packages/mfsk-native/mfsk-native.node"
           fi
 
+          if [ "$PLATFORM" = "win32" ]; then
+            echo "=== Windows packaged portable Node execution / native module check ==="
+            (
+              export NODE_ENV=production
+              export APP_RESOURCES="$RESOURCES_DIR"
+              export NODE_PATH="$APP_ROOT/node_modules"
+              export PATH="$(cygpath -w "$RESOURCES_DIR/bin/$TRIPLET");$(cygpath -w "$RESOURCES_DIR/native");$(cygpath -wp "$PATH")"
+              "$NODE_BIN" --version
+              ACTUAL_NODE_ARCH="$("$NODE_BIN" -p 'process.arch')"
+              test "$ACTUAL_NODE_ARCH" = "$ARCH" || {
+                echo "Bundled Node architecture mismatch: $ACTUAL_NODE_ARCH != $ARCH" >&2
+                exit 1
+              }
+              (cd "$SERVER_SCRIPT_DIR" && "$NODE_BIN" check-native-modules.js)
+            )
+          fi
+
           echo "=== Packaged production digital preflight / server import smoke ==="
           # The service must load from the ACTUAL packaged resources/app tree,
           # where wsjtx-lib is a dev-only dependency and intentionally absent.
@@ -708,6 +739,15 @@ jobs:
             APP_ROOT=$(find "${TMP_ROOT}/payload" -type d -path '*/resources/app' -print -quit)
             test -n "${APP_ROOT}"
             node scripts/audit-wsjtx-production.mjs "${APP_ROOT}"
+            # A valid win-unpacked build does not prove ZIP/7z kept a runnable
+            # Windows PE binary. Probe the actual extracted portable Node too.
+            PACKED_NODE="$(dirname "$APP_ROOT")/bin/win32-x64/node.exe"
+            test -f "$PACKED_NODE" || { echo "Missing portable Node in $archive" >&2; exit 1; }
+            "$PACKED_NODE" --version
+            test "$("$PACKED_NODE" -p 'process.arch')" = x64 || {
+              echo "Invalid portable Node architecture in $archive" >&2
+              exit 1
+            }
             rm -rf "${TMP_ROOT}/payload"
           done
 
@@ -789,6 +829,12 @@ jobs:
               exit 1
             fi
           done < "${DEPS_FILE}"
+
+      - name: Validate actual NSIS installed Node and native modules (Windows)
+        if: matrix.platform == 'win32'
+        shell: pwsh
+        run: |
+          ./scripts/ci/verify-windows-nsis-runtime.ps1 -BuildDir 'out/electron-builder' -Architecture '${{ matrix.arch }}'
 
       - name: List build outputs (Debug)
         shell: bash
