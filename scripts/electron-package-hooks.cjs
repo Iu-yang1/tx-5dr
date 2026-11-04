@@ -389,6 +389,10 @@ async function packageAfterCopy({ appRoot, resourcesDir, platform, arch }) {
   try { cleanPackages(appRoot); } catch (error) { console.warn('workspace cleanup warning:', error.message || error); }
   try { cleanNonRuntimeFiles(nm); } catch (error) { console.warn('non-runtime cleanup warning:', error.message || error); }
   try { cleanPlatformPrebuilds(nm, platform, arch); } catch (error) { console.warn('prebuild cleanup warning:', error.message || error); }
+  // The source workspace retains legacy comparison tests, but production
+  // runtime must not contain either compiled WSJT-X comparison entrypoint.
+  execSync(`node ${shellQuote(path.join(__dirname, 'prune-wsjtx-comparison.mjs'))} ${shellQuote(appRoot)}`,
+    {stdio:'inherit'});
   assertPackagedImageRadioRuntime(nm, platform, arch);
   // A successful source build is not sufficient: prove the actual packed
   // app contains a real loadable addon for the target runner architecture.

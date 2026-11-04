@@ -114,6 +114,10 @@ RUN cargo build --manifest-path packages/mfsk-native/Cargo.toml --release \
 RUN echo "Building application for $(uname -m)..." && \
     TX5DR_CLUBLOG_API_KEY="$TX5DR_CLUBLOG_API_KEY" yarn build
 
+# A Docker production image must not retain the compiled comparison modules
+# emitted by the common TypeScript build. Only the staging builder is pruned.
+RUN node scripts/prune-wsjtx-comparison.mjs /app
+
 # Rust replaces the old production codec; the legacy package is only a
 # development comparison dependency and must not reach the runtime image.
 # 清理不必要的文件但保留生产依赖
