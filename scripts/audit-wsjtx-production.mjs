@@ -10,7 +10,7 @@ import path from 'node:path';
 
 const roots=process.argv.slice(2);
 assert(roots.length>0,'Usage: node scripts/audit-wsjtx-production.mjs /path/to/packaged/app');
-let directories=0,manifests=0,entries=0;
+let directories=0,manifests=0,entries=0,productionModules=0;
 const forbidden=[];
 for(const given of roots){
  const root=path.resolve(given);
@@ -30,6 +30,18 @@ for(const given of roots){
    }
    if(entry.isDirectory()){
      stack.push(full);
+   }else if(entry.isFile() && /\\.(?:js|cjs|mjs)$/i.test(entry.name)
+       && /(?:^|[\\/])packages[\\/][^\\/]+[\\/]dist(?:[\\/]|$)/.test(full)){
+     // Electron runs compiled JS from the app's production dist. A missing
+     // physical dependency is not enough: unresolved dynamic imports would
+     // still crash on startup or silently reactivate the legacy backend.
+     productionModules++;
+     const js=fs.readFileSync(full,'utf8');
+     if(/\\b(?:require|import)\\s*\\(\\s*['"]wsjtx-lib(?:\\/[^'"]*)?['"]\\s*\\)/.test(js)
+       || /\\bfrom\\s*['"]wsjtx-lib(?:\\/[^'"]*)?['"]/.test(js)
+       || /\\bimport\\s*['"]wsjtx-lib(?:\\/[^'"]*)?['"]/.test(js)){
+       forbidden.push(full+' compiled production import of wsjtx-lib');
+     }
    }else if(entry.name==='package.json' && entry.isFile()){
      manifests++;
      let manifest;
@@ -49,4 +61,4 @@ for(const given of roots){
 assert.equal(forbidden.length,0,
   'Legacy WSJT-X runtime package found in production tree:\n'+forbidden.join('\n'));
 console.log(JSON.stringify({audit:'production-wsjtx-lib-absence',pass:true,
-  roots:roots.map(p=>path.resolve(p)),directories,manifests,entries}));
+  roots:roots.map(p=>path.resolve(p)),directories,manifests,entries,productionModules}));
