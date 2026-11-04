@@ -77,7 +77,7 @@ function buildOptionalAssetUrl(baseUrl, objectPrefix, fileName) {
 }
 
 function detectServerAssetMetadata(fileName) {
-  const match = fileName.match(/^TX-5DR-[^-]+-server-linux-(amd64|arm64)\.(deb|rpm)$/);
+  const match = fileName.match(/^TX-5DR-(?:nightly|v\d+\.\d+\.\d+(?:-rc\.\d+)?)-server-linux-(amd64|arm64)\.(deb|rpm)$/);
   if (!match) {
     return null;
   }
