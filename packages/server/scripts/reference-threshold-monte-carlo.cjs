@@ -9,7 +9,10 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const native=require(path.resolve(__dirname,'../../mfsk-native/mfsk-native.node'));
-const {wattersonApprox}=require(path.resolve(__dirname,'../../mfsk-native/watterson-channel.cjs'));
+const {wattersonApprox,derampKnownDoppler}=require(path.resolve(__dirname,'../../mfsk-native/watterson-channel.cjs'));
+const DOPPLER_TRACKING=process.env.MFSK_DOPPLER_TRACKING||'none';
+assert(['none','known-rate-ideal'].includes(DOPPLER_TRACKING),
+ 'Unknown Doppler tracking experiment configuration');
 const CHANNEL=process.env.MFSK_CHANNEL||'awgn';
 const SPREAD_HZ=Number(process.env.MFSK_SPREAD_HZ||'1');
 const DOPPLER_RATE=Number(process.env.MFSK_DOPPLER_RATE||'0');
@@ -75,7 +78,11 @@ function makeChannel(tx,snrDb,trial){
  }
  // Avoid differential clipping in the reference int16 conversion.
  if(peak>0.85){const scale=0.85/peak;for(let i=0;i<n;i++)out[i]*=scale;}
- return out;
+ // Apply the SAME model-predicted NCO compensation to the input of both
+ // decoders. This is a separately labelled known-orbit upper-bound test,
+ // not an enhancement of either Rust or WSJT-X intrinsic tracking.
+ return CHANNEL==='watterson'&&DOPPLER_TRACKING==='known-rate-ideal'
+   ?derampKnownDoppler(out,DOPPLER_RATE):out;
 }
 function normalize(s){return String(s??'').trim().toUpperCase().replace(/\s+/g,' ');}
 /**
@@ -170,6 +177,10 @@ async function main(){
    noiseReferenceBandwidthHz:B,sampleRateHz:Fs,TRIALS,snrPoints:SNR,
    channelModel:CHANNEL,spreadTwoSigmaHz:CHANNEL==='watterson'?SPREAD_HZ:null,
    linearDopplerHzPerSec:CHANNEL==='watterson'?DOPPLER_RATE:null,
+   dopplerTracking:DOPPLER_TRACKING,
+   dopplerTrackingAssumption:DOPPLER_TRACKING==='known-rate-ideal'
+     ? 'Exact a priori Doppler rate, compensated with shared 63-tap Hilbert/NCO'
+     : 'Uncompensated',
    randomizedBy:'seeded xorshift + Box-Muller; same waveform and noise to both decoders',
    rows,rust50,reference50,rustDegradationDb:deltaDb,pairedDelta95,
    underHalfDbTarget:deltaDb===null||pairedDelta95.upper95===null?null:
@@ -179,6 +190,9 @@ async function main(){
      overrideSnr?'Explicit selected SNR grid; this becomes an acceptance gate ONLY when 60+ trials, valid paired crossings and enforcement are enabled':'The fixed 1 dB AWGN threshold interpolation grid is an approximation',
      CHANNEL==='watterson'?'Finite 96-scatterer dual-path Watterson-style approximation; not a calibrated ITU test instrument':'AWGN only; Doppler and fading untested in this run',
      'Common deterministic channel/noise realization across all SNR points per trial; joint paired bootstrap preserves this covariance',
+     DOPPLER_TRACKING==='known-rate-ideal'
+      ? 'Known-rate Doppler correction is an ideal feed-forward upper bound, not a tracking or frequency-estimation result'
+      : 'No deterministic Doppler-rate correction applied',
      'Strong cochannel interference and hardware PTT require independent tests'],
  };
  const suffix=CHANNEL==='watterson'?'watterson-'+SPREAD_HZ+'hz-'+DOPPLER_RATE+'hzps':'awgn';
