@@ -70,6 +70,7 @@ export function MfskLiveReceiverPanel({
   const [mskTxFirst,setMskTxFirst] = useState(true);
   const [q65TxFirst,setQ65TxFirst] = useState(true);
   const [txPending,setTxPending] = useState(false);
+  const [txStopPending,setTxStopPending] = useState(false);
   const [txNotice,setTxNotice] = useState<string | null>(null);
   const [dxCall,setDxCall] = useState('');
   const [dxGrid,setDxGrid] = useState('');
@@ -279,7 +280,7 @@ export function MfskLiveReceiverPanel({
   };
 
   const transmit=()=>{
-    if(!mayArmRf || !currentOperatorId || !receiverMatches || txStatus.busy || txPending) return;
+    if(!mayArmRf || !currentOperatorId || !receiverMatches || txStatus.busy || txPending || txStopPending) return;
     const hz=Number(mode==='MSK144'?1500:txFrequency);
     if(!Number.isFinite(hz)||hz<100||hz>5500) {
       setTxNotice(t('codec.liveInvalidFrequency')); return;
@@ -294,6 +295,15 @@ export function MfskLiveReceiverPanel({
     }).then(()=>setTxNotice(t('codec.txComplete')))
       .catch(()=>setTxNotice(t('codec.txFailed')))
       .finally(()=>setTxPending(false));
+  };
+
+  const stopTransmission=()=>{
+    if(txStopPending || (!txPending && !txStatus.busy))return;
+    setTxStopPending(true);
+    void api.disarmMfskNativeTx()
+      .then(()=>setTxNotice(t('codec.txStopped')))
+      .catch(()=>setTxNotice(t('codec.txStopFailed')))
+      .finally(()=>setTxStopPending(false));
   };
 
   return <Card shadow="none" className="h-full min-h-0 overflow-hidden bg-transparent">
@@ -471,8 +481,11 @@ export function MfskLiveReceiverPanel({
         <div className="flex gap-2 items-center flex-wrap">
           <Button size="sm" color="warning" isLoading={txPending}
             isDisabled={!mayArmRf||!receiverMatches||txStatus.busy||!currentOperatorId||
-              !text.trim()||txPending}
+              !text.trim()||txPending||txStopPending}
             onPress={transmit}>{t('codec.manualTx')}</Button>
+          <Button size="sm" variant="flat" isLoading={txStopPending}
+            isDisabled={(!txPending&&!txStatus.busy)||txStopPending}
+            onPress={stopTransmission}>{t('codec.stopTx')}</Button>
         </div>
         {txNotice && <p className="text-xs" role="status">{txNotice}</p>}
       </div>
