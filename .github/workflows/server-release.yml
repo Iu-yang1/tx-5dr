@@ -48,6 +48,16 @@ jobs:
         with:
           fetch-depth: 20
 
+      - name: Validate RC server online-installer tag
+        shell: bash
+        env:
+          TX5DR_INSTALL_RELEASE_TAG: v1.0.1-rc.2-server
+        run: |
+          set -euo pipefail
+          bash scripts/build-install-script.sh
+          grep -F 'TX5DR_INSTALL_RELEASE_TAG="${TX5DR_INSTALL_RELEASE_TAG:-v1.0.1-rc.2-server}"' dist/install-online.sh
+          bash -n dist/install-online.sh
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
