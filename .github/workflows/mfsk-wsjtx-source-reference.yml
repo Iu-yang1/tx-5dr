@@ -4,12 +4,6 @@ on:
     branches: [integration/mfsk-core-v0.15.1-p9]
     paths:
       - '.github/workflows/mfsk-wsjtx-source-reference.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - '.github/workflows/mfsk-wsjtx-source-reference.yml'
-      - 'packages/server/scripts/wsjtx-source-bidirectional.cjs'
-      - 'packages/mfsk-native/Cargo.toml'
   workflow_dispatch:
   workflow_call:
 

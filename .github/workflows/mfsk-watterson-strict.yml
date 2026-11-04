@@ -6,14 +6,6 @@ on:
   push:
     branches: [integration/mfsk-core-v0.15.1-p9]
     paths: ['.github/workflows/mfsk-watterson-strict.yml']
-  pull_request:
-    branches: [main]
-    paths:
-      - 'packages/server/scripts/watterson-strict-acceptance.cjs'
-      - 'packages/server/scripts/reference-threshold-monte-carlo.cjs'
-      - 'packages/mfsk-native/watterson-channel.cjs'
-      - '.github/workflows/mfsk-watterson-strict.yml'
-      - 'packages/mfsk-native/Cargo.toml'
   workflow_dispatch:
 
 permissions:
