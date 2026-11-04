@@ -254,11 +254,25 @@ jobs:
             URL="https://nodejs.org/dist/v${NODE_VERSION}/${PKG}"
             echo "Downloading ${URL}"
             curl -fsSL -o ${PKG} ${URL}
+            # Validate Node's signed release manifest BEFORE extracting or copying.
+            curl -fsSL -o node-shasums.txt "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt"
+            ARCHIVE_SHA=$(awk -v artifact="${PKG}" '$2 == artifact { print $1; exit }' node-shasums.txt)
+            test -n "$ARCHIVE_SHA" || { echo "Official Node archive checksum missing" >&2; exit 1; }
+            printf '%s  %s\n' "$ARCHIVE_SHA" "${PKG}" | sha256sum -c -
             # Use 7z to extract zip on Windows runner (tar may not handle zip)
             7z x -y "${PKG}"
             SRC_DIR=$(echo node-v${NODE_VERSION}-win-${ARCH})
             mkdir -p resources/bin/${TRIPLET}
             cp -f ${SRC_DIR}/node.exe resources/bin/${TRIPLET}/node.exe
+            OFFICIAL_NODE_SHA=$(awk -v artifact="win-${ARCH}/node.exe" '$2 == artifact { print $1; exit }' node-shasums.txt)
+            test -n "$OFFICIAL_NODE_SHA" || { echo "Official Node binary checksum missing" >&2; exit 1; }
+            printf '%s  %s\n' "$OFFICIAL_NODE_SHA" "resources/bin/${TRIPLET}/node.exe" | sha256sum -c -
+            test "$(resources/bin/${TRIPLET}/node.exe --version)" = "v${NODE_VERSION}" || {
+              echo "Official Node executable failed version check" >&2; exit 1;
+            }
+            test "$(resources/bin/${TRIPLET}/node.exe -p 'process.arch')" = "$ARCH" || {
+              echo "Official Node executable architecture mismatch" >&2; exit 1;
+            }
             cp -f ${SRC_DIR}/LICENSE resources/licenses/nodejs-LICENSE || true
 
             # Bundle MSVC runtime DLLs app-locally so portable archives work on clean Windows installs.
@@ -815,6 +829,12 @@ jobs:
               exit 1
             fi
           done < "${DEPS_FILE}"
+
+      - name: Validate actual NSIS installed Node and native modules (Windows)
+        if: matrix.platform == 'win32'
+        shell: pwsh
+        run: |
+          ./scripts/ci/verify-windows-nsis-runtime.ps1 -BuildDir 'out/electron-builder' -Architecture '${{ matrix.arch }}'
 
       - name: List build outputs (Debug)
         shell: bash
