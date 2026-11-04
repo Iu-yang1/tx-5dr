@@ -52,6 +52,16 @@ assert(rx.some(row=>row.text==='<K1ABC W9XYZ> RRR'),
 // repeated frames within one period as equivalent to independent QSO cycles.
 const trainedSession=new native.Msk144Session(1500,40);
 trainedSession.configureEqualizer(true,'W9XYZ');
+// WSJT-X mskrtd SNR estimator requires a previous no-decode window to
+// establish pnoise. Uninterrupted carrier from sample zero leaves pnoise=0
+// and deliberately gives snr_db=0, which must NOT trigger training.
+const noiseFloor=Buffer.alloc(12000*4);
+let prng=0x41c6ce57;
+for(let k=0;k<12000;k++){
+  prng^=prng<<13;prng^=prng>>>17;prng^=prng<<5;
+  noiseFloor.writeFloatLE(((prng>>>0)/4294967296-0.5)*0.025,k*4);
+}
+trainedSession.push(noiseFloor);
 const repeated=native.encodeMsk144Standard('K1ABC','W9XYZ','-10',5);
 assert.equal(repeated.sampleRate,12000);
 let observed=0;
@@ -64,6 +74,7 @@ for(let period=0;period<7;period++){
   }
 }
 const training=trainedSession.equalizerStatus();
+console.log('MSK144 adaptive training diagnostics:',JSON.stringify({observed,...training}));
 assert(observed>=5,'MSK144 native streaming decoder failed to acquire 5 on-air-like periods');
 assert(training.trainingFrames>=5,
   'MSK144 trainer never accumulated 5 verified independent frames: '+JSON.stringify(training));
