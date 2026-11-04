@@ -84,3 +84,8 @@ Once the full matrix is green the watcher can mark the PR ready and attempt to m
 ## 0.15.1 migration guard (2026-11-04)
 
 The upstream 0.15.1 release improves FT8 real-recording recall, time-offset reporting/subtraction, fine-sync deduplication, blind CQ AP and bit metrics. Upstream explicitly retains the MSK40 shorthand TX/RX and adaptive MSK144 receive equalization as unported functionality; the release upgrade alone **does not** complete those TX-5DR P9 requirements. The legacy golden WAV corpus is intentionally fixed at the previous source SHA, while the native codec version is advanced. Four-mode reference interoperability via wsjtx-lib remains a **test-only** dependency, and this change is not proof of five-platform runtime packaging or full fading-channel 50% decode thresholds.
+
+
+## Cross-repository fork DSP ownership (2026-11-04)
+
+DSP source of truth for TX-5DR MSK40 short-message RX/TX and guarded MSK144 adaptive phase equalization is `Iu-yang1/mfsk-core-tx5dr` at commit `ba92290fca5e42f62c646faf9b02e34679deddb9`, consumed using an exact Cargo git rev. The historical `packages/mfsk-native/src/msk40.rs` experimental duplicate is removed; the Node-API adapter is transport only. This git rev describes an **unaccepted fork draft**, not a verified public release; update only after independent CI and golden reference testing. The automatic upstream-release updater intentionally rejects changing the crate's semver without first reconciling and verifying the fork.

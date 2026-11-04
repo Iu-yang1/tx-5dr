@@ -10,7 +10,6 @@ use napi::{bindgen_prelude::Buffer, Error, Result, Status};
 use napi_derive::napi;
 use std::sync::Arc;
 
-mod msk40;
 
 
 #[napi(object)]
@@ -86,7 +85,7 @@ fn from_pcm(pcm: &Buffer) -> Result<Vec<f32>> {
 
 #[napi]
 pub fn codec_version() -> String {
-    "mfsk-core/0.15.1; tx5dr-napi/0.1.0".to_owned()
+    "mfsk-core/0.15.1; tx5dr-fork/ba92290fca5e; tx5dr-napi/0.1.0".to_owned()
 }
 
 #[napi]
@@ -190,7 +189,7 @@ pub fn encode_msk144_standard(
 pub fn encode_msk40_shorthand(
     call1: String, call2: String, report: String, period_s: u32,
 ) -> Result<Waveform> {
-    let pcm=msk40::synthesize(&call1,&call2,&report,period_s)
+    let pcm=mfsk_core::msk144::msk40::synthesize(&call1,&call2,&report,period_s)
         .ok_or_else(|| invalid("invalid MSK40 call, report or T/R period"))?;
     to_pcm(pcm,format!("<{} {}> {}",call1.trim().to_ascii_uppercase(),
         call2.trim().to_ascii_uppercase(),report.trim().to_ascii_uppercase()))
@@ -202,7 +201,7 @@ pub fn decode_msk40_known_calls(
     pcm_f32_le: Buffer, call1: String, call2: String,
 ) -> Result<Option<String>> {
     let pcm=from_pcm(&pcm_f32_le)?;
-    Ok(msk40::decode_known_calls(&pcm,&call1,&call2))
+    Ok(mfsk_core::msk144::msk40::decode_known_calls(&pcm,&call1,&call2))
 }
 
 /// Offline MSK144 burst oracle. Production will use the persistent stream
@@ -421,6 +420,16 @@ fn jtty_update(u: mfsk_core::jtty::assemble::MessageUpdate) -> NativeJttyUpdate 
     }
 }
 
+/// Guarded adaptive MSK144 session equalizer training status.
+#[napi(object)]
+pub struct NativeMsk144EqualizerStatus {
+    pub enabled: bool,
+    pub trained: bool,
+    pub training_frames: u32,
+    pub residual_rms_rad: f64,
+    pub coefficients: Vec<f64>,
+}
+
 /// MSK144 is an inherently sliding-window stream; the UI must not wait for
 /// an FT-style complete decode window before publishing the ping.
 #[napi]
@@ -453,6 +462,35 @@ impl Msk144Session {
                 text:r.message, frequency_hz:r.freq_hz as f64, snr_db:r.snr_db as f64,dt_seconds:r.t_s,
             }));
         Ok(rows)
+    }
+
+    /// Only meaningful when a real DX callsign and positive user intent
+    /// are supplied. No automatic training or cross-station coefficients.
+    #[napi]
+    pub fn configure_equalizer(&self, enabled: bool, dx_call: String) -> Result<()> {
+        self.inner.lock().map_err(|_| invalid("MSK144 receiver lock poisoned"))?
+            .configure_equalizer(enabled,&dx_call);
+        Ok(())
+    }
+
+    #[napi]
+    pub fn equalizer_status(&self) -> Result<NativeMsk144EqualizerStatus> {
+        let s=self.inner.lock().map_err(|_| invalid("MSK144 receiver lock poisoned"))?
+            .equalizer_status();
+        Ok(NativeMsk144EqualizerStatus {
+            enabled:s.enabled,trained:s.trained,training_frames:s.training_frames,
+            residual_rms_rad:if s.residual_rms_rad.is_finite(){s.residual_rms_rad}else{-1.0},
+            coefficients:s.coefficients.to_vec(),
+        })
+    }
+
+    /// Optional 40 ms shorthand decode inside MSK144. Only accepted against
+    /// an explicit known pair, never unidentified SWL hash guesses.
+    #[napi]
+    pub fn configure_shorthand(&self, enabled:bool, call1:String,call2:String)->Result<()> {
+        self.inner.lock().map_err(|_| invalid("MSK144 receiver lock poisoned"))?
+            .configure_shorthand(enabled,&call1,&call2);
+        Ok(())
     }
 
     #[napi]

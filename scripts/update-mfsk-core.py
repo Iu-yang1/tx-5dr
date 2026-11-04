@@ -25,6 +25,13 @@ def main():
     assert re.fullmatch(r"\d+\.\d+\.\d+", version), "Require stable semver"
     assert re.fullmatch(r"[0-9a-f]{40}", sha), "Require verified upstream commit"
     manifest = read("packages/mfsk-native/Cargo.toml")
+    if 'git = "https://github.com/Iu-yang1/mfsk-core-tx5dr"' in manifest:
+        raise SystemExit(
+            "TX-5DR depends on an immutable fork SHA. Upgrade the mfsk-core-tx5dr "
+            "fork against upstream and validate its MSK40/equalizer CI first, "
+            "then update the TX-5DR git rev with same-SHA acceptance. "
+            "Never replace a fork codec with an upstream crate automatically."
+        )
     match = re.search(r'mfsk-core\s*=\s*\{\s*version\s*=\s*"=(\d+\.\d+\.\d+)"', manifest)
     assert match, "Missing pinned mfsk-core crate"
     old = match.group(1)

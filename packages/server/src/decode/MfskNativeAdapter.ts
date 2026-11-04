@@ -52,6 +52,12 @@ export interface MfskNativeModule {
   };
   Msk144Session: new (audioHz: number, toleranceHz: number) => {
     push(pcmF32Le: Buffer): MfskNativeRow[];
+    configureShorthand(enabled: boolean, call1: string, call2: string): void;
+    configureEqualizer(enabled: boolean, dxCall: string): void;
+    equalizerStatus(): {
+      enabled: boolean; trained: boolean; trainingFrames: number;
+      residualRmsRad: number; coefficients: number[];
+    };
     newPeriod(): void;
     reset(): void;
   };
