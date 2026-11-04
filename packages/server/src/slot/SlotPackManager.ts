@@ -256,7 +256,17 @@ export class SlotPackManager extends EventEmitter<SlotPackManagerEvents> {
   /**
    * 处理解码结果，更新对应的 SlotPack
    */
-  processDecodeResult(result: DecodeResult): SlotPack | null {
+  processDecodeResult(result: DecodeResult, presentationSlotMs?: number): SlotPack | null {
+    // MSK144's five-second window is only a message presentation bucket.
+    // Q65 may have a variable real UTC period, including 120s/300s submodes.
+    if (presentationSlotMs !== undefined) {
+      const allowed = this.currentMode.name === 'MSK144'
+        ? presentationSlotMs === 5_000
+        : this.currentMode.name === 'Q65'
+          ? [15_000, 30_000, 60_000, 120_000, 300_000].includes(presentationSlotMs)
+          : this.currentMode.name === 'WSPR' && presentationSlotMs === 120_000;
+      if (!allowed) throw new Error('Unsupported native RX presentation duration');
+    }
     const slotStartMs = this.parseSlotIdStartMs(result.slotId);
     if (slotStartMs === null) {
       logger.warn('Discarding decode result with invalid slot time', {
@@ -283,7 +293,7 @@ export class SlotPackManager extends EventEmitter<SlotPackManagerEvents> {
     // 获取或创建 SlotPack
     let slotPack = this.slotPacks.get(slotId);
     if (!slotPack) {
-      const createdSlotPack = this.createSlotPack(slotId, resultTimestamp);
+      const createdSlotPack = this.createSlotPack(slotId, resultTimestamp, presentationSlotMs);
       if (!createdSlotPack) {
         logger.warn('Discarding decode result because slot pack could not be created', {
           slotId,
@@ -433,7 +443,7 @@ export class SlotPackManager extends EventEmitter<SlotPackManagerEvents> {
   /**
    * 创建新的 SlotPack
    */
-  private createSlotPack(slotId: string, timestamp: number): SlotPack | null {
+  private createSlotPack(slotId: string, timestamp: number, presentationSlotMs?: number): SlotPack | null {
     const startMs = this.resolveSlotStartMs(slotId, timestamp);
     if (startMs === null) {
       logger.warn('Cannot create slot pack with invalid slot time', { slotId, timestamp });
@@ -441,7 +451,7 @@ export class SlotPackManager extends EventEmitter<SlotPackManagerEvents> {
     }
     
     // 使用当前模式的时隙长度
-    const slotDurationMs = this.currentMode.slotMs;
+    const slotDurationMs = presentationSlotMs ?? this.currentMode.slotMs;
     if (!this.isValidSlotMs(slotDurationMs)) {
       logger.warn('Cannot create slot pack with invalid mode slot length', {
         slotId,
