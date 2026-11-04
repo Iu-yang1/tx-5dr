@@ -20,6 +20,10 @@ on:
   pull_request:
     paths:
       - 'packages/mfsk-native/sensitivity-monte-carlo.cjs'
+      - 'packages/mfsk-native/Cargo.toml'
+      - 'packages/mfsk-native/src/lib.rs'
+      - 'packages/mfsk-native/watterson-channel.cjs'
+      - 'packages/server/scripts/reference-crosscodec.cjs'
       - 'packages/server/scripts/reference-threshold-monte-carlo.cjs'
       - '.github/workflows/mfsk-sensitivity.yml'
 permissions:

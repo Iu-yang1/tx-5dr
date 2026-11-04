@@ -79,8 +79,15 @@ COPY packages/shared-config/package.json ./packages/shared-config/
 COPY packages/web/package.json ./packages/web/
 
 # 安装依赖（多架构优化）
-RUN echo "Installing dependencies for $(uname -m)..." && \
-    YARN_HTTP_TIMEOUT=300000 yarn install --immutable
+# onnxruntime-node fetches external native binaries during install. Retry
+# transient network timeouts without changing the immutable lockfile.
+RUN set -eu; \
+    echo "Installing dependencies for $(uname -m)..."; \
+    for attempt in 1 2 3; do \
+      if YARN_HTTP_TIMEOUT=300000 yarn install --immutable; then exit 0; fi; \
+      if [ "$attempt" = 3 ]; then echo "Yarn immutable install failed 3 times" >&2; exit 1; fi; \
+      sleep $((attempt * 15)); \
+    done
 
 # 复制源代码
 COPY . .
@@ -106,6 +113,10 @@ RUN cargo build --manifest-path packages/mfsk-native/Cargo.toml --release \
 # 构建应用
 RUN echo "Building application for $(uname -m)..." && \
     TX5DR_CLUBLOG_API_KEY="$TX5DR_CLUBLOG_API_KEY" yarn build
+
+# A Docker production image must not retain the compiled comparison modules
+# emitted by the common TypeScript build. Only the staging builder is pruned.
+RUN node scripts/prune-wsjtx-comparison.mjs /app
 
 # Rust replaces the old production codec; the legacy package is only a
 # development comparison dependency and must not reach the runtime image.
@@ -173,6 +184,10 @@ RUN test -f resources/models/deepcw/model.onnx \
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/yarn.lock ./yarn.lock
 COPY --from=builder /app/turbo.json ./turbo.json
+
+# Package-level dependency scan before any image can be accepted/published.
+COPY scripts/audit-wsjtx-production.mjs /tmp/tx5dr-audit-wsjtx.mjs
+RUN node /tmp/tx5dr-audit-wsjtx.mjs /app && rm /tmp/tx5dr-audit-wsjtx.mjs
 
 RUN rm -rf /tmp/tx5dr-linux/
 RUN node -e "const a=require('audify'); const e=new a.OpusEncoder(48000,1,a.OpusApplication.OPUS_APPLICATION_RESTRICTED_LOWDELAY); const d=new a.OpusDecoder(48000,1); const p=e.encode(Buffer.alloc(960*2),960); d.decode(p,960); console.log('audify Opus runtime ok');" \

@@ -192,6 +192,21 @@ export const MfskLiveRxApContextUpdateSchema = z.object({
   apContext: MfskApContextSchema.nullable(),
 });
 
+
+/** RX-only and opt-in. An MSK40 shorthand hash is not enough to establish
+ * the DX identity, so both calls must be known before enabling the search. */
+export const MfskMsk144RxOptionsSchema = z.object({
+  dxCall:z.string().trim().toUpperCase().regex(/^[A-Z0-9\/]{3,12}$/),
+  myCall:z.string().trim().toUpperCase().regex(/^[A-Z0-9\/]{3,12}$/).optional(),
+  shorthand:z.boolean().default(false),
+  adaptiveEqualizer:z.boolean().default(false),
+}).superRefine((value,ctx)=>{
+  if(value.shorthand && !value.myCall){
+    ctx.addIssue({code:z.ZodIssueCode.custom,path:['myCall'],
+      message:'MSK40 shorthand requires both known calls'});
+  }
+});
+
 export const MfskLiveRxStartSchema = z.object({
   mode: DigitalCodecModeSchema,
   q65Submode: Q65SubmodeSchema.optional(),
@@ -201,7 +216,16 @@ export const MfskLiveRxStartSchema = z.object({
   averaging: z.boolean().default(false),
   emeDelay: z.boolean().default(false),
   apContext:MfskApContextSchema.optional(),
+  msk144Rx:MfskMsk144RxOptionsSchema.optional(),
 }).superRefine((value,ctx)=>{
+  if(value.msk144Rx?.shorthand && value.toleranceHz>250) {
+    ctx.addIssue({code:z.ZodIssueCode.custom,path:['toleranceHz'],
+      message:'MSK40 search requires a frequency tolerance at or below 250 Hz'});
+  }
+  if(value.msk144Rx && value.mode!=='MSK144'){
+    ctx.addIssue({code:z.ZodIssueCode.custom,path:['msk144Rx'],
+      message:'MSK144 receive options are only valid for MSK144'});
+  }
   if(value.q65Submode && value.mode!=='Q65'){
     ctx.addIssue({code:z.ZodIssueCode.custom,path:['q65Submode'],message:'Q65 submode is only for Q65'});
   }

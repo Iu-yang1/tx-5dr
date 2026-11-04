@@ -129,6 +129,9 @@ mkdir -p "$APP_ROOT"
 mkdir -p "$APP_ROOT/packages/server"
 cp -r "$PROJECT_ROOT/packages/server/dist" "$APP_ROOT/packages/server/"
 cp "$PROJECT_ROOT/packages/server/package.json" "$APP_ROOT/packages/server/"
+# Explicit source comparison modules are never part of a headless server
+# installation. Do not suppress the downstream artifact-level auditor.
+node "$PROJECT_ROOT/scripts/prune-wsjtx-comparison.mjs" "$APP_ROOT"
 
 # Native receiver/encoder is required on headless installations too; it is
 # resolved relative to the server's dist/decode/MfskNativeAdapter.js file.

@@ -90,4 +90,27 @@ function wattersonApprox(input,options={}){
  }
  return output;
 }
-module.exports={wattersonApprox,analyticQuadrature};
+/**
+ * Ideal feed-forward Doppler tracking for controlled channel comparisons.
+ *
+ * If the channel's deterministic frequency rate is known a priori (for
+ * example from an ephemeris), remove exp(+j*pi*rate*t^2) from its analytic
+ * audio without altering the stochastic Watterson fading spectrum.
+ * This does NOT estimate Doppler or prove real receiver acquisition.
+ * Hilbert conversion is finite-tap and introduces documented approximation.
+ */
+function derampKnownDoppler(input,rateHzPerSecond){
+ if(!(input instanceof Float32Array)||input.length<1||input.length>Fs*310)
+  throw new RangeError('Expected 12 kHz float PCM');
+ if(!Number.isFinite(rateHzPerSecond)||Math.abs(rateHzPerSecond)>20)
+  throw new RangeError('Known Doppler rate exceeds supported range');
+ if(rateHzPerSecond===0)return input.slice();
+ const q=analyticQuadrature(input),out=new Float32Array(input.length);
+ for(let i=0;i<input.length;i++){
+  const t=i/Fs,p=Math.PI*rateHzPerSecond*t*t;
+  // Re[(I+jQ) exp(-j*p)] = I*cos(p)+Q*sin(p).
+  out[i]=input[i]*Math.cos(p)+q[i]*Math.sin(p);
+ }
+ return out;
+}
+module.exports={wattersonApprox,analyticQuadrature,derampKnownDoppler};

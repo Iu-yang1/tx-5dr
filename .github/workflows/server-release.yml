@@ -51,11 +51,11 @@ jobs:
       - name: Validate RC server online-installer tag
         shell: bash
         env:
-          TX5DR_INSTALL_RELEASE_TAG: v1.0.1-rc.2-server
+          TX5DR_INSTALL_RELEASE_TAG: v1.0.1-rc.3-server
         run: |
           set -euo pipefail
           bash scripts/build-install-script.sh
-          grep -F 'TX5DR_INSTALL_RELEASE_TAG="${TX5DR_INSTALL_RELEASE_TAG:-v1.0.1-rc.2-server}"' dist/install-online.sh
+          grep -F 'TX5DR_INSTALL_RELEASE_TAG="${TX5DR_INSTALL_RELEASE_TAG:-v1.0.1-rc.3-server}"' dist/install-online.sh
           bash -n dist/install-online.sh
 
       - name: Setup Node.js
@@ -76,7 +76,7 @@ jobs:
             libhamlib-dev libhamlib4 \
             libopus-dev \
             build-essential python3-dev pkg-config \
-            ruby-dev rpm
+            ruby-dev rpm rpm2cpio cpio
 
       - name: Install fpm
         run: sudo gem install fpm --no-document
@@ -175,13 +175,33 @@ jobs:
           dpkg-deb -x "$DEB_FILE" "$EXTRACT_DIR"
           APP_ROOT="$EXTRACT_DIR/usr/share/tx5dr"
           test -s "$APP_ROOT/packages/mfsk-native/mfsk-native.node"
-          test ! -e "$APP_ROOT/node_modules/wsjtx-lib"
+          node scripts/audit-wsjtx-production.mjs "$APP_ROOT"
           node - "$APP_ROOT/packages/mfsk-native/mfsk-native.node" <<'NODE'
           const native=require(process.argv[2]);
           for(const mode of ['FT8','FT4','WSPR','Q65-60B','MSK144','JTTY']){
             if(!native.supportedModes().includes(mode))throw new Error('Missing native '+mode);
           }
           console.log('Native headless DEB addon verified:',native.codecVersion());
+          NODE
+
+      - name: Audit extracted RPM production dependencies and native codec
+        shell: bash
+        run: |
+          set -euo pipefail
+          RPM_FILE=$(find dist -name '*.rpm' -type f | head -1)
+          test -n "$RPM_FILE"
+          EXTRACT_DIR=$(mktemp -d)
+          trap 'rm -rf "$EXTRACT_DIR"' EXIT
+          (cd "$EXTRACT_DIR" && rpm2cpio "$OLDPWD/$RPM_FILE" | cpio -id --quiet)
+          APP_ROOT="$EXTRACT_DIR/usr/share/tx5dr"
+          test -s "$APP_ROOT/packages/mfsk-native/mfsk-native.node"
+          node scripts/audit-wsjtx-production.mjs "$APP_ROOT"
+          node - "$APP_ROOT/packages/mfsk-native/mfsk-native.node" <<'NODE'
+          const native=require(process.argv[2]);
+          for(const mode of ['FT8','FT4','WSPR','Q65-60B','MSK144','JTTY']){
+            if(!native.supportedModes().includes(mode))throw Error('RPM missing native '+mode);
+          }
+          console.log('RPM native codec loaded:',native.codecVersion());
           NODE
 
       - name: Prepare artifacts

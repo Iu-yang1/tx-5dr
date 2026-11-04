@@ -66,7 +66,7 @@ async function probeNative(): Promise<MfskCodecProbeResponse> {
       '-e', PROBE_CODE, MFSK_NATIVE_MODULE_PATH,
     ],{timeout:8_000,maxBuffer:16*1024,windowsHide:true});
     const obj=JSON.parse(stdout) as {version?:unknown;modes?:unknown};
-    if(typeof obj.version!=='string' || !obj.version.startsWith('mfsk-core/0.15.0;')
+    if(typeof obj.version!=='string' || !obj.version.startsWith('mfsk-core/0.15.1;')
       || !Array.isArray(obj.modes)
       || obj.modes.some(x=>typeof x!=='string')) {
       return buildCodecProbeResponse(undefined,'native ABI/version mismatch');
