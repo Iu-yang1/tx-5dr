@@ -10,6 +10,9 @@ use napi::{bindgen_prelude::Buffer, Error, Result, Status};
 use napi_derive::napi;
 use std::sync::Arc;
 
+mod msk40;
+
+
 #[napi(object)]
 pub struct Waveform {
     pub canonical_text: String,
@@ -178,6 +181,28 @@ pub fn encode_msk144_standard(
         &call1, &call2, &report, period_s, 0.7
     ).ok_or_else(|| invalid("unsupported MSK144 standard message"))?;
     to_pcm(pcm, format!("{call1} {call2} {report}"))
+}
+
+
+/// Experimental MSK40 40 ms shorthand TX vector, not a physical PTT capability.
+/// MSK144 standard frames and this 32/16 LDPC shorthand are different formats.
+#[napi]
+pub fn encode_msk40_shorthand(
+    call1: String, call2: String, report: String, period_s: u32,
+) -> Result<Waveform> {
+    let pcm=msk40::synthesize(&call1,&call2,&report,period_s)
+        .ok_or_else(|| invalid("invalid MSK40 call, report or T/R period"))?;
+    to_pcm(pcm,format!("<{} {}> {}",call1.trim().to_ascii_uppercase(),
+        call2.trim().to_ascii_uppercase(),report.trim().to_ascii_uppercase()))
+}
+
+/// Known-call offline MSK40 reference-only decoder. Not a full short-ping RX.
+#[napi]
+pub fn decode_msk40_known_calls(
+    pcm_f32_le: Buffer, call1: String, call2: String,
+) -> Result<Option<String>> {
+    let pcm=from_pcm(&pcm_f32_le)?;
+    Ok(msk40::decode_known_calls(&pcm,&call1,&call2))
 }
 
 /// Offline MSK144 burst oracle. Production will use the persistent stream
