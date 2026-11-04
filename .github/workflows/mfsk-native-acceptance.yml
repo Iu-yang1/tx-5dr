@@ -13,6 +13,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  source-reference:
+    name: Official WSJT-X six-mode bidirectional reference
+    uses: ./.github/workflows/mfsk-wsjtx-source-reference.yml
+
   fork-dsp:
     name: MSK40 / MSK144 DSP from exact fork commit
     runs-on: ubuntu-24.04
@@ -110,7 +114,7 @@ jobs:
   # A native .node that works in isolation can still be unusable by the real
   # TypeScript server. This job validates the actual compiled server pipeline.
   server-runtime:
-    needs: [native, fork-dsp]
+    needs: [native, fork-dsp, source-reference]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -188,6 +192,11 @@ jobs:
           path: packages/server/scripts/reference-crosscodec-report.json
           if-no-files-found: ignore
           retention-days: 14
+      - name: Download same-SHA official WSJT-X source-built bidirectional evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: wsjtx-source-bidirectional-${{ github.sha }}
+          path: packages/server/scripts
       - name: Enforce independent six-mode two-way WSJT-X oracle coverage
         run: node packages/server/scripts/p9-interoperability-coverage.cjs
       - name: Upload full reference coverage gaps and evidence

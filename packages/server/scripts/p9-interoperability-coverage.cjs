@@ -12,13 +12,19 @@ const fs=require('node:fs');
 const path=require('node:path');
 const here=__dirname;
 const read=name=>JSON.parse(fs.readFileSync(path.resolve(here,name),'utf8'));
-const protocols=['FT8','FT4','Q65','JTTY','MSK144','WSPR'];
+const protocols=['FT8','FT4','Q65','JTTY','MSK144','MSK40','WSPR'];
 const directions=['reference-TX -> Rust-RX','Rust-TX -> reference-RX'];
 const cross=read('reference-crosscodec-report.json');
 const golden=read('wsjtx-golden-replay-report.json');
+const source=read('wsjtx-source-bidirectional-report.json');
+assert(!source.error,'Official source-built oracle reported errors');
+assert(source.source==='WSJTX/wsjtx @ d89fe30ca1dfd3c38def8f17228f09f042829f95',
+ 'Reference oracle not pinned to intended upstream commit');
+assert.equal(source.codec,cross.codec,'Source reference and main codec SHA differ');
+assert(Array.isArray(source.tests),'Missing official source reference tests');
 assert(!cross.error,'Reference codec report contains an error');
 const known=new Set(
-  (cross.results??[]).filter(x=>x.pass===true&&directions.includes(x.direction))
+  [...(cross.results??[]),...source.tests].filter(x=>x.pass===true&&directions.includes(x.direction))
     .map(x=>x.mode+'|'+x.direction));
 const goldenLabels={
   FT8:[],
@@ -26,6 +32,7 @@ const goldenLabels={
   Q65:['Q65-60A'],
   JTTY:['JTTY WSJT-X rc1 off-air'],
   MSK144:['MSK144 181211_120500.wav','MSK144 181211_120800.wav'],
+  MSK40:[],
   WSPR:['WSPR'],
 };
 const goldenResults=new Map((golden.tests??[]).map(x=>[x.name,x.pass===true]));
@@ -33,7 +40,7 @@ const entries=protocols.map(mode=>{
   const required=directions.map(direction=>({
     direction,passed:known.has(mode+'|'+direction),
     evidence:known.has(mode+'|'+direction)
-      ? 'wsjtx-lib dev-only reference cross-codec report' : null,
+      ? 'official WSJT-X source stream report or wsjtx-lib FT8/FT4 report' : null,
   }));
   const captures=goldenLabels[mode].map(name=>({name,passed:goldenResults.get(name)===true}));
   return {mode,required,captures,
