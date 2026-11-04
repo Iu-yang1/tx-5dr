@@ -197,6 +197,8 @@ jobs:
         with:
           name: wsjtx-source-bidirectional-${{ github.sha }}
           path: packages/server/scripts
+      - name: Self-test release codec-exclusion auditor
+        run: node --test scripts/audit-wsjtx-production.test.mjs
       - name: Enforce independent six-mode two-way WSJT-X oracle coverage
         run: node packages/server/scripts/p9-interoperability-coverage.cjs
       - name: Upload full reference coverage gaps and evidence
