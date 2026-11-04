@@ -1,6 +1,11 @@
 name: Strict paired FT8/FT4 Watterson-Doppler P9 acceptance
 
 on:
+  # Run the complete 18-scenario validation on this integration branch once.
+  # Subsequent code-only pushes do not restart the expensive matrix.
+  push:
+    branches: [integration/mfsk-core-v0.15.1-p9]
+    paths: ['.github/workflows/mfsk-watterson-strict.yml']
   pull_request:
     branches: [main]
     paths:
