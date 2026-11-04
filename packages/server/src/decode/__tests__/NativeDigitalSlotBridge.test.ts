@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { projectNativeDigitalFrames } from './NativeDigitalSlotBridge';
+import { projectNativeDigitalFrames } from '../NativeDigitalSlotBridge';
 
 describe('native decodes to legacy SlotPack projection', () => {
   it('preserves true Q65-120 UTC slot and source SNR/Hz precision', () => {

@@ -46,6 +46,7 @@ export function projectNativeDigitalFrames(
           timestamp: event.timestampMs,
           windowIdx: 0,
           processingTimeMs: 0,
+          windowOffsetMs: 0,
           frames: [],
         },
       };
