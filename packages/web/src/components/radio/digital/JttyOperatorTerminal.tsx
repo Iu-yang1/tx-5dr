@@ -134,7 +134,8 @@ export function JttyOperatorTerminal() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-sm font-medium">{t('codec.logTitle')}</span>
         <div className="flex gap-2">
-          <Button size="sm" variant="light" onPress={() => openLogbookWindow()}>
+          <Button size="sm" variant="light" isDisabled={!currentOperatorId}
+            onPress={() => { if (currentOperatorId) openLogbookWindow({operatorId: currentOperatorId}); }}>
             {t('codec.logTitle')}
           </Button>
           <Button size="sm" variant="flat" aria-expanded={logExpanded}
