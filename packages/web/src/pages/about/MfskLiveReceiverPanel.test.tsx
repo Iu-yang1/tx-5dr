@@ -91,18 +91,15 @@ it('double-click station selection populates operator DX and TX AF but never key
   });
   expect(mock.transmit).not.toHaveBeenCalled();
 });
-it('requires manual RF acknowledgement before arming and permits explicit disarm',async()=>{
+it('uses direct TX click without a separate RF approval or expiry',async()=>{
   render(<MfskLiveReceiverPanel surface="operator"/>);
-  await waitFor(()=>expect(screen.getByText('codec.armRf')).toBeTruthy());
-  const arm=screen.getByText('codec.armRf') as HTMLButtonElement;
-  expect(arm.disabled).toBe(true);
-  fireEvent.click(screen.getByLabelText('codec.armAcknowledgement'));
-  await waitFor(()=>expect(arm.disabled).toBe(false));
-  fireEvent.click(arm);
-  await waitFor(()=>expect(mock.arm).toHaveBeenCalledWith('op1'));
-  fireEvent.click(screen.getByText('codec.disarmRf'));
-  await waitFor(()=>expect(mock.disarm).toHaveBeenCalledTimes(1));
-  expect(mock.transmit).not.toHaveBeenCalled();
+  await waitFor(()=>expect(screen.getByText('codec.manualTx')).toBeTruthy());
+  expect(screen.queryByText('codec.armRf')).toBeNull();
+  expect(screen.queryByText('codec.armAcknowledgement')).toBeNull();
+  fireEvent.change(screen.getByLabelText('codec.message'),{target:{value:'CQ K1ABC FN42'}});
+  fireEvent.click(screen.getByText('codec.manualTx'));
+  await waitFor(()=>expect(mock.transmit).toHaveBeenCalledTimes(1));
+  expect(mock.arm).not.toHaveBeenCalled();
 });
 
 it('MSK144 operator changes TX period and uses a fixed 1500 Hz modulator',async()=>{
@@ -118,21 +115,20 @@ it('MSK144 operator changes TX period and uses a fixed 1500 Hz modulator',async(
   })));
   expect(screen.queryByLabelText('codec.txAfFrequency')).toBeNull();
 });
-it('WSPR requires beacon consent and cannot create a QSO',async()=>{
+it('WSPR manual TX works without a separate beacon consent field',async()=>{
   selected.mode='WSPR';
   render(<MfskLiveReceiverPanel surface="operator"/>);
-  await waitFor(()=>expect(screen.getByText('codec.beaconAuthorization')).toBeTruthy());
   fireEvent.change(screen.getByLabelText('codec.message'),{target:{value:'K1ABC FN42 37'}});
+  expect(screen.queryByText('codec.beaconAuthorization')).toBeNull();
   const tx=screen.getByText('codec.manualTx') as HTMLButtonElement;
-  expect(tx.disabled).toBe(true);
-  fireEvent.click(screen.getByLabelText('codec.beaconAuthorization'));
   await waitFor(()=>expect(tx.disabled).toBe(false));
   fireEvent.click(tx);
   await waitFor(()=>expect(mock.transmit).toHaveBeenCalledWith(expect.objectContaining({
-    mode:'WSPR',beaconAuthorized:true,text:'K1ABC FN42 37',
+    mode:'WSPR',text:'K1ABC FN42 37',
   })));
   expect(screen.queryByText('codec.logConfirm')).toBeNull();
 });
+
 it('JTTY presents the same operator TX and manual QSO logging without Q65 controls',async()=>{
   selected.mode='JTTY';
   render(<MfskLiveReceiverPanel surface="operator"/>);
@@ -152,19 +148,18 @@ it('keeps RX tuning and AP hypotheses collapsed until More is selected',async()=
   expect(screen.queryByLabelText('codec.rxTolerance')).toBeNull();
   fireEvent.click(screen.getByText('⋯'));
   expect(screen.getByText('codec.apTitle')).toBeTruthy();
-  expect(screen.getByLabelText('codec.rxTolerance')).toBeTruthy();
-  expect(screen.getByText('codec.rxDepth')).toBeTruthy();
+  expect(screen.queryByLabelText('codec.rxTolerance')).toBeNull();
+  expect(screen.getByText(/codec.rxDepth/)).toBeTruthy();
   fireEvent.click(screen.getByText('⋯'));
   expect(screen.queryByText('codec.apTitle')).toBeNull();
 });
 
-it('keeps Q65 TX timeslot and QSO log collapsed without hiding RF safety',async()=>{
+it('keeps Q65 timeslot and QSO options collapsed without the RF consent gate',async()=>{
   render(<MfskLiveReceiverPanel surface="operator"/>);
-  await waitFor(()=>expect(screen.getByText('codec.armRf')).toBeTruthy());
-  expect(screen.getByText('codec.armAcknowledgement')).toBeTruthy();
+  await waitFor(()=>expect(screen.getByText('codec.manualTx')).toBeTruthy());
   expect(screen.queryByText('codec.q65TxFirst')).toBeNull();
   expect(screen.queryByText('codec.logConfirm')).toBeNull();
   fireEvent.click(screen.getAllByText('⋯')[0]);
   expect(screen.getByText('codec.q65TxFirst')).toBeTruthy();
-  expect(mock.arm).not.toHaveBeenCalled();
+  expect(screen.queryByText('codec.armRf')).toBeNull();
 });
