@@ -1,6 +1,6 @@
 {
   "name": "@tx5dr/server",
-  "version": "1.0.1-rc.3",
+  "version": "1.0.1-rc.4",
   "type": "module",
   "main": "dist/index.js",
   "exports": {
