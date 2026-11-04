@@ -88,7 +88,7 @@
     "rfLocked": "RF TX is locked pending P9 safety acceptance",
     "beaconAuthorization": "I explicitly authorize a WSPR beacon transmission (120 s period)",
     "txComplete": "Transmission workflow completed",
-    "txFailed": "TX failed: check mode, operator permission, RF gate and server diagnostics",
+    "txFailed": "Transmission failed: check mode, operator permissions and radio connection",
     "logTitle": "QSO log (manual confirmation)",
     "moreSettings": "More settings",
     "lessSettings": "Less settings",
@@ -152,6 +152,9 @@
     "rxFast": "Fast",
     "rxNormal": "Normal",
     "rxDeep": "Deep",
-    "rxInvalidTolerance": "Invalid F Tol (1–5000 Hz)"
+    "rxInvalidTolerance": "Invalid F Tol (1–5000 Hz)",
+    "stopTx": "Stop TX",
+    "txStopped": "Stop TX requested",
+    "txStopFailed": "Unable to stop TX"
   }
 }
