@@ -154,8 +154,9 @@ pub fn decode_known_calls(pcm: &[f32], call1: &str, call2: &str) -> Option<Strin
         }
         (sin,cos,norm)
     }).collect();
-    let mut best=(0usize,0.0f64);
-    let mut second=0.0f64;
+    // Track a maximum over offsets PER report. Adjacent offsets of the
+    // same report are not independent candidates for runner-up rejection.
+    let mut scores=[0.0f64;16];
     // Sliding by one sample allows arbitrary receive-phase alignment.
     // A bounded initial 1-second acquisition window keeps CPU use finite.
     let search_limit=pcm.len().saturating_sub(FRAME_SAMPLES).min(FS);
@@ -171,12 +172,14 @@ pub fn decode_known_calls(pcm: &[f32], call1: &str, call2: &str) -> Option<Strin
                 co+=f64::from(slice[k])*cos[k];
             }
             let score=(si*si+co*co).sqrt()/(energy*norm).sqrt();
-            if score>best.1 {second=best.1;best=(idx,score);}
-            else if score>second {second=score;}
+            if score>scores[idx] {scores[idx]=score;}
         }
     }
-    if best.1 < 0.90 || (best.1-second)<0.05 { return None; }
-    Some(format!("<{a} {b}> {}",REPORTS[best.0]))
+    let mut ranks:Vec<(usize,f64)>=scores.iter().copied().enumerate().collect();
+    ranks.sort_by(|a,b| b.1.total_cmp(&a.1));
+    let winner=ranks[0];
+    if winner.1<0.90 || winner.1-ranks[1].1<0.05 { return None; }
+    Some(format!("<{a} {b}> {}",REPORTS[winner.0]))
 }
 
 #[cfg(test)]

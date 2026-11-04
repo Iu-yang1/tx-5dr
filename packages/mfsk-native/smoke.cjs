@@ -24,4 +24,12 @@ const jtty = native.encodeJtty('CQ K1ABC CQ', 1500);
 assert(jtty.sampleCount > 0);
 console.log('JTTY', jtty.sampleCount, 'samples');
 assert.throws(() => native.encodeMsk144Standard('K1ABC','K2ABC','-10',17), /period/);
-console.log('Six-mode NAPI load and TX smoke passed (not a production acceptance).');
+// Experimental MSK40 is deliberately separate from the general supportedModes
+// list until the full legacy short-ping receiver and adaptive equalizer exist.
+assert.equal(typeof native.encodeMsk40Shorthand,'function');
+assert.equal(typeof native.decodeMsk40KnownCalls,'function');
+const sh=native.encodeMsk40Shorthand('K1ABC','W9XYZ','RRR',5);
+assert.equal(sh.sampleCount,54_000);
+assert.equal(native.decodeMsk40KnownCalls(sh.pcmF32Le,'K1ABC','W9XYZ'),'<K1ABC W9XYZ> RRR');
+assert.equal(native.decodeMsk40KnownCalls(Buffer.alloc(240*3*4),'K1ABC','W9XYZ'),null);
+console.log('Six-mode NAPI load, TX and experimental MSK40 offline loopback passed.');
