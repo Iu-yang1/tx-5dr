@@ -756,6 +756,13 @@
       "shorthand": "MSK40 简写搜索（需双方呼号，容差不超过 250 Hz）",
       "jttyStream": "JTTY 是连续流解码，不适用时隙解码深度和搜索窗口。",
       "saveNotice": "设置即时保存，不会发射或修改当前接收任务。"
+    },
+    "jttyTerminal": {
+      "receiver": "JTTY 连续流接收",
+      "operator": "JTTY 收发工作台",
+      "listening": "正在接收",
+      "notReady": "接收未启动",
+      "noText": "暂无 JTTY 解码文本"
     }
   },
   "freqPresets": {
