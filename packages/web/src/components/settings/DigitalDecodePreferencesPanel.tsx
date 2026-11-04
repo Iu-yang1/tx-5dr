@@ -13,9 +13,11 @@ export function DigitalDecodePreferencesPanel() {
   const { i18n } = useTranslation();
   const zh = i18n.language.startsWith('zh');
   const [mode, setMode] = useState<NativeDigitalMode>('Q65');
-  const [values, setValues] = useState<Record<NativeDigitalMode, NativeDecodePreferences>>(() =>
-    Object.fromEntries(NATIVE_DIGITAL_MODES.map(item => [item, loadNativeDecodePreferences(item)]))
-      as Record<NativeDigitalMode, NativeDecodePreferences>);
+  const [values, setValues] = useState<Record<NativeDigitalMode, NativeDecodePreferences>>(
+    () => Object.fromEntries(
+      NATIVE_DIGITAL_MODES.map(item => [item, loadNativeDecodePreferences(item)]),
+    ) as Record<NativeDigitalMode, NativeDecodePreferences>,
+  );
   const value = values[mode];
 
   const update = (partial: Partial<NativeDecodePreferences>) => {
