@@ -88,7 +88,7 @@ The upstream 0.15.1 release improves FT8 real-recording recall, time-offset repo
 
 ## Cross-repository fork DSP ownership (2026-11-04)
 
-DSP source of truth for TX-5DR MSK40 short-message RX/TX and guarded MSK144 adaptive phase equalization is `Iu-yang1/mfsk-core-tx5dr` at commit `cd0ba5a3eb27aaee28f82fb483965016d04b8af1`, consumed using an exact Cargo git rev. The historical `packages/mfsk-native/src/msk40.rs` experimental duplicate is removed; the Node-API adapter is transport only. This git rev describes an **unaccepted fork draft**, not a verified public release; update only after independent CI and golden reference testing. The automatic upstream-release updater intentionally rejects changing the crate's semver without first reconciling and verifying the fork.
+DSP source of truth for TX-5DR MSK40 short-message RX/TX and guarded MSK144 adaptive phase equalization is `Iu-yang1/mfsk-core-tx5dr` at commit `9b48880d730988d2b0b526a918565368743a146a`, consumed using an exact Cargo git rev. The historical `packages/mfsk-native/src/msk40.rs` experimental duplicate is removed; the Node-API adapter is transport only. This git rev describes an **unaccepted fork draft**, not a verified public release; update only after independent CI and golden reference testing. The automatic upstream-release updater intentionally rejects changing the crate's semver without first reconciling and verifying the fork.
 
 
 ### Guarded live RX controls

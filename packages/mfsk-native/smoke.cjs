@@ -28,7 +28,7 @@ assert.throws(() => native.encodeMsk144Standard('K1ABC','K2ABC','-10',17), /peri
 // list until the full legacy short-ping receiver and adaptive equalizer exist.
 assert.equal(typeof native.encodeMsk40Shorthand,'function');
 assert.equal(typeof native.decodeMsk40KnownCalls,'function');
-assert(native.codecVersion().includes('tx5dr-fork/cd0ba5a3eb27'));
+assert(native.codecVersion().includes('tx5dr-fork/9b48880d7309'));
 const eqSession=new native.Msk144Session(1500,12);
 assert.equal(eqSession.equalizerStatus().enabled,false);
 eqSession.configureEqualizer(true,'W9XYZ');

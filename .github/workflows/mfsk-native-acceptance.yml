@@ -27,13 +27,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -F 'cd0ba5a3eb27aaee28f82fb483965016d04b8af1' packages/mfsk-native/Cargo.toml
+          grep -F '9b48880d730988d2b0b526a918565368743a146a' packages/mfsk-native/Cargo.toml
           grep -F 'Iu-yang1/mfsk-core-tx5dr' packages/mfsk-native/Cargo.toml
       - name: Checkout immutable DSP fork source, not upstream HEAD
         uses: actions/checkout@v4
         with:
           repository: Iu-yang1/mfsk-core-tx5dr
-          ref: cd0ba5a3eb27aaee28f82fb483965016d04b8af1
+          ref: 9b48880d730988d2b0b526a918565368743a146a
           path: mfsk-tx5dr-fork
       - uses: dtolnay/rust-toolchain@stable
       - name: Strict MSK40 reference vectors, actual burst acquisition, equalizer training
