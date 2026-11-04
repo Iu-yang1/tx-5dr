@@ -34,12 +34,12 @@ describe('six-mode codec contract', () => {
     expect(() => digitalCodecSlotStart(NaN, 15_000)).toThrow();
   });
 
-  it('requires runtime readiness and explicit beacon TX authorisation', () => {
+  it('requires runtime readiness but not a separate beacon authorization', () => {
     const base = DigitalCodecRuntimeCapabilitySchema.parse({
       mode: 'WSPR', backend: 'mfsk-native', receiverReady: true,
       encoderReady: true, schedulerReady: true, txPipelineReady: true,
     });
-    expect(digitalCodecTxAllowed(base, true, true, true)).toBe(false);
+    expect(digitalCodecTxAllowed(base, true, true, true)).toBe(true);
     expect(digitalCodecTxAllowed(base, true, true, true, true)).toBe(true);
     expect(digitalCodecTxAllowed({ ...base, encoderReady: false }, true, true, true, true)).toBe(false);
     expect(digitalCodecTxAllowed({ ...base, mode: 'FT8' }, true, true, false)).toBe(false);

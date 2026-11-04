@@ -109,21 +109,21 @@ export const DigitalRxEventSchema = z.discriminatedUnion('kind', [
 export type DigitalRxEvent = z.infer<typeof DigitalRxEventSchema>;
 
 /**
- * Fail closed. Every caller must provide an explicit current runtime capability,
- * mode-specific TX authorisation and physical radio/PTT readiness.
+ * Validate runtime TX capability and operational PTT readiness; WSPR uses
+ * the same explicit user transmit command as the other digital modes.
  */
 export function digitalCodecTxAllowed(
   capability: DigitalCodecRuntimeCapability | undefined,
   permissionGranted: boolean,
   radioReady: boolean,
   pttAvailable: boolean,
-  beaconTxEnabled = false,
+  _legacyBeaconTxEnabled = false,
 ): boolean {
   if (!capability || !capability.encoderReady || !capability.schedulerReady
     || !capability.txPipelineReady || !permissionGranted || !radioReady || !pttAvailable) {
     return false;
   }
-  return DIGITAL_CODEC_PROFILES[capability.mode].usage !== 'beacon' || beaconTxEnabled;
+  return true;
 }
 
 /** Exact UTC alignment; use integer milliseconds rather than rounded seconds. */
