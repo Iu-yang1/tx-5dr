@@ -188,6 +188,16 @@ jobs:
           path: packages/server/scripts/reference-crosscodec-report.json
           if-no-files-found: ignore
           retention-days: 14
+      - name: Enforce independent six-mode two-way WSJT-X oracle coverage
+        run: node packages/server/scripts/p9-interoperability-coverage.cjs
+      - name: Upload full reference coverage gaps and evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mfsk-p9-reference-coverage-${{ github.sha }}
+          path: packages/server/scripts/p9-reference-coverage-report.json
+          retention-days: 30
+          if-no-files-found: warn
       - name: Run real TX-5DR virtual-radio QSO regression on native FT8/FT4 backend
         env:
           TX5DR_CODEC_BACKEND: mfsk-native
