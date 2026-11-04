@@ -35,9 +35,17 @@ if ($installDir.Contains(' ')) {
   throw "NSIS unattended installation test destination contains spaces: $installDir"
 }
 $arguments = @('/S', "/D=$installDir")
-$installerProcess = Start-Process -FilePath $installers[0].FullName -ArgumentList $arguments -Wait -PassThru -NoNewWindow
-if ($installerProcess.ExitCode -ne 0) {
-  throw "NSIS installer failed with exit code $($installerProcess.ExitCode)"
+$installerProcess = Start-Process -FilePath $installers[0].FullName -ArgumentList $arguments -PassThru -NoNewWindow
+try {
+  if (-not $installerProcess.WaitForExit(180000)) {
+    try { $installerProcess.Kill() } catch { }
+    throw 'NSIS installer did not exit within 180 seconds'
+  }
+  if ($installerProcess.ExitCode -ne 0) {
+    throw "NSIS installer failed with exit code $($installerProcess.ExitCode)"
+  }
+} finally {
+  $installerProcess.Dispose()
 }
 
 $resources = Join-Path $installDir 'resources'
