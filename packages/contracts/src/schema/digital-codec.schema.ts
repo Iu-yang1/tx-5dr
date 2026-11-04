@@ -109,21 +109,21 @@ export const DigitalRxEventSchema = z.discriminatedUnion('kind', [
 export type DigitalRxEvent = z.infer<typeof DigitalRxEventSchema>;
 
 /**
- * Fail closed. Every caller must provide an explicit current runtime capability,
- * mode-specific TX authorisation and physical radio/PTT readiness.
+ * Validate runtime TX capability and operational PTT readiness; WSPR uses
+ * the same explicit user transmit command as the other digital modes.
  */
 export function digitalCodecTxAllowed(
   capability: DigitalCodecRuntimeCapability | undefined,
   permissionGranted: boolean,
   radioReady: boolean,
   pttAvailable: boolean,
-  beaconTxEnabled = false,
+  _legacyBeaconTxEnabled = false,
 ): boolean {
   if (!capability || !capability.encoderReady || !capability.schedulerReady
     || !capability.txPipelineReady || !permissionGranted || !radioReady || !pttAvailable) {
     return false;
   }
-  return DIGITAL_CODEC_PROFILES[capability.mode].usage !== 'beacon' || beaconTxEnabled;
+  return true;
 }
 
 /** Exact UTC alignment; use integer milliseconds rather than rounded seconds. */
@@ -266,11 +266,8 @@ export const MfskPhysicalTxRequestSchema = z.object({
   q65TxFirst:z.boolean().optional(),
   mskPeriodSeconds: z.union([z.literal(5),z.literal(10),z.literal(15),z.literal(30)]).optional(),
   mskTxFirst: z.boolean().optional(),
-  beaconAuthorized:z.boolean().default(false),
+  beaconAuthorized:z.boolean().optional(),
 }).superRefine((value,ctx)=>{
-  if(value.mode==='WSPR'&&!value.beaconAuthorized){
-    ctx.addIssue({code:z.ZodIssueCode.custom,path:['beaconAuthorized'],message:'WSPR beacon requires explicit authorization'});
-  }
   if(value.mode!=='Q65'&&value.q65Submode){
     ctx.addIssue({code:z.ZodIssueCode.custom,path:['q65Submode'],message:'Q65-only submode'});
   }

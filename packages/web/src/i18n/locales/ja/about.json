@@ -88,7 +88,7 @@
     "rfLocked": "P9検証までRF送信は禁止",
     "beaconAuthorization": "120秒WSPRビーコン送信を明示的に許可",
     "txComplete": "送信フロー完了",
-    "txFailed": "送信に失敗しました。モード・権限・サーバーを確認",
+    "txFailed": "送信に失敗しました。モード、権限、電台接続を確認してください",
     "logTitle": "QSOログ（手動確認）",
     "moreSettings": "その他の設定",
     "lessSettings": "設定を閉じる",
@@ -152,6 +152,9 @@
     "rxFast": "高速",
     "rxNormal": "通常",
     "rxDeep": "深い",
-    "rxInvalidTolerance": "周波数許容差は1〜5000 Hz"
+    "rxInvalidTolerance": "周波数許容差は1〜5000 Hz",
+    "stopTx": "送信停止",
+    "txStopped": "送信停止を要求しました",
+    "txStopFailed": "送信停止に失敗しました"
   }
 }

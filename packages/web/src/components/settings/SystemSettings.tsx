@@ -38,6 +38,7 @@ import { createLogger } from '../../utils/logger';
 import { useConnection } from '../../store/radioStore';
 import { useWSEvent } from '../../hooks/useWSEvent';
 import { RemoteAccessSettingsCard } from './RemoteAccessSettingsCard';
+import { DigitalDecodePreferencesPanel } from './DigitalDecodePreferencesPanel';
 import { applyRemoteAccessPreset, normalizeRemoteAccessOrigins, validateRemoteAccessDraft } from './remoteAccessDraft';
 
 interface DecodeWindowState {
@@ -2516,6 +2517,9 @@ export const SystemSettings = forwardRef<
               )}
             </div>
           )}
+          <div className="border-t border-divider pt-5">
+            <DigitalDecodePreferencesPanel />
+          </div>
         </CardBody>
       </Card>
 

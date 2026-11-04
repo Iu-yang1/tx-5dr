@@ -34,26 +34,26 @@ describe('six-mode codec contract', () => {
     expect(() => digitalCodecSlotStart(NaN, 15_000)).toThrow();
   });
 
-  it('requires runtime readiness and explicit beacon TX authorisation', () => {
+  it('requires runtime readiness but not a separate beacon authorization', () => {
     const base = DigitalCodecRuntimeCapabilitySchema.parse({
       mode: 'WSPR', backend: 'mfsk-native', receiverReady: true,
       encoderReady: true, schedulerReady: true, txPipelineReady: true,
     });
-    expect(digitalCodecTxAllowed(base, true, true, true)).toBe(false);
+    expect(digitalCodecTxAllowed(base, true, true, true)).toBe(true);
     expect(digitalCodecTxAllowed(base, true, true, true, true)).toBe(true);
     expect(digitalCodecTxAllowed({ ...base, encoderReady: false }, true, true, true, true)).toBe(false);
     expect(digitalCodecTxAllowed({ ...base, mode: 'FT8' }, true, true, false)).toBe(false);
     expect(digitalCodecTxAllowed(undefined, true, true, true)).toBe(false);
   });
 
-  it('accepts Q65 UTC TX phase only for Q65 and requires WSPR authorization', () => {
+  it('accepts Q65 UTC TX phase and manual WSPR transmission without a separate authorization', () => {
     const q65={mode:'Q65',operatorId:'operator1',text:'CQ K1ABC FN42',
       audioHz:1500,q65Submode:'Q65-60B',q65TxFirst:false};
     expect(MfskPhysicalTxRequestSchema.parse(q65)).toMatchObject(q65);
     expect(() => MfskPhysicalTxRequestSchema.parse({...q65,mode:'FT8'})).toThrow();
     expect(() => MfskPhysicalTxRequestSchema.parse({...q65,mode:'MSK144'})).toThrow();
     const wspr={mode:'WSPR',operatorId:'operator1',text:'K1ABC FN42 37',audioHz:1500};
-    expect(() => MfskPhysicalTxRequestSchema.parse(wspr)).toThrow();
+    expect(MfskPhysicalTxRequestSchema.parse(wspr)).toMatchObject(wspr);
     expect(MfskPhysicalTxRequestSchema.parse({...wspr,beaconAuthorized:true})).toMatchObject(wspr);
   });
 

@@ -15,7 +15,7 @@ function context(mode='Q65'){
   const deps: MfskTxAdmission={
     mode:()=>mode,isRunning:()=>true,operatorExists:id=>id==='op1',
     receiver:()=>({mode:mode as 'Q65',q65Submode:'Q65-60B',ready:true}),
-    now:()=>now,stopTuneTone:async()=>{},rfAllowed:()=>true,
+    now:()=>now,stopTuneTone:async()=>{},
     sleep:async ms=>{now+=ms;},encode:encoded,transmitAudio:sent,
   };
   return {deps,encoded,sent,now:()=>now};
@@ -30,13 +30,6 @@ describe('native six-mode transmit protocol and physical lease boundaries',()=>{
     expect(isMfskPhysicalTxConfirmed({...outcome,result:{...outcome.result,success:true,physicalConfirmed:true}})).toBe(true);
   });
 
-  it('requires explicit product RF admission even if a native addon works',async()=>{
-    const c=context();
-    const service=new MfskNativeTxService({...c.deps,rfAllowed:()=>false});
-    await expect(service.send({mode:'Q65',text:'CQ K1ABC FN42',operatorId:'op1',audioHz:1500}))
-      .rejects.toThrow(/authorization/);
-    expect(c.sent).not.toHaveBeenCalled();
-  });
   it('sends Q65 only inside a future 60-second UTC frame via guarded coordinator',async()=>{
     const c=context();
     const service=new MfskNativeTxService(c.deps);
@@ -74,11 +67,9 @@ describe('native six-mode transmit protocol and physical lease boundaries',()=>{
       .rejects.toThrow(/fixed 1500 Hz/);
     expect(c.sent).not.toHaveBeenCalled();
   });
-  it('prevents unconsented WSPR beacons and wrong active-mode TX',async()=>{
+  it('requires the active operating mode, not a separate manual RF authorization',async()=>{
     const c=context();
     const service=new MfskNativeTxService(c.deps);
-    await expect(service.send({mode:'WSPR',text:'K1ABC FN42 37',operatorId:'op1',audioHz:1500}))
-      .rejects.toThrow(/authorization/);
     await expect(service.send({mode:'JTTY',text:'CQ K1ABC',operatorId:'op1',audioHz:1500}))
       .rejects.toThrow(/active running/);
     expect(c.sent).not.toHaveBeenCalled();

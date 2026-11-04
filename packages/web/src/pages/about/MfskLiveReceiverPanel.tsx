@@ -5,6 +5,8 @@ import {
   type NativeDigitalSelection,
 } from '../../components/radio/digital/nativeDigitalSelection';
 import { Button, Card, CardBody, Input } from '@heroui/react';
+import { formatDecodedAfHz, formatDecodedSnr } from '../../components/radio/digital/decodeValueFormat';
+import { DECODE_PREFERENCES_CHANGED_EVENT, loadNativeDecodePreferences, type NativeDigitalMode } from '../../components/radio/digital/digitalDecodePreferences';
 import { useTranslation } from 'react-i18next';
 import { useCan } from '../../store/authStore';
 import { api } from '@tx5dr/core';
@@ -12,8 +14,7 @@ import { useCurrentOperatorId, useRadioModeState, useOperators } from '../../sto
 import { Q65SubmodeSchema, type DigitalCodecMode, type DigitalRxEvent,
   type MfskLiveRxStatus, type Q65Submode, type WsprDecodedSpot } from '@tx5dr/contracts';
 
-/** First-class operator workbench for post-demodulated AF and guarded
- * native-mode manual TX; physical PTT is always owned by the server lease. */
+/** Six-mode digital operator workbench: user-triggered UTC scheduling and normal PTT playback. */
 export function MfskLiveReceiverPanel({
   initialMode, surface = 'receiver',
 }: {initialMode?:DigitalCodecMode;surface?:'receiver'|'operator'} = {}) {
@@ -30,16 +31,16 @@ export function MfskLiveReceiverPanel({
     ['Q65','WSPR','MSK144','JTTY'].includes(selected)
       ? selected as DigitalCodecMode : 'Q65'
   );
-  const [submode,setSubmode] = useState<Q65Submode>('Q65-60B');
+  const [submode,setSubmode] = useState<Q65Submode>(() => loadNativeDecodePreferences(mode as NativeDigitalMode).q65Submode);
   const [submodeDirty,setSubmodeDirty] = useState(false);
   const [apApplying,setApApplying] = useState(false);
   const [apNotice,setApNotice] = useState<string|null>(null);
-  const [frequency,setFrequency] = useState('1500');
-  const [tolerance,setTolerance] = useState('200');
-  const [decodeDepth,setDecodeDepth] = useState<1|2|3>(3);
+  const [frequency,setFrequency] = useState(() => String(loadNativeDecodePreferences(mode as NativeDigitalMode).frequencyHz));
+  const [tolerance,setTolerance] = useState(() => String(loadNativeDecodePreferences(mode as NativeDigitalMode).toleranceHz));
+  const [decodeDepth,setDecodeDepth] = useState<1|2|3>(() => loadNativeDecodePreferences(mode as NativeDigitalMode).depth);
   const [txFrequency,setTxFrequency] = useState('1500');
-  const [averaging,setAveraging] = useState(false);
-  const [emeDelay,setEmeDelay] = useState(false);
+  const [averaging,setAveraging] = useState(() => loadNativeDecodePreferences(mode as NativeDigitalMode).averaging);
+  const [emeDelay,setEmeDelay] = useState(() => loadNativeDecodePreferences(mode as NativeDigitalMode).emeDelay);
   const [apMyCall,setApMyCall] = useState('');
   const [apMyGrid,setApMyGrid] = useState('');
   const [apDxCall,setApDxCall] = useState('');
@@ -63,16 +64,13 @@ export function MfskLiveReceiverPanel({
   const [busy,setBusy] = useState(false);
   const [error,setError] = useState<string | null>(null);
   const [txStatus,setTxStatus] = useState<{rfEnabled:boolean;busy:boolean;remainingMs:number}>({rfEnabled:false,busy:false,remainingMs:0});
-  const [rfAcknowledged,setRfAcknowledged] = useState(false);
-  const [armPending,setArmPending] = useState(false);
-  const [armNotice,setArmNotice] = useState<string|null>(null);
   // Never prefill a fictitious TX callsign into a live transmitter.
   const [text,setText] = useState('');
-  const [beaconAuthorized,setBeaconAuthorized] = useState(false);
   const [mskPeriod,setMskPeriod] = useState<5|10|15|30>(5);
   const [mskTxFirst,setMskTxFirst] = useState(true);
   const [q65TxFirst,setQ65TxFirst] = useState(true);
   const [txPending,setTxPending] = useState(false);
+  const [txStopPending,setTxStopPending] = useState(false);
   const [txNotice,setTxNotice] = useState<string | null>(null);
   const [dxCall,setDxCall] = useState('');
   const [dxGrid,setDxGrid] = useState('');
@@ -82,7 +80,7 @@ export function MfskLiveReceiverPanel({
   const [contactStartMs,setContactStartMs] = useState(() => Date.now());
   const [qsoBusy,setQsoBusy] = useState(false);
   const [qsoNotice,setQsoNotice] = useState<string|null>(null);
-  // Presentation-only disclosures: receive/transmit safety and DSP state remain server-owned.
+  // AP call hypotheses stay in the receiver pane; sensitivity is managed centrally.
   const [rxMoreOpen,setRxMoreOpen] = useState(false);
   const [txMoreOpen,setTxMoreOpen] = useState(false);
   const [logOpen,setLogOpen] = useState(false);
@@ -109,6 +107,24 @@ export function MfskLiveReceiverPanel({
     const timer=setInterval(poll,1500);
     return ()=>{active=false;clearInterval(timer);};
   },[currentOperatorId]);
+
+  useEffect(() => {
+    if (surface !== 'receiver') return;
+    const apply = (event: Event) => {
+      const changed = (event as CustomEvent<{mode:NativeDigitalMode}>).detail;
+      if (changed?.mode !== mode) return;
+      const prefs = loadNativeDecodePreferences(mode as NativeDigitalMode);
+      setFrequency(String(prefs.frequencyHz));
+      setTolerance(String(prefs.toleranceHz));
+      setDecodeDepth(prefs.depth);
+      setSubmode(prefs.q65Submode);
+      setSubmodeDirty(true);
+      setAveraging(prefs.averaging);
+      setEmeDelay(prefs.emeDelay);
+    };
+    window.addEventListener(DECODE_PREFERENCES_CHANGED_EVENT, apply);
+    return () => window.removeEventListener(DECODE_PREFERENCES_CHANGED_EVENT, apply);
+  },[surface,mode]);
 
   // Keep the Q65 selector aligned with the receiver after a page reload,
   // unless the operator is intentionally editing the next submode.
@@ -209,6 +225,15 @@ export function MfskLiveReceiverPanel({
             }:{}),
           }:{}),
           frequencyHz:hz,toleranceHz:tol,depth:decodeDepth,
+          ...(mode==='MSK144'?(() => {
+            const prefs=loadNativeDecodePreferences('MSK144');
+            if(!prefs.mskMyCall || !prefs.mskDxCall)return {};
+            return {msk144Rx:{
+              myCall:prefs.mskMyCall,dxCall:prefs.mskDxCall,
+              shorthand:prefs.mskShorthand && tol<=250,
+              adaptiveEqualizer:prefs.mskAdaptiveEqualizer,
+            }};
+          })():{}),
         })
       : api.stopMfskLiveRx();
     void action.then(value=>{
@@ -254,20 +279,8 @@ export function MfskLiveReceiverPanel({
       .finally(()=>setQsoBusy(false));
   };
 
-  const changeArm=(arm:boolean)=>{
-    if(!mayArmRf || armPending || (arm && (!rfAcknowledged||!currentOperatorId)))return;
-    setArmPending(true);setArmNotice(null);
-    void (arm?api.armMfskNativeTx(currentOperatorId!):api.disarmMfskNativeTx())
-      .then(result=>{
-        setTxStatus(current=>({...current,rfEnabled:result.rfEnabled,remainingMs:result.remainingMs}));
-        setRfAcknowledged(false);
-      })
-      .catch(()=>setArmNotice(t('codec.armFailed')))
-      .finally(()=>setArmPending(false));
-  };
-
   const transmit=()=>{
-    if(!mayArmRf || !currentOperatorId || !txStatus.rfEnabled || !receiverMatches || txPending) return;
+    if(!mayArmRf || !currentOperatorId || !receiverMatches || txStatus.busy || txPending || txStopPending) return;
     const hz=Number(mode==='MSK144'?1500:txFrequency);
     if(!Number.isFinite(hz)||hz<100||hz>5500) {
       setTxNotice(t('codec.liveInvalidFrequency')); return;
@@ -278,11 +291,19 @@ export function MfskLiveReceiverPanel({
       mode,operatorId:currentOperatorId,text:text.trim(),
       audioHz:hz,
       ...(mode==='Q65'?{q65Submode:activeSubmode,q65TxFirst}:{}),
-      ...(mode==='WSPR'?{beaconAuthorized}:{}),
       ...(mode==='MSK144'?{mskPeriodSeconds:mskPeriod,mskTxFirst}:{}),
     }).then(()=>setTxNotice(t('codec.txComplete')))
       .catch(()=>setTxNotice(t('codec.txFailed')))
       .finally(()=>setTxPending(false));
+  };
+
+  const stopTransmission=()=>{
+    if(txStopPending || (!txPending && !txStatus.busy))return;
+    setTxStopPending(true);
+    void api.disarmMfskNativeTx()
+      .then(()=>setTxNotice(t('codec.txStopped')))
+      .catch(()=>setTxNotice(t('codec.txStopFailed')))
+      .finally(()=>setTxStopPending(false));
   };
 
   return <Card shadow="none" className="h-full min-h-0 overflow-hidden bg-transparent">
@@ -317,27 +338,9 @@ export function MfskLiveReceiverPanel({
       </div>
       {rxMoreOpen && <section className="space-y-3 rounded-xl border border-default-200 bg-content1 p-3">
         <p className="text-xs text-default-500">{t('codec.liveSubtitle')}</p>
-        <div className="flex flex-wrap items-center gap-3">
-          {mode!=='JTTY' && <Input size="sm" className="max-w-[140px]" type="number"
-            label={t('codec.rxTolerance')} value={tolerance} onValueChange={setTolerance}
-            isDisabled={busy}/>}
-          {mode!=='JTTY' && <label htmlFor="mfsk-depth" className="text-xs">
-            {t('codec.rxDepth')}
-            <select id="mfsk-depth" value={decodeDepth} disabled={busy}
-              onChange={e=>setDecodeDepth(Number(e.target.value) as 1|2|3)}
-              className="ml-2 rounded-md border border-default-300 bg-content1 px-2 py-2 text-sm">
-              <option value={1}>{t('codec.rxFast')}</option>
-              <option value={2}>{t('codec.rxNormal')}</option>
-              <option value={3}>{t('codec.rxDeep')}</option>
-            </select>
-          </label>}
+        <div className="text-xs text-default-500">
+          {t('codec.afFrequency')}: {frequency} Hz · {t('codec.rxTolerance')}: {tolerance} Hz · {t('codec.rxDepth')}: {decodeDepth}
         </div>
-        {mode==='Q65' && <div className="flex flex-wrap gap-5 text-sm">
-          <label><input type="checkbox" checked={averaging}
-            disabled={busy} onChange={e=>setAveraging(e.target.checked)}/> {t('codec.averaging')}</label>
-          <label><input type="checkbox" checked={emeDelay}
-            disabled={busy} onChange={e=>setEmeDelay(e.target.checked)}/> {t('codec.emeDelay')}</label>
-        </div>}
         {mode==='Q65' && <section className="rounded-md border border-default-200 p-2 space-y-2">
           <p className="text-xs font-medium">{t('codec.apTitle')}</p>
           <div className="grid grid-cols-2 gap-2">
@@ -378,9 +381,10 @@ export function MfskLiveReceiverPanel({
       <div className="min-h-[12rem] flex-1 overflow-y-auto rounded-xl border border-default-200 bg-content1">
         {displayEvents.length===0 ?
           <p className="p-3 text-sm text-default-500">{t('codec.liveNoEvents')}</p>
-          : <table className="w-full text-left text-xs">
-            <thead><tr className="bg-default-100"><th className="px-2 py-1">UTC</th>
-              <th className="px-2 py-1">Hz</th><th className="px-2 py-1">SNR</th>
+          : <table className="w-full table-fixed text-left text-xs">
+            <colgroup><col className="w-20"/><col className="w-14"/><col className="w-12"/><col /></colgroup>
+            <thead><tr className="bg-default-100"><th className="px-2 py-1 whitespace-nowrap">UTC</th>
+              <th className="px-2 py-1 text-right">Hz</th><th className="px-2 py-1 text-right">SNR</th>
               <th className="px-2 py-1">{t('codec.decoded')}</th></tr></thead>
             <tbody>{displayEvents.map((e,i)=><tr key={`${e.timestampMs}-${i}`}
               className="border-t border-default-100 cursor-pointer hover:bg-default-100"
@@ -388,9 +392,9 @@ export function MfskLiveReceiverPanel({
               onDoubleClick={()=>selectReceived(e)}
               onKeyDown={event=>{if(event.key==='Enter')selectReceived(e);}}>
               <td className="px-2 py-1 whitespace-nowrap">{new Date(e.timestampMs).toISOString().slice(11,19)}</td>
-              <td className="px-2 py-1">{e.frequencyHz.toFixed(1)}</td>
-              <td className="px-2 py-1">{e.kind==='message-update'?'—':e.snrDb.toFixed(1)}</td>
-              <td className="px-2 py-1 font-mono">{e.text}</td>
+              <td className="px-2 py-1 text-right font-mono tabular-nums">{formatDecodedAfHz(e.frequencyHz)}</td>
+              <td className="px-2 py-1 text-right font-mono tabular-nums">{e.kind==='message-update'?'—':formatDecodedSnr(e.snrDb)}</td>
+              <td className="px-2 py-1 min-w-0 break-words font-mono">{e.text}</td>
             </tr>)}</tbody></table>}
       </div>
       {status?.mode==='WSPR' && <section className="rounded-md border border-default-200 p-3">
@@ -398,7 +402,7 @@ export function MfskLiveReceiverPanel({
         <p className="text-xs text-default-500 mb-2">{t('codec.wsprLocalOnly')}</p>
         {wsprSpots.length===0?<p className="text-xs text-default-500">{t('codec.wsprNoSpots')}</p>:
           <div className="max-h-56 overflow-auto">
-            <table className="w-full text-left text-xs">
+            <table className="w-full table-fixed text-left text-xs">
               <thead><tr>
                 <th className="p-1">UTC</th><th className="p-1">{t('codec.dxCall')}</th>
                 <th className="p-1">Grid</th><th className="p-1">dBm</th>
@@ -408,8 +412,8 @@ export function MfskLiveReceiverPanel({
                 <td className="p-1">{new Date(spot.receivedAtMs).toISOString().slice(11,19)}</td>
                 <td className="p-1 font-mono">{spot.callsign}</td>
                 <td className="p-1">{spot.grid}</td><td className="p-1">{spot.powerDbm}</td>
-                <td className="p-1">{spot.snrDb.toFixed(1)}</td>
-                <td className="p-1">{spot.audioHz.toFixed(1)}</td>
+                <td className="p-1 text-right font-mono tabular-nums">{formatDecodedSnr(spot.snrDb)}</td>
+                <td className="p-1 text-right font-mono tabular-nums">{formatDecodedAfHz(spot.audioHz)}</td>
               </tr>)}</tbody>
             </table>
           </div>}
@@ -433,24 +437,6 @@ export function MfskLiveReceiverPanel({
       </div>
       <div className="rounded-xl border border-default-200 bg-content1 p-3 space-y-3">
         <p className="text-sm font-medium">{t('codec.txTitle')} · {mode}{mode==='Q65'? ` (${activeSubmode})`:''}</p>
-        {mayArmRf && <div className="rounded-md border border-default-200 p-2 space-y-2">
-          <label className="flex gap-2 text-xs items-start">
-            <input type="checkbox" checked={rfAcknowledged} disabled={armPending}
-              onChange={e=>setRfAcknowledged(e.target.checked)}/>
-            {t('codec.armAcknowledgement')}
-          </label>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" variant="flat" color="warning" isLoading={armPending}
-              isDisabled={armPending||txStatus.busy||!rfAcknowledged||!receiverMatches||!currentOperatorId}
-              onPress={()=>changeArm(true)}>{t('codec.armRf')}</Button>
-            <Button size="sm" variant="flat" isDisabled={armPending||(!txStatus.rfEnabled&&!txStatus.busy&&!txPending)}
-              onPress={()=>changeArm(false)}>{t('codec.disarmRf')}</Button>
-            <span className="text-xs text-default-500">
-              {txStatus.rfEnabled?t('codec.armRemaining',{seconds:Math.ceil(txStatus.remainingMs/1000)}):t('codec.rfLocked')}
-            </span>
-          </div>
-          {armNotice && <p role="alert" className="text-xs text-danger">{armNotice}</p>}
-        </div>}
         {mode==='MSK144' && <p className="text-xs text-default-500">{t('codec.mskFixedTxAf')}</p>}
         {mode!=='WSPR' && <Input size="sm" label={t('codec.dxCall')}
           value={dxCall} onValueChange={setDxCall} maxLength={24}/>}
@@ -492,19 +478,14 @@ export function MfskLiveReceiverPanel({
           {t('codec.mskTxFirst')}
         </label>}
         </div>}
-        {mode==='WSPR' && <label className="text-xs flex gap-2 items-center">
-          <input type="checkbox" checked={beaconAuthorized} onChange={e=>setBeaconAuthorized(e.target.checked)}
-            disabled={txPending}/>
-          {t('codec.beaconAuthorization')}
-        </label>}
         <div className="flex gap-2 items-center flex-wrap">
           <Button size="sm" color="warning" isLoading={txPending}
-            isDisabled={!mayArmRf||!receiverMatches||!txStatus.rfEnabled||txStatus.busy||!currentOperatorId||
-              !text.trim()||txPending||(mode==='WSPR'&&!beaconAuthorized)}
+            isDisabled={!mayArmRf||!receiverMatches||txStatus.busy||!currentOperatorId||
+              !text.trim()||txPending||txStopPending}
             onPress={transmit}>{t('codec.manualTx')}</Button>
-          <span className="text-xs text-default-500">
-            {txStatus.rfEnabled?t('codec.rfAvailable'):t('codec.rfLocked')}
-          </span>
+          <Button size="sm" variant="flat" isLoading={txStopPending}
+            isDisabled={(!txPending&&!txStatus.busy)||txStopPending}
+            onPress={stopTransmission}>{t('codec.stopTx')}</Button>
         </div>
         {txNotice && <p className="text-xs" role="status">{txNotice}</p>}
       </div>
@@ -539,7 +520,6 @@ export function MfskLiveReceiverPanel({
         </>}
         {qsoNotice && <p className="text-xs" role="status">{qsoNotice}</p>}
       </section>}
-      <p className="text-xs text-default-500">{t('codec.liveNoTx')}</p>
       </>}
     </CardBody>
   </Card>;

@@ -20,6 +20,7 @@ import { calculateGridDistance, extractBaseCallsign, FT8MessageParser, type Grid
 import { FT8MessageType, type StrategyMessagePresentationProjection } from '@tx5dr/contracts';
 import { resolvePluginLabel } from '../../../utils/pluginLocales';
 import { resolveFrameCallsign } from './frameCallsign';
+import { formatDecodedAfHz, formatDecodedDt, formatDecodedSnr } from './decodeValueFormat';
 import {
   resolveFrameRowPresentation,
   resolveStrategyPresentationClass,
@@ -497,15 +498,15 @@ const MessageRow = React.memo<MessageRowProps>(({
             <Chip size="sm" color="danger" variant="flat" className="h-4">TX</Chip>
           </div>
         ) : (
-          <span className="text-xs font-mono">{message.db}</span>
+          <span className="text-xs font-mono tabular-nums whitespace-nowrap">{formatDecodedSnr(message.db)}</span>
         )}
       </div>
       {!isNarrow && (
         <div className="text-xs text-right font-mono">
-          {message.dt === '-' ? '-' : message.dt.toFixed(1)}
+          {formatDecodedDt(message.dt)}
         </div>
       )}
-      <div className="text-xs text-center font-mono">{message.freq}</div>
+      <div className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-center font-mono tabular-nums">{formatDecodedAfHz(message.freq)}</div>
       <div className="min-w-0 text-xs font-mono">
         <span className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5">
           {isTarget && (
@@ -771,8 +772,8 @@ export const FramesTable: React.FC<FramesTableProps> = React.memo(({ groups, cla
 
   // ─── 列宽 ──────────────────────────────
   const gridCols = isNarrow
-    ? 'grid-cols-[42px_36px_52px_minmax(0,1fr)_auto]'
-    : 'grid-cols-[56px_40px_40px_64px_minmax(0,1fr)_auto]';
+    ? 'grid-cols-[42px_40px_48px_minmax(0,1fr)_auto]'
+    : 'grid-cols-[56px_44px_44px_58px_minmax(0,1fr)_auto]';
   const showScrollToBottomButton = shouldShowScrollToBottomButton(sortedGroups, wasAtBottom);
 
   if (groups.length === 0) {

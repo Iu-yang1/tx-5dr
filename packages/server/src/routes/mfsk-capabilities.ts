@@ -146,8 +146,8 @@ export async function mfskCapabilityRoutes(fastify:FastifyInstance):Promise<void
       }));
     });
 
-  // Dedicated authenticated TX path. The host's physical lease owns PTT;
-  // Rust encoding runs in a separate child. Explicit, short-lived arm only.
+  // Dedicated, user-triggered TX. Existing audio/PTT coordinator owns the
+  // normal key-on, waveform playback, and key-off sequence.
   fastify.get('/tx/status',{preHandler:[requireAbility('read','all')]},
     async(request,reply)=>{
       const operatorId=(request.query as {operatorId?:string})?.operatorId??'';
@@ -156,37 +156,21 @@ export async function mfskCapabilityRoutes(fastify:FastifyInstance):Promise<void
         (request.ability.can('manage','all') ||
          request.authUser.role==='admin' ||
          request.authUser.operatorIds.includes(operatorId)));
-      const status=ownsOperator
-        ?engine.getMfskRfArmGate().status(operatorId,request.authUser!.tokenId)
-        :{rfEnabled:false,remainingMs:0};
+      const status={rfEnabled:ownsOperator,remainingMs:0};
       return reply.send({...status,busy:engine.getMfskNativeTxService().isBusy()});
     });
+  // Compatibility endpoints for older clients. Transmit no longer requires
+  // a pre-arm acknowledgement or expiring RF authorization.
   fastify.post('/tx/arm',{
     preHandler:[
       requireAbility('execute','RadioControl'),
       requireOperatorAbility(req=>(req.body as {operatorId?:string})?.operatorId??''),
     ],
-  },async(request,reply)=>{
-      const payload=request.body as {acknowledged?:unknown;operatorId?:unknown}|null;
-      if(payload?.acknowledged!==true || typeof payload?.operatorId!=='string'){
-        return reply.code(400).send({success:false,error:'Explicit RF safety acknowledgement and operator required'});
-      }
-      const engine=DigitalRadioEngine.getInstance();
-      try{
-        return reply.send({success:true,...engine.armMfskNativeRfTx(
-          true,payload.operatorId,request.authUser!.tokenId,
-        )});
-      }catch(e){
-        return reply.code(409).send({
-          success:false,error:e instanceof Error?e.message:'RF arm admission rejected',
-        });
-      }
-    });
+  },async(_request,reply)=>reply.send({success:true,rfEnabled:true,remainingMs:0}));
   fastify.post('/tx/disarm',{preHandler:[requireAbility('execute','RadioControl')]},
     async(_request,reply)=>{
-      const engine=DigitalRadioEngine.getInstance();
-      await engine.disarmMfskNativeRfTx();
-      return reply.send({success:true,...engine.getMfskRfArmGate().status()});
+      await DigitalRadioEngine.getInstance().disarmMfskNativeRfTx();
+      return reply.send({success:true,rfEnabled:false,remainingMs:0});
     });
   fastify.post('/tx/send',{
     preHandler:[
@@ -197,12 +181,6 @@ export async function mfskCapabilityRoutes(fastify:FastifyInstance):Promise<void
     const payload=MfskPhysicalTxRequestSchema.parse(request.body);
     const engine=DigitalRadioEngine.getInstance();
     const service=engine.getMfskNativeTxService();
-    const auth=engine.getMfskRfArmGate().status(payload.operatorId,request.authUser!.tokenId);
-    if(!auth.rfEnabled || !service.isRfEnabled(payload.operatorId)){
-      return reply.code(423).send({
-        success:false,error:'Native RF requires explicit time-limited authorization',
-      });
-    }
     const result=await service.send(payload);
     if(!isMfskPhysicalTxConfirmed(result)){
       // A denied/rolled-back PTT lease is NOT a completed transmission.

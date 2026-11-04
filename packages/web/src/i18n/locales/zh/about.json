@@ -88,7 +88,7 @@
     "rfLocked": "射频发送尚未开放；必须完成 P9 安全验收",
     "beaconAuthorization": "我明确授权发送 WSPR 信标（120 秒固定周期）",
     "txComplete": "已完成一次发射流程",
-    "txFailed": "发射未成功：请检查模式、操作员权限、射频门禁与服务端诊断",
+    "txFailed": "发射未成功：请检查模式、操作员权限与电台连接",
     "logTitle": "QSO 日志（人工确认）",
     "moreSettings": "更多设置",
     "lessSettings": "收起设置",
@@ -152,6 +152,9 @@
     "rxFast": "快速",
     "rxNormal": "普通",
     "rxDeep": "深度",
-    "rxInvalidTolerance": "频率容差无效（1–5000 Hz）"
+    "rxInvalidTolerance": "频率容差无效（1–5000 Hz）",
+    "stopTx": "停止发射",
+    "txStopped": "已请求停止发射",
+    "txStopFailed": "停止发射失败"
   }
 }

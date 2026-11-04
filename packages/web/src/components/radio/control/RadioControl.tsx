@@ -2593,6 +2593,41 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
                 </Popover>
               </ToolbarIconTooltip>
             )}
+            {/* 六种数据模式统一快捷入口，直接复用当前模式切换和系统设置。 */}
+            {canSwitchMode && connection.state.isConnected && (
+              <ToolbarIconTooltip label={t('control.digitalModes', '数据模式与接收设置')}>
+                <Popover placement="bottom-end">
+                  <PopoverTrigger>
+                    <Button isIconOnly variant="light" size="sm"
+                      className="min-w-unit-6 min-w-6 w-6 h-6 text-default-500"
+                      aria-label={t('control.digitalModes', '数据模式与接收设置')}>
+                      <FontAwesomeIcon icon={faSlidersH} className="text-xs"/>
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-56 max-w-[calc(100vw-2rem)] items-stretch p-2">
+                    <div className="text-xs font-semibold text-default-500 px-2 py-1">
+                      {t('control.digitalModes', '数据模式')}
+                    </div>
+                    {(['FT8','FT4','Q65','WSPR','MSK144','JTTY'] as const).map(name => {
+                      const available = modeOptions.some(item => item.name === name);
+                      return <Button key={name} size="sm" variant="light"
+                        className="justify-start text-xs"
+                        isDisabled={!available || isLoadingModes}
+                        color={radioMode.currentMode?.name === name ? 'primary' : 'default'}
+                        onPress={() => void handleModeChange(new Set([name]))}>
+                        {name}
+                      </Button>;
+                    })}
+                    <div className="my-1 border-t border-divider"/>
+                    <Button size="sm" variant="flat" className="justify-start text-xs"
+                      onPress={() => window.dispatchEvent(new CustomEvent('openSettingsModal', { detail: { tab: 'system' } }))}>
+                      <FontAwesomeIcon icon={faCog} className="mr-1 text-xs"/>
+                      {t('control.decodeParameters', '解码窗口与接收参数')}
+                    </Button>
+                  </PopoverContent>
+                </Popover>
+              </ToolbarIconTooltip>
+            )}
             {/* 虚拟频差快捷开关：仅在 FT8/FT4 数字模式下露出 */}
             {showFakeFrequencyEntry && (
               <ToolbarIconTooltip label={fakeFrequencyState.tooltipLabel}>
