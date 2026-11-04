@@ -11,7 +11,7 @@ import { AuthLoginForm } from '../components/auth/AuthLoginForm';
 import { RadioControl } from '../components/radio/control/RadioControl';
 import { RadioOperatorList } from '../components/radio/operators/RadioOperatorList';
 import { MyRelatedFramesTable } from '../components/radio/digital/MyRelatedFramesTable';
-import { MfskLiveReceiverPanel } from '../pages/about/MfskLiveReceiverPanel';
+import { JttyOperatorTerminal } from '../components/radio/digital/JttyOperatorTerminal';
 import { HorizontalPaneDivider } from '../components/common/HorizontalPaneDivider';
 import { ThemeToggle } from '../components/common/ThemeToggle';
 import { ClientNotificationButton } from '../components/common/ClientNotificationButton';
@@ -46,7 +46,7 @@ export const RightLayout: React.FC = () => {
   const { operators } = useOperators();
   const { currentOperatorId } = useCurrentOperatorId();
   const { currentMode } = useRadioModeState();
-  const nativeDigitalOperating = ['Q65','WSPR','MSK144','JTTY'].includes(currentMode?.name??'');
+  const isJtty = currentMode?.name === 'JTTY';
   const { state: authState, logout } = useAuth();
   const [selectedMode, setSelectedMode] = useState<string>('auto5');
   const [loginPopoverOpen, setLoginPopoverOpen] = useState(false);
@@ -280,7 +280,7 @@ export const RightLayout: React.FC = () => {
         <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties & { WebkitAppRegion: string }}>
           <div className="flex items-center gap-1">
             {/* 通联机制（有操作员时才显示） */}
-            {!nativeDigitalOperating && operators.length > 0 && automationOperatorId && (
+            {!isJtty && operators.length > 0 && automationOperatorId && (
               <Popover placement="bottom-start">
                 <PopoverTrigger>
                   <Button
@@ -384,12 +384,12 @@ export const RightLayout: React.FC = () => {
         {/* Reserve space for operator shadows and selection outlines in the shared gutter, keeping card edges aligned. */}
         <div ref={splitWorkspaceRef} className="-mx-2 md:-mx-4 flex-1 min-h-0 overflow-hidden">
           <div className="flex h-full min-h-0 flex-col overflow-hidden">
-            {nativeDigitalOperating ? (
+            {isJtty ? (
               <>
-                {/* Native protocols use the EXISTING right-side operator pane.
-                    No empty FT8 automation area or dangling split divider. */}
+                {/* JTTY has a dedicated continuous terminal. The three
+                    weak-signal protocols retain the exact standard QSO layout. */}
                 <div className="relative z-0 flex-1 min-h-0 overflow-hidden px-2 md:px-4">
-                  <MfskLiveReceiverPanel surface="operator" key={currentMode?.name} />
+                  <JttyOperatorTerminal />
                 </div>
                 <div className="relative z-10 flex-shrink-0 px-2 md:px-4">
                   <RadioControl onOpenRadioSettings={handleOpenRadioSettings} />
