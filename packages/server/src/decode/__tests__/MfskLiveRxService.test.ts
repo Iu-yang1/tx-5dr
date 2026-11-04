@@ -40,6 +40,81 @@ describe('live receiver protects the real AF ingestion and native session bounda
     expect(s.live.status().running).toBe(false);
   });
 
+  it('rejects invalid RX updates without disrupting the existing decoder',()=>{
+    const s=setup();
+    const active=s.live.start({mode:'JTTY',frequencyHz:1500});
+    const worker=s.workers[0];
+    worker.emit('message',{type:'started',generation:active.generation});
+    expect(()=>s.live.start({mode:'Q65',q65Submode:'Q65-60B',frequencyHz:90000}))
+      .toThrow(/AF centre frequency/);
+    expect(s.live.status()).toMatchObject({
+      running:true,ready:true,generation:active.generation,mode:'JTTY',
+    });
+    expect(worker.killed).toBe(false);
+    expect(s.workers).toHaveLength(1);
+    s.live.stop();
+  });
+
+  it('rejects superseded readiness waits without stopping the subsequent session',async()=>{
+    vi.useFakeTimers();
+    try{
+      const s=setup();
+      const oldReady=s.live.startReady({mode:'Q65',q65Submode:'Q65-60B'},1000);
+      const replacement=s.live.start({mode:'JTTY'});
+      await expect(oldReady).rejects.toThrow(/superseded/);
+      s.workers[1].emit('message',{type:'started',generation:replacement.generation});
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(s.live.status()).toMatchObject({
+        running:true,ready:true,generation:replacement.generation,mode:'JTTY',
+      });
+      s.live.stop();
+    }finally{
+      vi.useRealTimers();
+    }
+  });
+
+  it('bounds pre-resampling ingress before IPC backpressure can accumulate',async()=>{
+    const s=setup();
+    const active=s.live.start({mode:'MSK144'});
+    s.workers[0].emit('message',{type:'started',generation:active.generation});
+    const audio=s.audio as unknown as EventEmitter;
+    for(let i=0;i<9;i++)audio.emit('audioData',new Float32Array(480),12000);
+    expect(s.live.status()).toMatchObject({
+      running:false,workerFaults:1,droppedAudioChunks:1,
+    });
+    expect(s.live.status().lastError).toMatch(/backpressure/);
+    expect(s.workers[0].killed).toBe(true);
+    await new Promise(resolve=>setImmediate(resolve));
+    expect(s.workers[0].messages.filter(m=>(m as {cmd?:string}).cmd==='audio'))
+      .toHaveLength(0);
+  });
+
+  it('drops bounded queued slotted PCM without destroying the receiver',async()=>{
+    const s=setup();
+    const active=s.live.start({mode:'FT8'});
+    s.workers[0].emit('message',{type:'started',generation:active.generation});
+    const audio=s.audio as unknown as EventEmitter;
+    for(let i=0;i<9;i++)audio.emit('audioData',new Float32Array(480),12000);
+    expect(s.live.status()).toMatchObject({
+      running:true,workerFaults:0,droppedAudioChunks:1,
+    });
+    await new Promise(resolve=>setImmediate(resolve));
+    s.live.stop();
+  });
+
+  it('fails closed after a streaming IPC send throws without crashing the process',async()=>{
+    const s=setup();
+    const active=s.live.start({mode:'JTTY'});
+    const worker=s.workers[0];
+    worker.emit('message',{type:'started',generation:active.generation});
+    vi.spyOn(worker,'send').mockImplementationOnce(()=>{throw new Error('closed channel');});
+    (s.audio as unknown as EventEmitter).emit('audioData',new Float32Array(480),12000);
+    await new Promise(resolve=>setImmediate(resolve));
+    expect(s.live.status()).toMatchObject({running:false,workerFaults:1});
+    expect(s.live.status().lastError).toMatch(/closed channel/);
+    expect(worker.killed).toBe(true);
+  });
+
   it('preserves audio-capture timestamp through deferred native streaming queue',async()=>{
     const s=setup();
     const initial=s.live.start({mode:'MSK144'});

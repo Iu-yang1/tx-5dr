@@ -52,6 +52,10 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
   private lastDecodedSlot=-1;
   private nextSample=0;
   private pending=0;
+  // IPC backpressure alone cannot bound asynchronous, pre-worker resampling.
+  // Bound both callback count and captured audio duration before copying PCM.
+  private resampleQueued=0;
+  private resamplePendingSamples=0;
   private droppedAudioChunks=0;
   private rejectedSlots=0;
   private workerFaults=0;
@@ -139,28 +143,37 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
 
   /** ResourceManager awaits native load; no misleading engine RUNNING state. */
   async startReady(config:MfskLiveConfig,timeoutMs=15_000):Promise<MfskLiveStatus>{
-    this.start(config);
+    const generation=this.start(config).generation;
     return new Promise((resolve,reject)=>{
       const cleanup=()=>{
         clearTimeout(timer);
         this.off('status',onStatus);
       };
       const onStatus=(state:MfskLiveStatus)=>{
-        if(state.ready){cleanup();resolve(state);return;}
-        if(!state.running){cleanup();reject(new Error(state.lastError??'Native receiver stopped before ready'));}
+        if(state.generation!==generation){
+          cleanup();
+          reject(new Error('Native receiver startup superseded by a newer session'));
+        }else if(state.ready && state.running){
+          cleanup();
+          resolve(state);
+        }else if(!state.running){
+          cleanup();
+          reject(new Error(state.lastError??'Native receiver stopped before ready'));
+        }
       };
       const timer=setTimeout(()=>{
         cleanup();
-        this.stop();
+        // A stale timeout must never kill a subsequent receiver generation.
+        if(this.generation===generation)this.stop();
         reject(new Error('Timed out waiting for native receiver process'));
       },timeoutMs);
       this.on('status',onStatus);
-      if(this.ready)onStatus(this.status());
+      onStatus(this.status());
     });
   }
 
   start(config:MfskLiveConfig):MfskLiveStatus {
-    this.stop();
+    // Reject invalid configuration without tearing down a healthy RX session.
     const definition=resolveDigitalSchedule(config.mode,config.q65Submode);
     const f=config.frequencyHz??1500;
     if(!Number.isFinite(f)||f<100||f>5500)throw new Error('Invalid receiver AF centre frequency');
@@ -171,6 +184,7 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
     if(config.emeDelay && config.mode!=='Q65')throw new Error('EME delay only supported for Q65');
     if(config.apContext && config.mode!=='Q65')throw new Error('AP context only supported for Q65');
 
+    this.stop();
     this.generation++;
     const generation=this.generation;
     this.config={...config};
@@ -178,7 +192,8 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
     // Do not mark it decoded before any PCM has arrived.
     this.lastDecodedSlot=definition.slotMs===null?-1:
       Math.floor(this.now()/definition.slotMs)*definition.slotMs-definition.slotMs;
-    this.nextSample=0;this.pending=0;this.history.length=0;this.received=0;
+    this.nextSample=0;this.pending=0;this.resampleQueued=0;
+    this.resamplePendingSamples=0;this.history.length=0;this.received=0;
     this.wsprSpotStore.clear();
     this.lastError=undefined;this.ready=false;this.droppedAudioChunks=0;
     this.rejectedSlots=0;this.workerFaults=0;
@@ -186,7 +201,13 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
     // application's standard 60 s FT8 ring. Keep 1 s timing slack.
     this.ring=definition.slotMs===null?null:new RingBuffer(12000,definition.slotMs+1000,this.now);
     const url=fileURLToPath(new URL('./mfsk-live-worker.js',import.meta.url));
-    const child=this.spawnWorker(url);
+    let child:ChildProcess;
+    try{
+      child=this.spawnWorker(url);
+    }catch(error){
+      this.fail(generation,`Native receiver spawn failed: ${error instanceof Error?error.message:String(error)}`);
+      throw error;
+    }
     this.child=child;
     child.on('message',(payload:unknown)=>this.onWorkerMessage(generation,payload));
     child.on('error',(e)=>this.fail(generation,e.message));
@@ -199,13 +220,18 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
         this.lastError=String(b).slice(-1000);
       }
     });
-    child.send({cmd:'start',generation,config:{
-      sessionId:`live-${generation}`,mode:config.mode,q65Submode:config.q65Submode,
-      audioFrequencyHz:f,toleranceHz:config.toleranceHz??200,
-      depth:config.depth??3,averaging:config.averaging??false,
-      emeDelay:config.emeDelay??false,
-      apContext:config.apContext,
-    }});
+    try{
+      child.send({cmd:'start',generation,config:{
+        sessionId:`live-${generation}`,mode:config.mode,q65Submode:config.q65Submode,
+        audioFrequencyHz:f,toleranceHz:config.toleranceHz??200,
+        depth:config.depth??3,averaging:config.averaging??false,
+        emeDelay:config.emeDelay??false,
+        apContext:config.apContext,
+      }});
+    }catch(error){
+      this.fail(generation,`Native receiver startup IPC failed: ${error instanceof Error?error.message:String(error)}`);
+      throw error;
+    }
     this.audio.on('audioData',this.onPcm);
     if(definition.slotMs!==null) {
       this.tick=setInterval(()=>this.pollSlot(generation,definition.slotMs!),100);
@@ -272,7 +298,8 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
     this.audio.off('audioData',this.onPcm);
     const child=this.child;
     this.child=null;this.config=null;this.ring=null;this.ready=false;
-    this.pending=0;this.serialized=Promise.resolve();
+    this.pending=0;this.resampleQueued=0;this.resamplePendingSamples=0;
+    this.serialized=Promise.resolve();
     if(child){child.removeAllListeners();child.kill();}
     this.emit('status',this.status());
     return this.status();
@@ -312,13 +339,18 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
     const generation=this.generation;
     if(!this.ready||!this.config||!this.child)return;
     if(!Number.isFinite(sampleRate)||sampleRate<8000||sampleRate>192000||!pcm.length)return;
-    if(this.pending>=8){
+    const queuedSamples=Math.ceil(pcm.length*12_000/sampleRate);
+    if(this.pending>=8 || this.resampleQueued>=8
+      || !Number.isSafeInteger(queuedSamples) || queuedSamples<=0
+      || this.resamplePendingSamples+queuedSamples>12_000){
       this.droppedAudioChunks++;
-      // Streaming modes cannot silently continue after a hole. Terminate
-      // this generation instead of concatenating unrelated audio samples.
+      // Streaming protocols cannot recover a hole in the sample sequence.
+      // Slotted modes reject incomplete UTC windows through filledRatio.
       if(!this.ring)this.fail(generation,'Live RX backpressure caused non-contiguous PCM');
       return;
     }
+    this.resampleQueued++;
+    this.resamplePendingSamples+=queuedSamples;
     // Preserve arrival order across any asynchronous resampling.
     const snapshot=new Float32Array(pcm);
     this.serialized=this.serialized.then(async()=>{
@@ -335,7 +367,14 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
       }else{
         this.sendAudio(generation,normalized,arrivalTimeMs);
       }
-    }).catch(e=>this.fail(generation,e instanceof Error?e.message:String(e)));
+    }).catch(e=>this.fail(generation,e instanceof Error?e.message:String(e)))
+      .finally(()=>{
+        // A stale completion must never decrement the next RX generation's budget.
+        if(this.generation===generation){
+          this.resampleQueued--;
+          this.resamplePendingSamples-=queuedSamples;
+        }
+      });
   }
 
   private sendAudio(generation:number,samples:Float32Array,arrivalTimeMs:number):void {
@@ -349,8 +388,12 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
     const startSample=this.nextSample;
     this.nextSample+=samples.length;
     this.pending++;
-    this.child.send({cmd:'audio',generation,startSample,
-      timestampMs:arrivalTimeMs,pcm:bytes});
+    try{
+      this.child.send({cmd:'audio',generation,startSample,
+        timestampMs:arrivalTimeMs,pcm:bytes});
+    }catch(error){
+      this.fail(generation,`Native streaming RX IPC failed: ${error instanceof Error?error.message:String(error)}`);
+    }
   }
 
   private pollSlot(generation:number,periodMs:number):void {
@@ -371,7 +414,11 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
       return;
     }
     this.pending++;
-    this.child.send({cmd:'slot',generation,utcStartMs:completed,
-      timestampMs:now,pcm:Buffer.from(reading.pcm)});
+    try{
+      this.child.send({cmd:'slot',generation,utcStartMs:completed,
+        timestampMs:now,pcm:Buffer.from(reading.pcm)});
+    }catch(error){
+      this.fail(generation,`Native slotted RX IPC failed: ${error instanceof Error?error.message:String(error)}`);
+    }
   }
 }
