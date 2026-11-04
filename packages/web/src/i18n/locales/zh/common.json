@@ -356,9 +356,18 @@
     "remoteAccessLoadFailed": "无法加载远程访问设置",
     "remoteAccessSaveFailed": "应用访问范围失败，原有设置保持不变",
     "remoteAccessPreset": {
-      "local": { "title": "纯本地使用", "desc": "仅本机访问，不开放 LAN 入口。" },
-      "lan": { "title": "局域网共享", "desc": "同一 LAN 内共享，自动启用 HTTPS。" },
-      "public": { "title": "正式开放部署", "desc": "用于域名或反向代理部署，浏览器地址必须加入允许列表。" }
+      "local": {
+        "title": "纯本地使用",
+        "desc": "仅本机访问，不开放 LAN 入口。"
+      },
+      "lan": {
+        "title": "局域网共享",
+        "desc": "同一 LAN 内共享，自动启用 HTTPS。"
+      },
+      "public": {
+        "title": "正式开放部署",
+        "desc": "用于域名或反向代理部署，浏览器地址必须加入允许列表。"
+      }
     },
     "remoteAccessPublicViewer": "允许无需登录只读查看",
     "remoteAccessLoginRequired": "默认要求登录。无登录观察者只读，不能控制电台。",
@@ -725,7 +734,29 @@
       "auto_update_semver_not_newer": "更新器未接受该包为更新版本。如有需要请手动下载。",
       "update_install_not_completed": "上一次更新似乎没有完成。你可以重试或使用手动下载。"
     },
-    "updateTargetAndroidRuntime": "Android Runtime"
+    "updateTargetAndroidRuntime": "Android Runtime",
+    "nativeDecode": {
+      "aria": "其他数据模式接收参数",
+      "title": "Q65 / WSPR / MSK144 / JTTY 接收参数",
+      "description": "按模式独立保存；点击对应模式的应用接收设置后生效。FT8/FT4 使用上方设置。",
+      "mode": "数据模式",
+      "rxCentreHz": "接收中心频率 (Hz)",
+      "toleranceHz": "搜索容差 (Hz)",
+      "depth": "解码深度",
+      "fast": "快速 (1)",
+      "normal": "正常 (2)",
+      "deep": "深度 (3)",
+      "submode": "Q65 子模式",
+      "averaging": "多周期平均",
+      "emeDelay": "EME 延迟补偿",
+      "meteor": "流星散射接收",
+      "myCall": "本台呼号",
+      "dxCall": "对方呼号",
+      "equalizer": "自适应均衡",
+      "shorthand": "MSK40 简写搜索（需双方呼号，容差不超过 250 Hz）",
+      "jttyStream": "JTTY 是连续流解码，不适用时隙解码深度和搜索窗口。",
+      "saveNotice": "设置即时保存，不会发射或修改当前接收任务。"
+    }
   },
   "freqPresets": {
     "title": "频率预设管理",

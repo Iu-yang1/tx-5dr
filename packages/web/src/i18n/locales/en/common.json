@@ -356,9 +356,18 @@
     "remoteAccessLoadFailed": "Unable to load remote access settings",
     "remoteAccessSaveFailed": "Unable to apply access scope; previous settings remain active",
     "remoteAccessPreset": {
-      "local": { "title": "Local only", "desc": "This host only. No LAN entrypoint." },
-      "lan": { "title": "LAN sharing", "desc": "Share on the same LAN. HTTPS is enabled automatically." },
-      "public": { "title": "Managed public deployment", "desc": "For domains or reverse proxies. Browser addresses must be allowlisted." }
+      "local": {
+        "title": "Local only",
+        "desc": "This host only. No LAN entrypoint."
+      },
+      "lan": {
+        "title": "LAN sharing",
+        "desc": "Share on the same LAN. HTTPS is enabled automatically."
+      },
+      "public": {
+        "title": "Managed public deployment",
+        "desc": "For domains or reverse proxies. Browser addresses must be allowlisted."
+      }
     },
     "remoteAccessPublicViewer": "Allow view-only access without login",
     "remoteAccessLoginRequired": "Login is required by default. Guests are view-only and cannot control the radio.",
@@ -725,7 +734,29 @@
       "auto_update_semver_not_newer": "The updater did not accept this package as a newer version. Use the manual download if needed.",
       "update_install_not_completed": "The previous update did not appear to finish. You can retry or use the manual download."
     },
-    "updateTargetAndroidRuntime": "Android Runtime"
+    "updateTargetAndroidRuntime": "Android Runtime",
+    "nativeDecode": {
+      "aria": "Other digital decode parameters",
+      "title": "Q65 / WSPR / MSK144 / JTTY receive parameters",
+      "description": "Saved independently per mode; click Apply RX in that mode. FT8/FT4 use the settings above.",
+      "mode": "Digital mode",
+      "rxCentreHz": "RX centre (Hz)",
+      "toleranceHz": "Frequency tolerance (Hz)",
+      "depth": "Decode depth",
+      "fast": "Fast (1)",
+      "normal": "Normal (2)",
+      "deep": "Deep (3)",
+      "submode": "Q65 submode",
+      "averaging": "Multi-period averaging",
+      "emeDelay": "EME delay compensation",
+      "meteor": "Meteor scatter receive",
+      "myCall": "My callsign",
+      "dxCall": "DX callsign",
+      "equalizer": "Adaptive equalizer",
+      "shorthand": "MSK40 shorthand search (both calls required, max 250 Hz tolerance)",
+      "jttyStream": "JTTY streams continuously; slotted decoding depth and search windows do not apply.",
+      "saveNotice": "Saved immediately without transmitting or altering active reception."
+    }
   },
   "freqPresets": {
     "title": "Frequency Preset Management",

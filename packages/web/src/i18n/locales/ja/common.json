@@ -356,9 +356,18 @@
     "remoteAccessLoadFailed": "リモートアクセス設定を読み込めません",
     "remoteAccessSaveFailed": "設定を適用できません。以前の設定を維持します",
     "remoteAccessPreset": {
-      "local": { "title": "この端末のみ", "desc": "ローカルホストのみ。LAN入口は開きません。" },
-      "lan": { "title": "LANで共有", "desc": "同一LAN内で共有します。HTTPSは自動で有効になります。" },
-      "public": { "title": "正式な公開運用", "desc": "ドメインまたはリバースプロキシ用。ブラウザアドレスの許可登録が必須です。" }
+      "local": {
+        "title": "この端末のみ",
+        "desc": "ローカルホストのみ。LAN入口は開きません。"
+      },
+      "lan": {
+        "title": "LANで共有",
+        "desc": "同一LAN内で共有します。HTTPSは自動で有効になります。"
+      },
+      "public": {
+        "title": "正式な公開運用",
+        "desc": "ドメインまたはリバースプロキシ用。ブラウザアドレスの許可登録が必須です。"
+      }
     },
     "remoteAccessPublicViewer": "ログインなしの閲覧専用アクセスを許可",
     "remoteAccessLoginRequired": "ログインが標準です。未ログイン閲覧者は読み取り専用で、無線機を操作できません。",
@@ -725,7 +734,29 @@
       "auto_update_semver_not_newer": "アップデーターはパッケージを更新バージョンとして受け入れませんでした。必要に応じて手動でダウンロードしてください。",
       "update_install_not_completed": "前回の更新が完了していないようです。再試行するか、手動ダウンロードを使用できます。"
     },
-    "updateTargetAndroidRuntime": "Android Runtime"
+    "updateTargetAndroidRuntime": "Android Runtime",
+    "nativeDecode": {
+      "aria": "その他のデジタル受信設定",
+      "title": "Q65 / WSPR / MSK144 / JTTY 受信設定",
+      "description": "モードごとに保存されます。受信設定を適用して反映します。FT8/FT4 は上の設定を使用します。",
+      "mode": "デジタルモード",
+      "rxCentreHz": "受信中心周波数 (Hz)",
+      "toleranceHz": "周波数許容範囲 (Hz)",
+      "depth": "復号深度",
+      "fast": "高速 (1)",
+      "normal": "標準 (2)",
+      "deep": "高深度 (3)",
+      "submode": "Q65 サブモード",
+      "averaging": "複数周期の平均化",
+      "emeDelay": "EME 遅延補正",
+      "meteor": "流星散乱受信",
+      "myCall": "自局コールサイン",
+      "dxCall": "相手局コールサイン",
+      "equalizer": "適応等化器",
+      "shorthand": "MSK40 短縮探索（両局のコールサインが必要、許容範囲 250 Hz 以下）",
+      "jttyStream": "JTTY は連続受信方式です。スロットごとの復号深度や探索ウィンドウは適用されません。",
+      "saveNotice": "設定は即時保存され、送信や受信変更は行いません。"
+    }
   },
   "freqPresets": {
     "title": "周波数プリセット管理",
