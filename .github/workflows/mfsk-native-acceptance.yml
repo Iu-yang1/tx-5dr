@@ -13,6 +13,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  fork-dsp:
+    name: MSK40 / MSK144 DSP from exact fork commit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assert TX-5DR manifest pins the expected fork SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'ba92290fca5e42f62c646faf9b02e34679deddb9' packages/mfsk-native/Cargo.toml
+          grep -F 'Iu-yang1/mfsk-core-tx5dr' packages/mfsk-native/Cargo.toml
+      - name: Checkout immutable DSP fork source, not upstream HEAD
+        uses: actions/checkout@v4
+        with:
+          repository: Iu-yang1/mfsk-core-tx5dr
+          ref: ba92290fca5e42f62c646faf9b02e34679deddb9
+          path: mfsk-tx5dr-fork
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Strict MSK40 reference vectors, actual burst acquisition, equalizer training
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo check -p mfsk-core --features full --manifest-path mfsk-tx5dr-fork/Cargo.toml
+          cargo test -p mfsk-core --features full --lib msk144::msk40 --manifest-path mfsk-tx5dr-fork/Cargo.toml -- --nocapture
+          cargo test -p mfsk-core --features full --lib msk144::equalizer --manifest-path mfsk-tx5dr-fork/Cargo.toml -- --nocapture
+          cargo test -p mfsk-core --features full --lib msk144:: --manifest-path mfsk-tx5dr-fork/Cargo.toml -- --nocapture
+
   native:
     name: Native ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -82,7 +110,7 @@ jobs:
   # A native .node that works in isolation can still be unusable by the real
   # TypeScript server. This job validates the actual compiled server pipeline.
   server-runtime:
-    needs: native
+    needs: [native, fork-dsp]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:

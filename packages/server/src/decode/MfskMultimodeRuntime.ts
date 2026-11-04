@@ -126,6 +126,9 @@ export class MfskMultimodeRuntime {
       if(cfg.mode!=='MSK144') throw new Error('MSK144 RX options require MSK144 mode');
       const call=/^[A-Z0-9/]{3,12}$/;
       if(!call.test(cfg.msk144Rx.dxCall)) throw new Error('Invalid DX callsign for MSK144 training');
+      if(cfg.msk144Rx.shorthand && tolerance>250){
+        throw new Error('MSK40 shorthand tolerance is limited to 250 Hz');
+      }
       if(cfg.msk144Rx.shorthand && !call.test(cfg.msk144Rx.myCall??'')){
         throw new Error('MSK40 shorthand requires known MY and DX calls');
       }

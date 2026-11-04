@@ -218,6 +218,10 @@ export const MfskLiveRxStartSchema = z.object({
   apContext:MfskApContextSchema.optional(),
   msk144Rx:MfskMsk144RxOptionsSchema.optional(),
 }).superRefine((value,ctx)=>{
+  if(value.msk144Rx?.shorthand && value.toleranceHz>250) {
+    ctx.addIssue({code:z.ZodIssueCode.custom,path:['toleranceHz'],
+      message:'MSK40 search requires a frequency tolerance at or below 250 Hz'});
+  }
   if(value.msk144Rx && value.mode!=='MSK144'){
     ctx.addIssue({code:z.ZodIssueCode.custom,path:['msk144Rx'],
       message:'MSK144 receive options are only valid for MSK144'});

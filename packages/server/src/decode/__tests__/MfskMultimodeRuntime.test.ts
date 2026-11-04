@@ -106,6 +106,9 @@ describe('multi-mode native simulation runtime',()=>{
       msk144Rx:{dxCall:'K2ABC',adaptiveEqualizer:true}})).toThrow(/MSK144/);
     expect(()=>runtime.begin({sessionId:'x',mode:'MSK144',
       msk144Rx:{dxCall:'K2ABC',shorthand:true}})).toThrow(/known MY/);
+    expect(()=>runtime.begin({sessionId:'x',mode:'MSK144',toleranceHz:300,
+      msk144Rx:{dxCall:'K2ABC',myCall:'K1ABC',shorthand:true}}))
+      .toThrow(/250 Hz/);
     runtime.begin({sessionId:'msk40',mode:'MSK144',
       msk144Rx:{dxCall:'K2ABC',myCall:'K1ABC',
         shorthand:true,adaptiveEqualizer:true}});
