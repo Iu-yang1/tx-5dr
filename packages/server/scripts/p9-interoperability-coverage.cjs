@@ -23,9 +23,13 @@ assert(source.source==='WSJTX/wsjtx @ d89fe30ca1dfd3c38def8f17228f09f042829f95',
 assert.equal(source.codec,cross.codec,'Source reference and main codec SHA differ');
 assert(Array.isArray(source.tests),'Missing official source reference tests');
 assert(!cross.error,'Reference codec report contains an error');
-const known=new Set(
-  [...(cross.results??[]),...source.tests].filter(x=>x.pass===true&&directions.includes(x.direction))
-    .map(x=>x.mode+'|'+x.direction));
+// A verified Q65-60B reference is Q65 evidence only for that specific
+// submode. Keep the exact submode in source.records and in this report.
+const canonicalMode = mode => mode==='Q65-60B'?'Q65':mode;
+const proven=[...(cross.results??[]),...source.tests].filter(x=>
+  x.pass===true&&directions.includes(x.direction)
+);
+const known=new Set(proven.map(x=>canonicalMode(x.mode)+'|'+x.direction));
 const goldenLabels={
   FT8:[],
   FT4:['FT4'],
@@ -39,8 +43,9 @@ const goldenResults=new Map((golden.tests??[]).map(x=>[x.name,x.pass===true]));
 const entries=protocols.map(mode=>{
   const required=directions.map(direction=>({
     direction,passed:known.has(mode+'|'+direction),
-    evidence:known.has(mode+'|'+direction)
-      ? 'official WSJT-X source stream report or wsjtx-lib FT8/FT4 report' : null,
+    evidence:proven.filter(x=>canonicalMode(x.mode)===mode&&x.direction===direction)
+      .map(x=>({mode:x.mode,source:x===source.tests.find(y=>y===x)?
+        'WSJT-X 3.3.0-beta5 source-built':'legacy wsjtx-lib test-only'})),
   }));
   const captures=goldenLabels[mode].map(name=>({name,passed:goldenResults.get(name)===true}));
   return {mode,required,captures,
@@ -54,6 +59,7 @@ for(const e of entries){
 const report={
   codec:cross.codec??null,gate:'complete independent WSJT-X bidirectional interoperability',
   pass:errors.length===0,entries,missing:errors,
+  q65ReferenceSubmode:'Q65-60B',
   caveats:[
     'FT4/WSPR/Q65/JTTY/MSK144 pinned off-air WAVs are receive-only evidence, not bidirectional references.',
     'Legacy wsjtx-lib does not independently cover every modern TX mode; use real WSJT-X source-built jt9/wsprd/JTTY golden oracles.',
