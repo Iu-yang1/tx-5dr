@@ -33,6 +33,7 @@ import { awaitServerReadyWithCleanup } from './serverStartupCleanup.js';
 import { waitForUrl } from './httpReadiness.js';
 import {
   buildChildRuntimeEnv,
+  buildNativeModuleSpawnFailureResult,
   buildNativeModuleCheckExitResult,
   isDegradableNativeModuleCheckFailure,
   type NativeModuleCheckResult,
@@ -2133,11 +2134,18 @@ function runNativeModuleCheck(
 
   return new Promise((resolve) => {
     const NODE = nodePath();
-    const child = spawn(NODE, [scriptPath], {
-      cwd: path.dirname(serverEntry),
-      env: createChildEnv({}),
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    let child: import('node:child_process').ChildProcess;
+    try {
+      child = spawn(NODE, [scriptPath], {
+        cwd: path.dirname(serverEntry),
+        env: createChildEnv({}),
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    } catch (error) {
+      logger.error(`native module check could not launch bundled Node: ${NODE}`, error);
+      resolve(buildNativeModuleSpawnFailureResult(NODE, error));
+      return;
+    }
 
     const modules: NativeModuleCheckResult['modules'] = [];
     let lastChecking: string | null = null;
@@ -2188,11 +2196,8 @@ function runNativeModuleCheck(
     });
 
     child.on('error', (err) => {
-      logger.error(`native module check process error: ${err.message}`);
-      finish({
-        success: false, modules, crashedModule: lastChecking,
-        exitCode: null, signal: null, timeout: false,
-      });
+      logger.error(`native module check process error for bundled Node ${NODE}: ${err.message}`);
+      finish(buildNativeModuleSpawnFailureResult(NODE, err));
     });
 
     const timer = setTimeout(() => {
