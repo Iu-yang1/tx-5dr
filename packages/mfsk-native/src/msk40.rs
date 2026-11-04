@@ -192,6 +192,18 @@ mod tests {
         for i in 0..16 { assert_eq!(bits[8+COLORDER[16+i]],((0xabcfu16 >> i)&1) as u8); }
     }
     #[test]
+    fn independent_wsjt_msk40_reference_vector() {
+        // WSJT-X genmsk40.f90 + encode_msk40.f90, Jenkins nhash init 146
+        // on the Fortran 37-character blank-padded "K1ABC W9XYZ" field.
+        assert_eq!(pair_hash("K1ABC W9XYZ"), 0x0fa2);
+        let bits=shorthand_bits(0x0fa2,14);
+        assert_eq!(bits.iter().map(|b| char::from(b'0'+*b)).collect::<String>(),
+                   "1011000100001100010010100111010001001111");
+        let symbols=tones(0x0fa2,14);
+        assert_eq!(symbols.iter().map(|b| char::from(b'0'+*b)).collect::<String>(),
+                   "1000011001000001100010111100100110000101");
+    }
+    #[test]
     fn known_call_shorthand_round_trip_and_noise_rejection() {
         let tx=synthesize("K1ABC","W9XYZ","RRR",5).unwrap();
         assert_eq!(tx.len(),54_000);

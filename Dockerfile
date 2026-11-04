@@ -79,8 +79,15 @@ COPY packages/shared-config/package.json ./packages/shared-config/
 COPY packages/web/package.json ./packages/web/
 
 # 安装依赖（多架构优化）
-RUN echo "Installing dependencies for $(uname -m)..." && \
-    YARN_HTTP_TIMEOUT=300000 yarn install --immutable
+# onnxruntime-node fetches external native binaries during install. Retry
+# transient network timeouts without changing the immutable lockfile.
+RUN set -eu; \
+    echo "Installing dependencies for $(uname -m)..."; \
+    for attempt in 1 2 3; do \
+      if YARN_HTTP_TIMEOUT=300000 yarn install --immutable; then exit 0; fi; \
+      if [ "$attempt" = 3 ]; then echo "Yarn immutable install failed 3 times" >&2; exit 1; fi; \
+      sleep $((attempt * 15)); \
+    done
 
 # 复制源代码
 COPY . .
