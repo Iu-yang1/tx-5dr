@@ -157,7 +157,10 @@ function wsjtReceive(config,pcm){
   }
   const req={t:'configure',mode:config.mode==='MSK40'?'MSK144':config.mode,
     rxfreq:1500,ntol:200,nfa:200,nfb:3000,depth:3,
-    mycall:'K1ABC',hiscall:'W9XYZ',
+    mycall:'K1ABC',his_call:'W9XYZ',
+    // WSJT-X stream defaults short_messages=false. The dedicated MSK40
+    // shorthand oracle MUST turn it on and provide both calls for hash12.
+    short_messages:config.nativeMode==='MSK40',
     ...(config.periodParam?{trperiod:config.periodParam}:{}),
     ...(config.submode?{submode:config.submode}:{})};
   const events=stream([control(req),...audioFrames(pcm)],360000);
