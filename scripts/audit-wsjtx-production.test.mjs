@@ -11,6 +11,9 @@ const compiledDir=path.join(root,'packages','server','dist');
 const nodeModules=path.join(root,'node_modules');
 const packageJson=path.join(root,'package.json');
 const compiledJs=path.join(compiledDir,'index.js');
+const prune=path.resolve(path.dirname(fileURLToPath(import.meta.url)),
+  'prune-wsjtx-comparison.mjs');
+const decodeDir=path.join(compiledDir,'decode');
 const audit=path.resolve(path.dirname(fileURLToPath(import.meta.url)),
   'audit-wsjtx-production.mjs');
 fs.mkdirSync(compiledDir,{recursive:true});
@@ -26,6 +29,7 @@ function updateManifest(fields={}){
  }));
 }
 function reset(){
+ fs.rmSync(decodeDir,{recursive:true,force:true});
  updateManifest();
  fs.writeFileSync(compiledJs,'module.exports={ready:true};');
  fs.rmSync(path.join(nodeModules,'wsjtx-lib'),{recursive:true,force:true});
@@ -37,6 +41,35 @@ test('clean production fixture with optional dev-only wsjtx-lib declaration pass
  const result=check();
  assert.equal(result.status,0,result.stderr);
  assert.equal(JSON.parse(result.stdout).productionModules,1);
+});
+test('reference-only modules are stripped from a staging copy; production queue remains',()=>{
+ reset();
+ fs.mkdirSync(decodeDir,{recursive:true});
+ const referenceNames=['WSJTXDecodeWorkerCore','WSJTXEncodeComparisonBackend'];
+ for(const name of referenceNames){
+  fs.writeFileSync(path.join(decodeDir,name+'.js'), 'require("wsjtx-lib")');
+  fs.writeFileSync(path.join(decodeDir,name+'.d.ts'), 'export {};');
+ }
+ const productionQueue=path.join(decodeDir,'WSJTXEncodeWorkQueue.js');
+ fs.writeFileSync(productionQueue,
+  "export const native = async()=>import('./WSJTXEncodeComparisonBackend.js');");
+ assert.equal(check().status,1,'Before pruning, production must fail');
+ const pruned=spawnSync(process.execPath,[prune,root],{encoding:'utf8'});
+ assert.equal(pruned.status,0,pruned.stderr);
+ for(const name of referenceNames){
+  assert(!fs.existsSync(path.join(decodeDir,name+'.js')));
+  assert(!fs.existsSync(path.join(decodeDir,name+'.d.ts')));
+ }
+ assert(fs.existsSync(productionQueue),'Native work queue must not be removed');
+ const passed=check();
+ assert.equal(passed.status,0,passed.stderr);
+});
+test('pruner fails closed on staging without compiled server output',()=>{
+ const bad=fs.mkdtempSync(path.join(os.tmpdir(),'tx5dr-prune-invalid-'));
+ try{
+  const result=spawnSync(process.execPath,[prune,bad],{encoding:'utf8'});
+  assert.equal(result.status,1);
+ }finally{fs.rmSync(bad,{recursive:true,force:true});}
 });
 test('top-level installed wsjtx-lib package is rejected',()=>{
  reset();
