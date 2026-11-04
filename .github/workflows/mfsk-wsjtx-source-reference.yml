@@ -1,0 +1,74 @@
+name: Source-built independent WSJT-X bidirectional P9 oracle
+on:
+  push:
+    branches: [integration/mfsk-core-v0.15.1-p9]
+    paths:
+      - '.github/workflows/mfsk-wsjtx-source-reference.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/mfsk-wsjtx-source-reference.yml'
+      - 'packages/server/scripts/wsjtx-source-bidirectional.cjs'
+      - 'packages/mfsk-native/Cargo.toml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-reference:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: WSJTX/wsjtx
+          ref: d89fe30ca1dfd3c38def8f17228f09f042829f95
+          path: wsjtx-independent
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install official WSJT-X source-build dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y cmake ninja-build gfortran build-essential pkg-config \
+            libboost-all-dev libfftw3-dev libhamlib-dev libusb-1.0-0-dev \
+            qtbase5-dev qttools5-dev qttools5-dev-tools \
+            qtmultimedia5-dev libqt5serialport5-dev libqt5websockets5-dev \
+            libqt5sql5-sqlite libasound2-dev libpulse-dev
+      - name: Build official 3.3.0-beta5 independent reference programs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C wsjtx-independent rev-parse HEAD)" = "d89fe30ca1dfd3c38def8f17228f09f042829f95"
+          cmake -S wsjtx-independent -B wsjtx-ref-build -GNinja \
+            -DWSJT_ENABLE_TESTS=OFF -DWSJT_GENERATE_DOCS=OFF \
+            -DWSJT_BUILD_UTILS=OFF -DWSJT_FORTRAN_LIBRARY_VARIANTS=NON_OPENMP_ONLY
+          cmake --build wsjtx-ref-build --target wsjt-codec wsprd --parallel 4
+          test -x wsjtx-ref-build/wsjt-codec
+          test -x wsjtx-ref-build/wsprd
+      - name: Build exact native fork codec for the same TX-5DR SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --manifest-path packages/mfsk-native/Cargo.toml --release
+          cp packages/mfsk-native/target/release/libtx5dr_mfsk_native.so packages/mfsk-native/mfsk-native.node
+          node packages/mfsk-native/smoke.cjs
+      - name: Validate all six protocols and MSK40 both directions with real PCM
+        shell: bash
+        env:
+          WSJT_CODEC_BIN: ${{ github.workspace }}/wsjtx-ref-build/wsjt-codec
+          WSPRD_BIN: ${{ github.workspace }}/wsjtx-ref-build/wsprd
+        run: node packages/server/scripts/wsjtx-source-bidirectional.cjs
+      - name: Upload independent results even when reference fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wsjtx-source-bidirectional-${{ github.sha }}
+          path: packages/server/scripts/wsjtx-source-bidirectional-report.json
+          if-no-files-found: warn
+          retention-days: 30
