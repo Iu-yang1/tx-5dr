@@ -89,3 +89,8 @@ The upstream 0.15.1 release improves FT8 real-recording recall, time-offset repo
 ## Cross-repository fork DSP ownership (2026-11-04)
 
 DSP source of truth for TX-5DR MSK40 short-message RX/TX and guarded MSK144 adaptive phase equalization is `Iu-yang1/mfsk-core-tx5dr` at commit `ba92290fca5e42f62c646faf9b02e34679deddb9`, consumed using an exact Cargo git rev. The historical `packages/mfsk-native/src/msk40.rs` experimental duplicate is removed; the Node-API adapter is transport only. This git rev describes an **unaccepted fork draft**, not a verified public release; update only after independent CI and golden reference testing. The automatic upstream-release updater intentionally rejects changing the crate's semver without first reconciling and verifying the fork.
+
+
+### Guarded live RX controls
+
+`POST /mfsk/live/start` accepts an optional `msk144Rx` object for MSK144 only, e.g. `{"dxCall":"K2ABC","myCall":"K1ABC","shorthand":true,"adaptiveEqualizer":true}`. Omission disables both features; shorthand is rejected unless both call identities are known. These parameters belong to the isolated receive child and do not grant transmit/PTT authorization. On session restart/reset training is cleared and the validated configuration is re-applied. `equalizerStatus()` is exposed through the native session for diagnostics. The experimental MSK40 known-call receiver must pass independent off-air/golden sensitivity tests before claiming production parity.

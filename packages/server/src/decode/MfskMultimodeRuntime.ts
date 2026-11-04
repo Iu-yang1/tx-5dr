@@ -31,6 +31,8 @@ export interface NativeJttySession {
 
 export interface NativeMsk144Session {
   push(pcmF32Le: Buffer): MfskNativeRow[];
+  configureShorthand(enabled: boolean, call1: string, call2: string): void;
+  configureEqualizer(enabled: boolean, dxCall: string): void;
   newPeriod(): void;
   reset(): void;
 }
@@ -44,6 +46,10 @@ export interface MfskSessionConfig {
   depth?: 1 | 2 | 3;
   averaging?: boolean;
   emeDelay?: boolean;
+  msk144Rx?: {
+    dxCall:string; myCall?:string;
+    shorthand?:boolean; adaptiveEqualizer?:boolean;
+  };
 }
 
 export interface MfskSlotDecodeInput {
@@ -116,6 +122,14 @@ export class MfskMultimodeRuntime {
     if (cfg.depth !== undefined && ![1, 2, 3].includes(cfg.depth)) throw new Error('Invalid depth');
     if (cfg.averaging && cfg.mode !== 'Q65') throw new Error('Averaging is only enabled for Q65 in this bridge');
     if (cfg.emeDelay && cfg.mode !== 'Q65') throw new Error('EME delay is only supported here for Q65');
+    if (cfg.msk144Rx) {
+      if(cfg.mode!=='MSK144') throw new Error('MSK144 RX options require MSK144 mode');
+      const call=/^[A-Z0-9/]{3,12}$/;
+      if(!call.test(cfg.msk144Rx.dxCall)) throw new Error('Invalid DX callsign for MSK144 training');
+      if(cfg.msk144Rx.shorthand && !call.test(cfg.msk144Rx.myCall??'')){
+        throw new Error('MSK40 shorthand requires known MY and DX calls');
+      }
+    }
     let source: SessionState['source'];
     const raw = this.native as unknown as {
       SlottedSession: new (name:string) => NativeSlotDecoder;
@@ -123,7 +137,15 @@ export class MfskMultimodeRuntime {
       Msk144Session: new (hz:number,tolerance:number) => NativeMsk144Session;
     };
     if (cfg.mode === 'JTTY') source = new raw.JttySession(f);
-    else if (cfg.mode === 'MSK144') source = new raw.Msk144Session(f,tolerance);
+    else if (cfg.mode === 'MSK144') {
+      const receiver=new raw.Msk144Session(f,tolerance);
+      if(cfg.msk144Rx){
+        receiver.configureEqualizer(Boolean(cfg.msk144Rx.adaptiveEqualizer),cfg.msk144Rx.dxCall);
+        receiver.configureShorthand(Boolean(cfg.msk144Rx.shorthand),
+          cfg.msk144Rx.myCall??'',cfg.msk144Rx.dxCall);
+      }
+      source=receiver;
+    }
     else {
       source = new raw.SlottedSession(cfg.mode === 'Q65' ? d.submode! : cfg.mode);
       source.setParameters(cfg.depth ?? 3, cfg.averaging ?? false, f, tolerance);
@@ -148,7 +170,16 @@ export class MfskMultimodeRuntime {
     state.lastSlotStartMs = undefined;
     state.revisions.clear();
     if (state.definition.scheduling === 'utc-slot') (state.source as NativeSlotDecoder).clear();
-    else if (state.cfg.mode === 'MSK144') (state.source as NativeMsk144Session).reset();
+    else if (state.cfg.mode === 'MSK144') {
+      const receiver=state.source as NativeMsk144Session;
+      receiver.reset();
+      if(state.cfg.msk144Rx){
+        receiver.configureEqualizer(Boolean(state.cfg.msk144Rx.adaptiveEqualizer),
+          state.cfg.msk144Rx.dxCall);
+        receiver.configureShorthand(Boolean(state.cfg.msk144Rx.shorthand),
+          state.cfg.msk144Rx.myCall??'',state.cfg.msk144Rx.dxCall);
+      }
+    }
     else (state.source as NativeJttySession).reset();
     state.sequence?.restart();
     return state.generation;
