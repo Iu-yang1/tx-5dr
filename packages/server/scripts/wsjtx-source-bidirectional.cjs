@@ -77,8 +77,12 @@ function slot(pcm,seconds,offset=0.5){
   const n=Math.round(seconds*FS);
   const out=new Float32Array(n);
   const i0=Math.round(offset*FS);
-  assert(i0+pcm.length<=n,'Waveform cannot fit reference slot');
-  out.set(pcm,i0);
+  // WSJT-X's repeated MSK144 modulator may return one extra trailing
+  // sample; never silently drop anything except that documented endpoint.
+  assert(pcm.length<=n+1,'Waveform exceeds reference period');
+  const actual=pcm.length===n+1?pcm.subarray(0,n):pcm;
+  const start=Math.min(i0,n-actual.length);
+  out.set(actual,start);
   return out;
 }
 function audioFrames(pcm){
