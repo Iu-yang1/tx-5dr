@@ -347,6 +347,15 @@ export class TransmissionPipeline {
       revision: request.frameRevision,
     }, 'encode failed');
     if (!failedFrame) return;
+    // The operator TX toggle only arms automation. Report failures that stop
+    // PCM from reaching the radio instead of leaving the UI looking on-air.
+    this.deps.engineEmitter.emit('textMessage', {
+      title: 'Digital TX encoding failed',
+      text: `${request.mode ?? 'FT8'} / ${request.operatorId}: ${error.message}`,
+      color: 'warning',
+      timeout: 10_000,
+      key: `digitalTxEncodeFailed-${request.operatorId}`,
+    });
     this.emitFrameTerminal(failedFrame.frameId, failedFrame.participantOperatorIds, {
       physicalConfirmed: false,
       terminalReason: 'encode failed',
@@ -688,6 +697,13 @@ export class TransmissionPipeline {
           frameId: prepared.frameId,
           error: message,
         });
+        this.deps.engineEmitter.emit('textMessage', {
+          title: 'Digital TX audio output unavailable',
+          text: message,
+          color: 'warning',
+          timeout: 10_000,
+          key: 'digitalTxAudioUnavailable',
+        });
         return;
       }
       if (error instanceof PhysicalTxBusyError) {
@@ -700,6 +716,13 @@ export class TransmissionPipeline {
       logger.error('physical digital transmission failed', {
         frameId: prepared.frameId,
         error: message,
+      });
+      this.deps.engineEmitter.emit('textMessage', {
+        title: 'Digital TX physical PTT/audio failed',
+        text: message,
+        color: 'warning',
+        timeout: 10_000,
+        key: 'digitalTxPhysicalFailure',
       });
       this.failCommittedFrame(prepared.frameId, audioForTransmission, message);
     }
