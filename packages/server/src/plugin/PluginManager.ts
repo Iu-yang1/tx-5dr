@@ -2148,6 +2148,22 @@ export class PluginManager {
     return !this.suspendedQueueExecutions.has(operatorId);
   }
 
+  /**
+   * A manual TX enable may arrive before a strategy has produced its first
+   * transmission. Revalidate in the same operator intent lane used by the
+   * normal slot decisions, rather than leaving the TX switch armed with no
+   * encode request until an unrelated decode happens.
+   */
+  async initializeOperatorTransmission(operatorId: string): Promise<boolean> {
+    const outcome = await this.intentCoordinator.submit(operatorId, 'manual',
+      (token, signal) => this.orchestrator.revalidateStrategyExecutionInLane(
+        operatorId, token, signal,
+      ),
+    );
+    return outcome.status === 'completed'
+      && this.deps.getOperatorById(operatorId)?.isTransmitting === true;
+  }
+
   shouldProcessStoppedOperatorReDecision(operatorId: string, slotPack: SlotPack): boolean {
     return this.hasTargetQueue(operatorId)
       || this.orchestrator.hasActiveSilentDirectedCallGate(operatorId, slotPack);
