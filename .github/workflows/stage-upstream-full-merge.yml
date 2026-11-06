@@ -42,6 +42,11 @@ jobs:
           else
             echo "Three-way merge requires explicit conflict reconciliation"
           fi
+          # Upstream workflow changes require a privileged workflow-scoped token.
+          # Preserve current fork workflows in this staging branch.
+          git rm -r -f --ignore-unmatch -- .github/workflows
+          git checkout "$FORK_HEAD" -- .github/workflows
+          git add -A -- .github/workflows
           python3 - <<'PY'
           from pathlib import Path
           import subprocess
@@ -70,6 +75,8 @@ jobs:
               '',
               'This branch is a real two-parent Git merge of the current TX-5DR fork',
               'and boybook/tx-5dr main. Unconflicted upstream changes are present.',
+              'Upstream workflow changes are excluded because CI push credentials',
+              'lack workflows scope; they remain a separate porting task.',
               'Textual conflicts use the fork side *only for staging*; every line',
               'listed below is an outstanding semantic reconciliation item.',
               'This report does not claim the conflict-side upstream content was ported.',
