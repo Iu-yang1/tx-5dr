@@ -2211,6 +2211,31 @@ export class RadioOperatorManager {
    * 立即评估是否需要重决策（依赖 messageSet 过滤防止无效触发）。
    * @param slotPack 更新后的 SlotPack
    */
+  private readonly nativeDecodeSignatures = new Map<string, string>();
+
+  onNativeDecodedSlotPack(slotPack: SlotPack): void {
+    if (!this.isRunning || !this._pluginManager?.handleNativeDecodedSlot) return;
+    const mode = this.getCurrentMode().name;
+    if (mode !== 'Q65' && mode !== 'MSK144') return;
+    if (!slotPack.frames.length) return;
+    const key = `${mode}:${slotPack.slotId}`;
+    const signature = slotPack.frames.map(frame =>
+      `${frame.message}|${frame.snr}|${frame.freq}|${frame.dt}`,
+    ).join(';');
+    if (this.nativeDecodeSignatures.get(key) === signature) return;
+    this.nativeDecodeSignatures.set(key, signature);
+    if (this.nativeDecodeSignatures.size > 64) {
+      const oldest = this.nativeDecodeSignatures.keys().next().value;
+      if (oldest !== undefined) this.nativeDecodeSignatures.delete(oldest);
+    }
+    void this._pluginManager.handleNativeDecodedSlot(slotPack).catch(error => {
+      logger.warn('Native QSO strategy decision failed', {
+        mode, slotId: slotPack.slotId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
+
   reDecideOnLateDecodes(slotPack: SlotPack): void {
     if (!this.isRunning) return;
 
