@@ -104,6 +104,31 @@ describe('native automatic UTC transmit scheduling',()=>{
     h.service.stop();
   });
 
+  it('does not cancel an unchanged queued waveform during UTC slot rollover',async()=>{
+    const h=harness();h.op.isTransmitting=true;h.service.start(0);
+    h.send.mockImplementation(()=>new Promise<MfskTxOutcome>(()=>{}));
+    const now=1_800_000_000_000;
+    h.setNow(now);
+    const target=nextNativeAutoSlot(now,60_000,true);
+    h.service.enable({mode:'Q65',operatorId:'op1',audioHz:1500});
+    expect(h.send).toHaveBeenCalledTimes(1);
+    h.setNow(target-200);
+    await h.service.poll();
+    expect(h.cancelNativeTx).not.toHaveBeenCalled();
+    h.service.stop();
+  });
+
+  it('cancels a pending native waveform when the QSO response changes',async()=>{
+    const h=harness();h.op.isTransmitting=true;h.service.start(0);
+    h.send.mockImplementation(()=>new Promise<MfskTxOutcome>(()=>{}));
+    h.service.enable({mode:'Q65',operatorId:'op1',audioHz:1500});
+    expect(h.send).toHaveBeenCalledTimes(1);
+    h.setMessages('K1ABC BG5JSU -10');
+    await h.service.poll();
+    expect(h.cancelNativeTx).toHaveBeenCalledTimes(1);
+    h.service.stop();
+  });
+
   it('disarms automatically when the native RX generation changes',async()=>{
     const h=harness();h.op.isTransmitting=true;h.service.start(0);
     h.service.enable({mode:'Q65',operatorId:'op1',audioHz:1500});
