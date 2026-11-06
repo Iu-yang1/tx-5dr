@@ -1,6 +1,6 @@
 {
   "name": "@tx5dr/rigctld-server",
-  "version": "0.1.0",
+  "version": "1.0.1-rc.5",
   "type": "module",
   "description": "Hamlib rigctld protocol emulation server (TCP). Framework-agnostic: you provide a RadioController, it speaks the rigctld protocol to any NET rigctl client (N1MM Logger+, WSJT-X, JTDX, fldigi, ...).",
   "license": "MIT",
