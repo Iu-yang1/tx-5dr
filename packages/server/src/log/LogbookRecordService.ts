@@ -1,4 +1,5 @@
 import { finishWork, finishWorkInSlices } from './cooperative-work.js';
+import { isDeepStrictEqual } from 'node:util';
 import {
   ContestQsoEnvelopeSchema,
   type ContestQsoEnvelope,
@@ -172,6 +173,7 @@ function matchesFilters(qso: QSORecord, options?: LogQueryOptions): boolean {
   if (options.band
     && getBandFromFrequency(qso.frequency).toUpperCase() !== options.band.toUpperCase()) return false;
   if (options.dxccStatus && qso.dxccStatus !== options.dxccStatus) return false;
+  if (options.dxccNeedsReview && !qso.dxccNeedsReview) return false;
   if (options.qslFlow) {
     const confirmed = isTwoWayConfirmed(qso);
     if (options.qslFlow === 'two_way_confirmed' ? !confirmed : confirmed) return false;
@@ -370,7 +372,14 @@ export function mergeImportedQso(existing: QSORecord, incoming: QSORecord): { ch
       changed = true;
     }
   }
-  return changed ? { changed, record: enrichQsoWithDxcc(merged) } : { changed: false, record: existing };
+  if (!changed) return { changed: false, record: existing };
+  const record = enrichQsoWithDxcc(merged);
+  // Resolution may discard unsupported incoming DXCC values. A refreshed
+  // resolution timestamp alone must not turn the same import into a rewrite.
+  return isDeepStrictEqual(
+    { ...record, dxccResolvedAt: undefined },
+    { ...existing, dxccResolvedAt: undefined },
+  ) ? { changed: false, record: existing } : { changed: true, record };
 }
 
 export class LogbookRecordService {
