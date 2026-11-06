@@ -112,6 +112,10 @@ export class ClockCoordinator {
 
       engineEmitter.emit('encodeStart', slotInfo);
 
+      // Strategy listeners synchronously enqueue requestTransmitBatch on encodeStart.
+      // Consume that queue before the RF start boundary; otherwise only a
+      // mid-slot operator edit can ever reach the FT8/FT4 encoder/PTT path.
+      operatorManager.processPendingTransmissions(slotInfo);
       getTransmissionPipeline().onEncodeStart(slotInfo);
     });
 
