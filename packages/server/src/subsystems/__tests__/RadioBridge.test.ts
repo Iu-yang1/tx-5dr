@@ -29,6 +29,7 @@ function createRadioManagerStub() {
 describe('RadioBridge', () => {
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it('captures Hamlib automation intent but cannot confirm recovery while physical TX is uncertain', async () => {

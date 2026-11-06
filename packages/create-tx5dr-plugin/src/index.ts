@@ -182,17 +182,17 @@ function readContestLogbookUiAssets(): Map<string, string> {
 
 function generatePackageJson(config: PluginConfig): string {
   const devDeps: Record<string, string> = {
-    '@tx5dr/plugin-api': '^2.5.0',
+    '@tx5dr/plugin-api': '^2.6.0',
   };
 
   if (config.lang === 'ts') {
     devDeps['typescript'] = '^5.0.0';
-    devDeps['vitest'] = '^1.0.0';
+    devDeps['vitest'] = '^4.1.12';
     if (config.template === 'ft8-contest') devDeps['esbuild'] = '^0.25.0';
   }
 
   if (hasVite(config)) {
-    devDeps['vite'] = '^6.0.0';
+    devDeps['vite'] = '^6.4.5';
     if (config.template === 'ui-react') {
       devDeps['react'] = '^19.0.0';
       devDeps['react-dom'] = '^19.0.0';

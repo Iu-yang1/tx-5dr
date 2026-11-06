@@ -13,6 +13,7 @@ import type {
   PluginUIPanelContributionGroup,
   PluginSource,
   PluginStatus,
+  PluginAutoDisableInfo,
   PluginSystemSnapshot,
   PluginSystemState,
   CapabilityList,
@@ -77,6 +78,8 @@ export interface PluginInstance {
   errorCounts: Map<string, number>;
   /** 是否已被自动禁用（由错误追踪触发） */
   autoDisabled: boolean;
+  /** Failure snapshot retained until this instance is replaced. */
+  autoDisableInfo?: PluginAutoDisableInfo;
   /** 最近一次错误信息 */
   lastError?: string;
 }
@@ -300,6 +303,13 @@ export interface PluginManagerDeps {
     instanceTarget: PluginUIInstanceTarget,
     pageId?: string,
   ) => import('./PluginPageSessionStore.js').PluginPageSession[];
+  pushPluginPageSession?: (
+    pluginName: string,
+    pageId: string,
+    pageSessionId: string,
+    action: string,
+    data?: unknown,
+  ) => void;
   pluginEventBusHost?: PluginEventBusHost;
 }
 
@@ -329,6 +339,7 @@ export function toPluginStatus(plugin: LoadedPlugin, instance?: PluginInstance):
     loaded: true,
     enabled: instance?.enabled ?? false,
     autoDisabled: instance?.autoDisabled ?? false,
+    autoDisableInfo: instance?.autoDisableInfo,
     errorCount: instance
       ? Array.from(instance.errorCounts.values()).reduce((sum, c) => sum + c, 0)
       : 0,

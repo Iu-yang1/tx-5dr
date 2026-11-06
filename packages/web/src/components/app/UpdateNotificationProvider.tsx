@@ -48,9 +48,9 @@ interface UpdateNotificationContextValue {
 
 const UpdateNotificationContext = createContext<UpdateNotificationContextValue | null>(null);
 
-function getSeenKey(status: Pick<SystemUpdateStatus, 'target' | 'identity'>): string | null {
+function getSeenKey(status: Pick<SystemUpdateStatus, 'target' | 'identity' | 'targetChannel' | 'channel'>): string | null {
   if (!status.identity) return null;
-  return `${SEEN_PREFIX}:${status.target}:${status.identity}`;
+  return `${SEEN_PREFIX}:${status.target}:${status.targetChannel ?? status.channel}:${status.identity}`;
 }
 
 function isSeen(status: SystemUpdateStatus): boolean {

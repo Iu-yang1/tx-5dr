@@ -35,6 +35,28 @@ The digital chain is centered on the existing 12 kHz ring buffer. It serves FT8/
 
 ## Native Radio Bypass Chain
 
+### Soundcard IF input
+
+For an audio-device source, `audio.inputSignalType = 'icom-12k-if'` enables
+`IcomIfSsbDemodulator` in `AudioStreamManager` before digital resampling. The
+default remains `af`; `ifCenterHz` defaults to 12000. Configuration changes
+reconfigure the demodulator within the owning audio lifecycle. WLAN, TCI and
+OpenWebRX baseband sources do not enter this soundcard IF path.
+
+This is software demodulation of captured USB/ACC IF PCM, not the radio's
+`audio_if_mode` network capability. The actual radio output must match the
+selected signal type; changing application configuration does not change the
+radio menu. TX retains the existing AF output path. Native input frames are
+emitted before IF demodulation, so the Web radio-monitor control is unavailable
+for IF input rather than presenting raw IF as normal listening audio.
+
+`packages/server/src/audio/__tests__/IcomIfSsbDemodulator.test.ts` covers synthetic
+signal behavior; `packages/web/src/utils/__tests__/radioControl.test.ts` guards
+monitor availability. Those tests do not establish superior weak-signal reception
+for every radio/firmware. Hardware comparisons need identified RF conditions.
+
+### Native monitoring
+
 The radio bypass exists to avoid hidden latency from the digital ring buffer.
 
 - Soundcard radio input emits `nativeAudioInputData` before digital resampling.
@@ -83,7 +105,9 @@ PCM fallback remains intentionally simple and compatible. High-rate native PCM i
 - 12 kHz ICOM WLAN frames and 16 kHz buffered preview frames are sent unchanged.
 - The decimator keeps phase across chunks, so non-divisible device buffer sizes do not accumulate drift; the frame `sampleRate` metadata always reflects the transport sample rate.
 - Unusual high input rates still use the smallest integer factor that keeps the transport rate near or below 24 kHz, instead of falling back to full-rate PCM.
-- This intentionally removes the previous transport-edge low-pass FIR to test whether 24 kHz direct integer decimation is acceptable in practice with less processing and less tonal coloration.
+- This transport-edge decimator has no additional low-pass FIR; it is separate
+  from the digital decode resampler and must not be treated as an equivalent
+  anti-aliasing filter.
 
 ## FRP Public UDP Candidate Flow
 
@@ -110,8 +134,7 @@ The public UDP setting is deliberately append-only. A bad FRP endpoint should no
 ## SSTV Transmit Timing
 
 SSTV has two explicit destinations. `ImageRadioService` advertises
-`sstvTxTarget: local` only when the owning radio configuration is `type: none`
-and no virtual-radio profile is active. A disconnected configured radio remains
+`sstvTxTarget: local` only when the owning radio configuration is `type: none`. A disconnected configured radio remains
 `radio`; connection loss never enables local playback. Clients without the new
 status field conservatively retain radio behavior.
 
@@ -276,3 +299,12 @@ Realtime voice audio is a state stream, not a file stream.
 - Do not re-enter large playback prefill after underrun; use at most one short PLC tail, then silence briefly and resume with fresh frames.
 - Keep sample-rate conversion only at true transport/device edges.
 - During transport fallback, keep the browser AudioContext and AudioWorklet runtime alive; only replace the network transport. This avoids autoplay/microphone gesture regressions and prevents duplicate audio services.
+
+## Test device and audio peer boundary
+
+External PCM devices use the normal capture/output path, including resampling
+and consumption/drain accounting. Digital TX observations distinguish native
+consumption from network/Android submission. They do not pace output. Synthetic
+peer replies enter normal capture or the audio-owned baseband contribution
+point; they never write the RX ring directly. Native monitoring does not label
+synthetic baseband as physical input. See [Station testing](station-testing.md).
