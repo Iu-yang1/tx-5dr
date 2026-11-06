@@ -65,7 +65,11 @@ export class MfskNativeTxService {
   private epoch=0;
   private busy=false;
   private inflight:AbortController|null=null;
+  private pendingOperatorId:string|null=null;
   constructor(private readonly deps:MfskTxAdmission) {}
+
+  /** Identifies the owner of an encoded, queued or physically active native TX. */
+  getPendingOperatorId():string|null {return this.pendingOperatorId;}
 
   /** Cancel encoding and any pending UTC start without waiting for a slot. */
   cancel():void {this.epoch++;this.inflight?.abort();}
@@ -90,6 +94,7 @@ export class MfskNativeTxService {
     const epoch=this.epoch;
     const controller=new AbortController();
     this.inflight=controller;
+    this.pendingOperatorId=request.operatorId;
     this.busy=true;
     try{
       const job=this.deps.encode?this.deps.encode(request):encodeMfskInChild(request,controller.signal);
@@ -170,7 +175,10 @@ export class MfskNativeTxService {
       });
       return {mode:request.mode,scheduledStartMs:startMs,durationMs,result:outcome};
     }finally{
-      if(this.inflight===controller)this.inflight=null;
+      if(this.inflight===controller){
+        this.inflight=null;
+        this.pendingOperatorId=null;
+      }
       this.busy=false;
     }
   }
