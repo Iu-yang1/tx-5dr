@@ -3730,7 +3730,8 @@ describe('RadioOperatorManager transmission acceptance notification', () => {
     manager.startOperator('op1');
     expect(manager.getOperatorById('op1')?.isTransmitting).toBe(true);
     expect(encodeQueue.push).not.toHaveBeenCalled();
-    expect(initializeOperatorTransmission).toHaveBeenCalledExactlyOnceWith('op1');
+    expect(initializeOperatorTransmission).toHaveBeenCalledTimes(1);
+    expect(initializeOperatorTransmission).toHaveBeenCalledWith('op1');
 
     transmissions = defaultTransmissionSet('CQ BG4IAJ OM96');
     resolveStrategy(true);
