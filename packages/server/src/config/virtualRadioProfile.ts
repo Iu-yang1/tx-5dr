@@ -77,7 +77,7 @@ export function parseInternalProfiles(value: unknown): InternalRadioProfile[] {
   });
 }
 
-export function projectVirtualRadioProfile(profile: VirtualRadioProfile): RadioProfile {
+export function projectVirtualRadioProfile(profile: VirtualRadioProfile): RadioProfile & { isVirtual: true; readOnly: true } {
   return {
     id: profile.id,
     name: profile.name,

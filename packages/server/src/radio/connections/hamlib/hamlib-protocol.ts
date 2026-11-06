@@ -18,7 +18,7 @@ export const HamlibErrorSchema = z.object({
   code: z.nativeEnum(RadioErrorCode).optional(), severity: z.nativeEnum(RadioErrorSeverity).optional(),
   userMessage: z.string().optional(), userMessageKey: z.string().optional(),
   userMessageParams: z.record(z.string(), z.union([z.string(), number])).optional(), suggestions: z.array(z.string()).optional(),
-  context: z.record(diagnosticValue).optional(),
+  context: z.record(z.string(), diagnosticValue).optional(),
 });
 
 export function serializeHamlibError(error: unknown): z.infer<typeof HamlibErrorSchema> {
