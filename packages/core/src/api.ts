@@ -606,8 +606,10 @@ export const api = {
   }):Promise<unknown>{
     return apiRequest('/mfsk/tx/auto/start',{method:'POST',body:JSON.stringify(request)});
   },
-  async stopMfskNativeAutoTx():Promise<unknown>{
-    return apiRequest('/mfsk/tx/auto/stop',{method:'POST'});
+  async stopMfskNativeAutoTx(operatorId:string):Promise<unknown>{
+    return apiRequest('/mfsk/tx/auto/stop', {
+      method:'POST',body:JSON.stringify({operatorId}),
+    });
   },
   async startMfskLiveRx(
     cfg: import('@tx5dr/contracts').MfskLiveRxStart,
