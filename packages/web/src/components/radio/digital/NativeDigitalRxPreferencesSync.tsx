@@ -27,6 +27,14 @@ export function needsNativeRxReconfigure(prefs: NativeDecodePreferences): boolea
  * EngineLifecycle owns receiver startup. We reconfigure only after it is ready
  * and when the stored parameters actually differ; no extra UI is created.
  */
+export function shouldUpdateNativeQ65Ap(
+  previous: {generation:number;key:string}|null,
+  generation: number,
+  key: string,
+): boolean {
+  return previous?.generation !== generation || previous.key !== key;
+}
+
 export function NativeDigitalRxPreferencesSync() {
   const { currentMode } = useRadioModeState();
   const { state: connection } = useConnection();
@@ -40,7 +48,7 @@ export function NativeDigitalRxPreferencesSync() {
   const apDx = operator?.context?.targetCall?.trim().toUpperCase() ?? '';
   const apDxGrid = operator?.context?.targetGrid?.trim().toUpperCase() ?? '';
   const lastAppliedRef = useRef<{mode:NativeDigitalMode; generation:number; fingerprint:string} | null>(null);
-  const lastApRef = useRef('');
+  const lastApRef = useRef<{generation:number;key:string}|null>(null);
 
   useEffect(() => {
     if (!mode || !connection.isConnected) return;
@@ -105,25 +113,44 @@ export function NativeDigitalRxPreferencesSync() {
     };
   }, [connection.isConnected,mode]);
 
-  // Q65 AP follows the same operator target/configuration as FT8/FT4,
-  // without restarting and discarding a potentially long EME averaging period.
+  // A mode switch or receiver restart invalidates the previous AP context.
+  // Retry while the native decoder is starting, without resetting long EME averaging.
   useEffect(() => {
-    if (mode !== 'Q65' || !connection.isConnected) return;
+    if (mode !== 'Q65' || !connection.isConnected) {
+      lastApRef.current = null;
+      return;
+    }
     const key = [apCall,apGrid,apDx,apDxGrid].join('|');
-    if (lastApRef.current === key) return;
     const context = apCall && apGrid && apDx ? {
       myCall:apCall,myGrid:apGrid,dxCall:apDx,
       ...(apDxGrid ? {dxGrid:apDxGrid} : {}),
       progress:0 as const,
     } : null;
     let cancelled = false;
-    void api.getMfskLiveRxEvents(0).then(response => {
-      if (cancelled || response.status.mode !== 'Q65' || !response.status.ready) return;
-      return api.updateMfskLiveRxApContext(context).then(() => {
-        if (!cancelled) lastApRef.current = key;
-      });
-    }).catch(() => { /* reattempt when operator target changes */ });
-    return () => { cancelled = true; };
+    let pending = false;
+    const sync = () => {
+      if (cancelled || pending) return;
+      pending = true;
+      void api.getMfskLiveRxEvents(0).then(async response => {
+        if (cancelled || !response.status.running ||
+          response.status.mode !== 'Q65' || !response.status.ready) return;
+        if (!shouldUpdateNativeQ65Ap(
+          lastApRef.current, response.status.generation, key,
+        )) return;
+        await api.updateMfskLiveRxApContext(context);
+        if (!cancelled) {
+          lastApRef.current = {generation:response.status.generation,key};
+        }
+      }).catch(() => {
+        // The decoder can be starting or transitioning; retry on next poll.
+      }).finally(() => { pending = false; });
+    };
+    sync();
+    const timer = setInterval(sync, 1750);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
   }, [connection.isConnected,mode,apCall,apGrid,apDx,apDxGrid]);
   return null;
 }
