@@ -1,4 +1,5 @@
 import type { TxAudioObservation } from './TxAudioObservation.js';
+import { VIRTUAL_AUDIO_INGRESS_TOKEN } from '../virtual-radio/virtualAudioIngress.js';
 import { createRtAudioInstance, type RtAudioInstance } from './rtaudio-api.js';
 import { RingBufferAudioProvider } from './AudioBufferProvider.js';
 import type { AudioClock } from './ringBuffer.js';
@@ -54,7 +55,7 @@ const RTAUDIO_TX_MAX_CONSECUTIVE_WRITE_FAILURES = 20;
 const RTAUDIO_OUTPUT_WARNING_LOG_WINDOW_MS = 5000;
 const MAX_SERIALIZED_INPUT_INGEST_DEPTH = 3;
 
-export type NativeAudioInputSourceKind = 'audio-device' | 'icom-wlan' | 'tci' | 'openwebrx';
+export type NativeAudioInputSourceKind = 'audio-device' | 'icom-wlan' | 'tci' | 'openwebrx' | 'simulation';
 
 interface SerializedInputIngestQueue {
   generation: number;
@@ -848,6 +849,17 @@ export class AudioStreamManager extends EventEmitter<AudioStreamEvents> {
    */
   getAudioProvider(): RingBufferAudioProvider {
     return this.audioProvider;
+  }
+
+  async ingestVirtualInput(
+    token: typeof VIRTUAL_AUDIO_INGRESS_TOKEN,
+    samples: Float32Array,
+    sampleRate = DEFAULT_INPUT_PROCESSING_SAMPLE_RATE,
+  ): Promise<void> {
+    if (token !== VIRTUAL_AUDIO_INGRESS_TOKEN) {
+      throw new Error('virtual audio ingress denied');
+    }
+    await this.ingestInputSamples(samples, sampleRate, 'simulation');
   }
 
   /**

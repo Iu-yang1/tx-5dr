@@ -5,7 +5,7 @@ import type { HamlibRuntime } from './HamlibRuntime.js';
 
 const number = z.number().finite();
 type DiagnosticValue = string | number | boolean | null | undefined | DiagnosticValue[] | { [key: string]: DiagnosticValue };
-const diagnosticValue: z.ZodType<DiagnosticValue> = z.lazy(() => z.union([z.string(), number, z.boolean(), z.null(), z.undefined(), z.array(diagnosticValue), z.record(diagnosticValue)]));
+const diagnosticValue: z.ZodType<DiagnosticValue> = z.lazy(() => z.union([z.string(), number, z.boolean(), z.null(), z.undefined(), z.array(diagnosticValue), z.record(z.string(), diagnosticValue)]));
 const bandwidth = z.union([number, z.enum(['narrow', 'wide', 'normal', 'nochange'])]);
 const modeOptions = z.object({ intent: z.enum(['voice', 'digital', 'cw']).optional() });
 const displayConfig = z.object({ mode: z.enum(['center', 'fixed', 'scroll-center', 'scroll-fixed']).optional(), spanHz: number.optional(), edgeSlot: number.optional(), edgeLowHz: number.optional(), edgeHighHz: number.optional() });
@@ -17,7 +17,7 @@ export const HamlibErrorSchema = z.object({
   __hamlibError: z.literal(true), name: z.string(), message: z.string(), stack: z.string().optional(),
   code: z.nativeEnum(RadioErrorCode).optional(), severity: z.nativeEnum(RadioErrorSeverity).optional(),
   userMessage: z.string().optional(), userMessageKey: z.string().optional(),
-  userMessageParams: z.record(z.union([z.string(), number])).optional(), suggestions: z.array(z.string()).optional(),
+  userMessageParams: z.record(z.string(), z.union([z.string(), number])).optional(), suggestions: z.array(z.string()).optional(),
   context: z.record(diagnosticValue).optional(),
 });
 

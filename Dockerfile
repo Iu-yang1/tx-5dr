@@ -39,7 +39,7 @@ RUN apt-get update && apt-get install -y \
     libxi-dev \
     libxext-dev \
     libhamlib-dev \
-    libhamlib4t64 \
+    libhamlib4 \
     git \
     wget \
     && rm -rf /var/lib/apt/lists/* \
@@ -158,7 +158,7 @@ RUN apt-get update && apt-get install -y \
     libjack-jackd2-0 \
     libxi6 \
     libxext6 \
-    libhamlib4 \
+    libhamlib4t64 \
     udev \
     nginx \
     supervisor \
