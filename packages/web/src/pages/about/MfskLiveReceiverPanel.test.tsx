@@ -199,3 +199,24 @@ it('rounds the WSPR spot strength and AF frequency consistently',async()=>{
   expect(screen.getByText('-28')).toBeTruthy();
   expect(screen.getByText('1499')).toBeTruthy();
 });
+
+it('starts automatic Q65 transmit with the confirmed receiver submode and operator identity',async()=>{
+  render(<MfskLiveReceiverPanel surface="operator"/>);
+  await waitFor(()=>expect(screen.getByText('AUTO TX')).toBeTruthy());
+  fireEvent.click(screen.getByText('AUTO TX'));
+  await waitFor(()=>expect(mock.autoStart).toHaveBeenCalledWith(expect.objectContaining({
+    mode:'Q65',operatorId:'op1',q65Submode:'Q65-120D',
+    q65TxFirst:true,audioHz:1500,
+  })));
+});
+
+it('stops automatic native transmit only for the current operator',async()=>{
+  mock.autoStatus.mockResolvedValueOnce({
+    enabled:true,running:true,mode:'Q65',operatorId:'op1',pending:true,
+    lastScheduledStartMs:null,lastPhysicalTxConfirmed:null,lastError:null,
+  });
+  render(<MfskLiveReceiverPanel surface="operator"/>);
+  await waitFor(()=>expect(screen.getByText('STOP AUTO')).toBeTruthy());
+  fireEvent.click(screen.getByText('STOP AUTO'));
+  await waitFor(()=>expect(mock.autoStop).toHaveBeenCalledWith('op1'));
+});
