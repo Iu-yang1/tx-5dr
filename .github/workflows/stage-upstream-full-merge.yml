@@ -1,0 +1,115 @@
+name: Stage upstream full-history merge
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/stage-upstream-full-merge.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tx5dr-full-upstream-staging
+  cancel-in-progress: false
+
+jobs:
+  three-way-merge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout fork with complete commit ancestry
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Stage upstream changes and record unresolved semantic conflicts
+        env:
+          TARGET_BRANCH: integration/upstream-full-20261106
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git remote add upstream https://github.com/boybook/tx-5dr.git
+          git fetch --no-tags upstream main
+          UPSTREAM_HEAD=$(git rev-parse FETCH_HEAD)
+          FORK_HEAD=$(git rev-parse HEAD)
+          export UPSTREAM_HEAD FORK_HEAD
+          git switch -c "$TARGET_BRANCH"
+          if git merge --no-commit --no-ff "$UPSTREAM_HEAD"; then
+            echo "Three-way merge had no textual conflicts"
+          else
+            echo "Three-way merge requires explicit conflict reconciliation"
+          fi
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          import os
+          def git(*args):
+              return subprocess.check_output(['git', *args], stderr=subprocess.STDOUT)
+          unresolved = [
+              p.decode('utf-8', 'surrogateescape')
+              for p in git('diff','--name-only','--diff-filter=U','-z').split(b'\0')
+              if p
+          ]
+          conflicts = []
+          for path in unresolved:
+              stages = git('ls-files','-u','--',path).decode('utf-8','replace')
+              ours_exists = any(line.split('\t', 1)[0].endswith(' 2') for line in stages.splitlines())
+              if ours_exists:
+                  subprocess.run(['git','checkout','--ours','--',path],check=True)
+                  subprocess.run(['git','add','--',path],check=True)
+                  choice = 'fork version retained'
+              else:
+                  subprocess.run(['git','rm','-f','--',path],check=True)
+                  choice = 'fork deletion retained'
+              conflicts.append((path, choice))
+          report = [
+              '# Upstream 3-way merge staging — 2026-11-06',
+              '',
+              'This branch is a real two-parent Git merge of the current TX-5DR fork',
+              'and boybook/tx-5dr main. Unconflicted upstream changes are present.',
+              'Textual conflicts use the fork side *only for staging*; every line',
+              'listed below is an outstanding semantic reconciliation item.',
+              'This report does not claim the conflict-side upstream content was ported.',
+              '',
+              f'- Fork parent: `{os.environ["FORK_HEAD"]}`',
+              f'- Upstream parent: `{os.environ["UPSTREAM_HEAD"]}`',
+              f'- Textual conflict paths: **{len(conflicts)}**',
+              '',
+              '## Conflict reconciliation debt',
+              '',
+          ]
+          report += [f'- `{path}`: {choice}' for path,choice in conflicts]
+          if not conflicts:
+              report.append('No textual conflicts.')
+          report += [
+              '',
+              '## Required acceptance',
+              '',
+              'Check all package/lockfile combinations, native Node ABI, audio and PTT',
+              'sequencing, ICOM/Yaesu CAT, all digital modes, i18n and NSIS installed',
+              'node.exe. Do not merge this branch without green integration CI.',
+          ]
+          Path('docs/development/upstream-full-merge-staging.md').write_text(
+              '\n'.join(report)+'\n', encoding='utf-8')
+          print('\n'.join(report[:10]))
+          PY
+          git add docs/development/upstream-full-merge-staging.md
+          if [ -f .git/MERGE_HEAD ]; then
+            git commit -m "merge(upstream): stage complete boybook main history with conflict manifest"
+          else
+            echo "No merge in progress: upstream history may already be contained"
+            git commit -m "docs(upstream): record merge ancestry validation" || true
+          fi
+          echo "Staged commit: $(git rev-parse HEAD)"
+          git push --set-upstream origin "HEAD:refs/heads/$TARGET_BRANCH"
+          {
+            echo "## Upstream merge stage"
+            echo "- Fork parent: $FORK_HEAD"
+            echo "- Upstream parent: $UPSTREAM_HEAD"
+            echo "- Staged branch: $TARGET_BRANCH"
+            echo "- Commit: $(git rev-parse HEAD)"
+            echo "- Review conflict report at docs/development/upstream-full-merge-staging.md"
+          } >> "$GITHUB_STEP_SUMMARY"
