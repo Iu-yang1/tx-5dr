@@ -756,6 +756,13 @@
       "shorthand": "MSK40 shorthand search (both calls required, max 250 Hz tolerance)",
       "jttyStream": "JTTY streams continuously; slotted decoding depth and search windows do not apply.",
       "saveNotice": "Saved immediately without transmitting or altering active reception."
+    },
+    "jttyTerminal": {
+      "receiver": "JTTY continuous receive",
+      "operator": "JTTY operator",
+      "listening": "Receiving",
+      "notReady": "Receiver not ready",
+      "noText": "No JTTY decoded text"
     }
   },
   "freqPresets": {

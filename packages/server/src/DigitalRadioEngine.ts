@@ -37,6 +37,7 @@ import { EventEmitter } from 'eventemitter3';
 import { MfskLiveRxService } from './decode/MfskLiveRxService.js';
 import { MfskRfArmGate } from './decode/MfskRfArmGate.js';
 import { MfskNativeTxService } from './decode/MfskNativeTxService.js';
+import { projectNativeDigitalFrames } from './decode/NativeDigitalSlotBridge.js';
 import {
   AudioStreamManager,
   CW_INPUT_PROCESSING_SAMPLE_RATE,
@@ -351,6 +352,21 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
     });
     this.realEncodeQueue = new WSJTXEncodeWorkQueue(1);
     this.slotPackManager = new SlotPackManager();
+    // Native Q65/WSPR/MSK144 RX feeds the same SlotPack projection,
+    // callsign tracker, websocket timeline and logbook enrichment as FT8/FT4.
+    // JTTY remains a separate continuous-stream mode; this never keys PTT.
+    this.mfskLiveRxService.on('events', events => {
+      const native = this.mfskLiveRxService.status();
+      if (!native.running || !native.ready || native.mode !== this.currentMode.name) return;
+      const batches = projectNativeDigitalFrames(events, this.currentMode.name,
+        native.q65Submode ?? 'Q65-60B');
+      if (!batches.length) return;
+      const context = this.getCurrentSlotPackFrequencyContext();
+      if (context) this.slotPackManager.setFrequencyContext(context);
+      for (const batch of batches) {
+        this.slotPackManager.processDecodeResult(batch.result, batch.presentationSlotMs);
+      }
+    });
     const initialFrequency = ConfigManager.getInstance().getLastSelectedFrequency();
     this.slotPackManager.setFrequencyContext(initialFrequency);
     this.on('frequencyChanged', (data) => {
