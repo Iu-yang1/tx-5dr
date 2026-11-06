@@ -205,7 +205,11 @@ export class NativeAutoTxScheduler {
     if (this.pending) {
       // A QSO response may change while an encoder is waiting for its UTC
       // slot. Cancel only pre-PTT work; never truncate an on-air frame.
-      if (this.pending.key !== key && this.deps.physicalPhase() === 'idle') this.cancelPending();
+      // The future-slot calculation naturally advances in the last second
+      // before the scheduled boundary. That must NOT cancel a correctly
+      // queued waveform just before PTT; only a changed QSO text may do so.
+      if ((this.pending.text !== text || this.pending.operatorId !== cfg.operatorId)
+        && this.deps.physicalPhase() === 'idle') this.cancelPending();
       return;
     }
     if (this.deps.nativeBusy() || this.deps.physicalPhase() !== 'idle' || this.lastAttemptKey === key) return;
