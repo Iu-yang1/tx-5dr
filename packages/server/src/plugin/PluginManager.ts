@@ -2154,6 +2154,29 @@ export class PluginManager {
    * normal slot decisions, rather than leaving the TX switch armed with no
    * encode request until an unrelated decode happens.
    */
+  /**
+   * Native Q65/MSK144 frames contain standard exchange messages but do not
+   * run the FT8 SlotClock. Feed the shared strategy decision engine from
+   * actual decoded native SlotPacks, never from WSPR beacon observations.
+   */
+  async handleNativeDecodedSlot(slotPack: SlotPack): Promise<void> {
+    const mode = this.deps.getCurrentMode();
+    if (mode.name !== 'Q65' && mode.name !== 'MSK144') return;
+    if (slotPack.frames.length === 0) return;
+    const slotMs = slotPack.endMs - slotPack.startMs;
+    if (!Number.isSafeInteger(slotMs) || slotMs <= 0) return;
+    const startMs = Math.max(slotPack.endMs, Math.floor(Date.now() / slotMs) * slotMs);
+    await this.orchestrator.handleSlotStart({
+      id: `native-${mode.name}-${startMs}`,
+      startMs,
+      utcSeconds: Math.floor(startMs / 1000),
+      phaseMs: 0,
+      driftMs: 0,
+      cycleNumber: Math.floor(startMs / slotMs) % 2,
+      mode: mode.name,
+    }, slotPack);
+  }
+
   async initializeOperatorTransmission(operatorId: string): Promise<boolean> {
     const outcome = await this.intentCoordinator.submit(operatorId, 'manual',
       (token, signal) => this.orchestrator.revalidateStrategyExecutionInLane(
