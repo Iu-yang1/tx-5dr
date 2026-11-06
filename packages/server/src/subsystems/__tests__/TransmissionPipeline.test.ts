@@ -198,6 +198,8 @@ function createHarness(options: {
 describe('TransmissionPipeline lifecycle integration', () => {
   it('cancels the owning frame when a non-default stream encode fails', () => {
     const harness = createHarness();
+    const diagnostics: Array<{ title: string; text: string }> = [];
+    harness.deps.engineEmitter.on('textMessage', message => diagnostics.push(message));
     const frame = harness.deps.digitalFrameCoordinator.prepareFrame({
       slotId: 'slot-1',
       intents: [{
@@ -224,6 +226,9 @@ describe('TransmissionPipeline lifecycle integration', () => {
 
     expect(harness.deps.digitalFrameCoordinator.getFrame(frame.frame!.frameId))
       .toMatchObject({ phase: 'cancelled' });
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0].title).toContain('TX encoding failed');
+    expect(diagnostics[0].text).toContain('encoder failed');
   });
 
   it('reports on-air only after PTT confirmation and audio start, then completes once', async () => {
