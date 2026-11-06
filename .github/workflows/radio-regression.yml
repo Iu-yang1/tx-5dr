@@ -51,7 +51,7 @@ jobs:
           EXISTING=()
           for f in "${TESTS[@]}"; do if test -f "$f"; then EXISTING+=("$f"); fi; done
           if test ${#EXISTING[@]} -eq 0; then exit 1; fi
-          yarn exec vitest run "${EXISTING[@]}" --maxWorkers=2 --minWorkers=1
+          yarn exec vitest run "${EXISTING[@]}" --maxWorkers=2
 
   backend:
     runs-on: ubuntu-24.04
@@ -101,4 +101,4 @@ jobs:
           EXISTING=()
           for f in "${TESTS[@]}"; do if test -f "$f"; then EXISTING+=("$f"); fi; done
           if test ${#EXISTING[@]} -eq 0; then exit 1; fi
-          yarn exec vitest run "${EXISTING[@]}" --maxWorkers=2 --minWorkers=1
+          yarn exec vitest run "${EXISTING[@]}" --maxWorkers=2

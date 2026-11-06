@@ -62,7 +62,6 @@
     "serialport": "^13.0.0",
     "tci-client-node": "https://github.com/boybook/tci-client-node.git#commit=7359e718e4b0efe97ef7e2172754b397c36a6b16",
     "wav": "^1.0.2",
-    "wsjtx-lib": "2.2.0",
     "xstate": "^5.23.0",
     "zod": "^4.6.7",
     "zod-to-json-schema": "^3.24.5"
@@ -80,6 +79,7 @@
     "eslint": "^8.0.0",
     "tsx": "^4.0.0",
     "typescript": "^5.0.0",
-    "vitest": "^4.1.12"
+    "vitest": "^4.1.12",
+    "wsjtx-lib": "2.2.0"
   }
 }
