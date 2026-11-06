@@ -16,6 +16,7 @@
     "@tx5dr/contracts": "workspace:*",
     "@tx5dr/core": "workspace:*",
     "@tx5dr/server": "workspace:*",
+    "builder-util-runtime": "9.7.0",
     "electron-log": "^5.4.3",
     "electron-updater": "6.8.11",
     "esbuild": "^0.28.2"

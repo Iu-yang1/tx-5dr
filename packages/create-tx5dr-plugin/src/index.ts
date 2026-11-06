@@ -977,8 +977,8 @@ function generateVanillaUIJs(): string {
       messageInput.value = settings.message;
       currentValue.textContent = 'Current: ' + settings.message;
     }
-  }).catch(function () {
-    // Use defaults
+  }).catch(function (error) {
+    status.textContent = 'Could not load settings; using defaults: ' + (error && error.message ? error.message : 'unknown error');
   });
 
   // Save button handler

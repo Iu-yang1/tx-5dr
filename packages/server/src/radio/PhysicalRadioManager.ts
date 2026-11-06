@@ -3611,7 +3611,8 @@ export class PhysicalRadioManager extends EventEmitter<PhysicalRadioManagerEvent
         this.updateKnownFrequency(currentFrequency);
       }
     } catch (error) {
-      // 静默处理错误（getFrequency 已经有错误处理）
+      // Failed polling is non-fatal; preserve the root cause for opt-in diagnostics.
+      logger.debug('Frequency monitor poll failed', error);
     }
   }
 
