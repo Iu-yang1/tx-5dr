@@ -32,6 +32,10 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y libasound2-dev libpulse-dev libhamlib-dev libhamlib4 libopus-dev build-essential python3-dev pkg-config
       - name: Install dependencies
+        # CI is CPU-only. Avoid optional CUDA NuGet downloads which can time out
+        # and incorrectly fail the build before any tests execute.
+        env:
+          ONNXRUNTIME_NODE_INSTALL: skip
         run: yarn install --immutable
       - name: Build
         run: yarn build
@@ -70,6 +74,10 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y libasound2-dev libpulse-dev libhamlib-dev libhamlib4 libopus-dev build-essential python3-dev pkg-config
       - name: Install dependencies
+        # CI is CPU-only. Avoid optional CUDA NuGet downloads which can time out
+        # and incorrectly fail the build before any tests execute.
+        env:
+          ONNXRUNTIME_NODE_INSTALL: skip
         run: yarn install --immutable
       - name: Build
         run: yarn build
