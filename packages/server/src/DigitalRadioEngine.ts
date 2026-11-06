@@ -959,6 +959,7 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
   }
 
   public async disarmMfskNativeRfTx():Promise<void>{
+    this.nativeAutoTxScheduler.disable();
     this.mfskRfArmGate.revoke();
     this.mfskNativeTxService.cancel();
     const snapshot=this.physicalTxCoordinator.getSnapshot();
