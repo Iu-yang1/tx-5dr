@@ -39,14 +39,14 @@ jobs:
         run: yarn build
       - name: Measure isolated Hamlib IPC control and spectrum overhead
         run: |
-          /usr/bin/time -v yarn workspace @tx5dr/server exec vitest run src/radio/connections/hamlib/__tests__/ProcessHamlibTransport.performance.test.ts --maxWorkers=1 --minWorkers=1
+          /usr/bin/time -v yarn workspace @tx5dr/server exec vitest run src/radio/connections/hamlib/__tests__/ProcessHamlibTransport.performance.test.ts --maxWorkers=1
       - name: Run full backend unit suite in fresh Vitest shard processes
         run: |
           set -o pipefail
           failures=0
           for shard in $(seq 1 8); do
             echo "::group::Backend unit shard ${shard}/8"
-            /usr/bin/time -v yarn workspace @tx5dr/server exec vitest run --shard="${shard}/8" --maxWorkers=1 --minWorkers=1 --exclude 'src/**/*.performance.test.ts' || failures=$((failures+1))
+            /usr/bin/time -v yarn workspace @tx5dr/server exec vitest run --shard="${shard}/8" --maxWorkers=1 --exclude 'src/**/*.performance.test.ts' || failures=$((failures+1))
             echo "::endgroup::"
           done
           if [ "${failures}" -ne 0 ]; then
