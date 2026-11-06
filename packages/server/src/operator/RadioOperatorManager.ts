@@ -1655,6 +1655,15 @@ export class RadioOperatorManager {
     if (!this.isRunning || this.pendingTransmissions.length === 0) return;
 
     const currentMode = this.getCurrentMode();
+    // Native Q65/MSK144/WSPR use their own encoder and UTC scheduler.
+    // Never silently turn a native operator intent into an FT8 waveform.
+    if (currentMode.name !== 'FT8' && currentMode.name !== 'FT4') {
+      this.pendingTransmissions = [];
+      logger.debug('Ignored legacy FT8/FT4 encode queue in native mode', {
+        mode: currentMode.name,
+      });
+      return;
+    }
     const slotStartMs = slotInfo.startMs;
     const now = this.clockSource.now();
     const timeSinceSlotStartMs = now - slotStartMs;
@@ -2121,6 +2130,8 @@ export class RadioOperatorManager {
     }
 
     const currentMode = this.getCurrentMode();
+    // The legacy WSJT-X work queue must never modulate a native mode.
+    if (currentMode.name !== 'FT8' && currentMode.name !== 'FT4') return;
     const now = this.clockSource.now();
     const slotMs = currentMode.slotMs;
     const currentSlotStartMs = Math.floor(now / slotMs) * slotMs;
