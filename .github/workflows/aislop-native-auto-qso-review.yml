@@ -24,7 +24,16 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Run aislop Marketplace quality gate
+      - name: Run aislop Marketplace baseline report
+        continue-on-error: true
         uses: scanaislop/aislop@v1
         with:
           version: latest
+      - name: Setup Node for PR-diff quality gate
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Gate only changed files against main
+        run: |
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          npx --yes aislop@0.14.0 ci --changes --base origin/main --human
