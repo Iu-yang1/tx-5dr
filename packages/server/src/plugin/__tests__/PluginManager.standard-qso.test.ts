@@ -12,6 +12,10 @@ import { PluginManager } from '../PluginManager.js';
 import { LogManager } from '../../log/LogManager.js';
 import { ConfigManager } from '../../config/config-manager.js';
 import { TargetReservationCoordinator } from '../../transmission/TargetReservationCoordinator.js';
+import { NativeAutoTxScheduler } from '../../decode/NativeAutoTxScheduler.js';
+import { MfskNativeTxService } from '../../decode/MfskNativeTxService.js';
+import { projectNativeDigitalFrames } from '../../decode/NativeDigitalSlotBridge.js';
+
 
 type RecordQSORequest = Parameters<DigitalRadioEngineEvents['recordQSO']>[0];
 
@@ -135,6 +139,7 @@ describe('PluginManager standard-qso late re-decision', () => {
   });
 
   async function createRuntimeHarness(options?: {
+    mode?: typeof MODES.FT8;
     strategy?: string;
     preparePlugins?: (dataDir: string) => Promise<void>;
     myCallsign?: string;
@@ -186,7 +191,7 @@ describe('PluginManager standard-qso late re-decision', () => {
 
     const operator = new RadioOperator({
       id: 'operator-1',
-      mode: MODES.FT8,
+      mode: options?.mode ?? MODES.FT8,
       myCallsign: options?.myCallsign ?? 'BG4IAJ',
       myGrid: options?.myGrid ?? 'OM96',
       frequency: 1500,
@@ -4559,4 +4564,105 @@ describe('PluginManager standard-qso late re-decision', () => {
 
     await pluginManager.shutdown();
   });
+
+  describe('Q65/MSK144 native decoding to automatic TX and logbook acknowledgment', () => {
+    it.each([
+      { mode: 'Q65' as const, periodMs: 60_000, text: 'BG5JSU K1ABC 73' },
+      { mode: 'MSK144' as const, periodMs: 5_000, text: 'BG5JSU K1ABC 73' },
+    ])('drives $mode decoded RRR through live strategy, PCM/PTT and QSO record', async ({mode, periodMs}) => {
+      const persisted: RecordQSORequest['qsoRecord'][] = [];
+      const h=await createRuntimeHarness({
+        mode: MODES[mode],
+        myCallsign:'BG5JSU',
+        myGrid:'OL79',
+        targetCallsign:'K1ABC',
+        recordQSOHandler: request => {
+          persisted.push(request.qsoRecord);
+          request.resolve?.(request.qsoRecord);
+        },
+      });
+      const id=h.operator.config.id;
+      setRuntimeState(h.pluginManager,id,'TX3');
+
+      // Convert an actual native protocol event into the SlotPack delivered
+      // to the shared strategy, instead of constructing a synthetic FT8 slot.
+      const nativeTime=periodMs*6;
+      const events= mode==='Q65'
+        ? [{kind:'slot-decode' as const,sessionId:'test-native',mode:'Q65' as const,
+            slotId:`Q65-60B-1-${nativeTime}`,timestampMs:nativeTime+59_000,
+            frequencyHz:1500,snrDb:-12,dtSeconds:0.25,
+            text:'K1ABC BG5JSU RRR',final:true}]
+        : [{kind:'burst-decode' as const,sessionId:'test-native',mode:'MSK144' as const,
+            timestampMs:nativeTime+200,frequencyHz:1500,snrDb:-12,
+            observationWindowMs:100,text:'K1ABC BG5JSU RRR'}];
+      const projected=projectNativeDigitalFrames(events,mode);
+      expect(projected).toHaveLength(1);
+      const pack:SlotPack={
+        slotId:projected[0].result.slotId,
+        startMs:nativeTime,
+        endMs:nativeTime+periodMs,
+        frames:projected[0].result.frames,
+        stats:{totalDecodes:1,successfulDecodes:1,totalFramesBeforeDedup:1,
+          totalFramesAfterDedup:1,lastUpdated:nativeTime+periodMs},
+        decodeHistory:[],
+      };
+
+      // handleNativeDecodedSlot is the real receive->strategy bridge.
+      await h.pluginManager.handleNativeDecodedSlot(pack,pack.endMs+250);
+      expect(h.pluginManager.getOperatorRuntimeStatus(id).currentSlot).toBe('TX5');
+      expect(h.pluginManager.getCurrentTransmission(id)).toMatch(/BG5JSU K1ABC 73/);
+      await vi.waitFor(()=>expect(persisted).toHaveLength(1));
+      expect(persisted[0]).toMatchObject({callsign:'K1ABC',myCallsign:'BG5JSU',mode});
+
+      const physical=vi.fn(async (request:import('../../transmission/PhysicalTxCoordinator.js').PhysicalAudioTransmissionRequest)=>{
+        expect(request.assertPtt).toBe(true);
+        expect(request.operatorIds).toEqual([id]);
+        expect(request.audioData.length).toBeGreaterThan(0);
+        await request.validateStart?.();
+        return {leaseId:'simulated-radio-lease',source:'digital' as const,
+          operatorIds:[id],success:true,reason:'simulated PTT/audio loopback',
+          physicalConfirmed:true};
+      });
+      let now=1_800_000_000_000;
+      let active=false;
+      const service=new MfskNativeTxService({
+        mode:()=>mode,isRunning:()=>true,operatorExists:operatorId=>operatorId===id,
+        receiver:()=>({mode,q65Submode:'Q65-60B',ready:true}),
+        now:()=>now,stopTuneTone:async()=>{},
+        sleep:async(ms)=>{now+=ms;},
+        encode:async(req)=>({audioData:new Float32Array(12_000),
+          sampleRate:12_000 as const,canonicalText:req.text}),
+        transmitAudio:physical,
+      });
+      const auto=new NativeAutoTxScheduler({
+        now:()=>now,mode:()=>mode,
+        receiver:()=>({mode,q65Submode:'Q65-60B',generation:7,ready:true}),
+        operator:()=>({id,isTransmitting:h.operator.isTransmitting,callsign:'BG5JSU',grid:'OL79'}),
+        transmissions:operatorId=>h.pluginManager.getCurrentTransmissions(operatorId),
+        nativeBusy:()=>service.isBusy(),physicalPhase:()=>active?'transmitting':'idle',
+        send:request=>service.send(request),
+        cancelNativeTx:()=>service.cancel(),
+      });
+      auto.start(0);
+      auto.enable({mode,operatorId:id,audioHz:1500,
+        ...(mode==='Q65'?{q65Submode:'Q65-60B' as const,q65TxFirst:true}
+        :{mskPeriodSeconds:5 as const,mskTxFirst:true})});
+      await vi.waitFor(()=>expect(auto.status().lastPhysicalTxConfirmed).toBe(true));
+      expect(physical).toHaveBeenCalledTimes(1);
+      expect(auto.status().lastError).toBeNull();
+      auto.stop();
+    });
+
+    it('never treats WSPR beacon reception as a QSO completion', async()=>{
+      const h=await createRuntimeHarness({mode:MODES.WSPR,myCallsign:'BG5JSU',myGrid:'OL79'});
+      const record=vi.fn();
+      h.eventEmitter.on('recordQSO',record);
+      const pack=createSlotPack(createSlotInfo(60000),[{
+        message:'K1ABC FN42 37',snr:-22,freq:1500,
+      }]);
+      await h.pluginManager.handleNativeDecodedSlot(pack,120000);
+      expect(record).not.toHaveBeenCalled();
+    });
+  });
+
 });
