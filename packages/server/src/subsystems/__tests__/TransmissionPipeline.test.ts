@@ -196,6 +196,41 @@ function createHarness(options: {
 }
 
 describe('TransmissionPipeline lifecycle integration', () => {
+  it('schedules a future-slot FT8 encode for its TX boundary, never the preceding RX slot', async () => {
+    const h = createHarness({nowMs: 14_000});
+    const planned = h.deps.digitalFrameCoordinator.prepareFrame({
+      slotId: 'slot-15000',
+      intents: [{
+        operatorId: 'operator-a',
+        source: 'plugin', reason: 'UTC encodeStart',
+        text: 'CQ BG5JSU OL79', decisionEpoch: 2,
+      }],
+      nowMs: 14_000,
+      slotEndMs: 30_000,
+      expectedDurationMs: 12_640,
+      playbackStartMs: 15_500,
+    });
+    expect(planned.frame).toBeDefined();
+    h.deps.digitalFrameCoordinator.beginEncoding(planned.frame!.frameId);
+    await (h.pipeline as any).handleEncodeComplete({
+      operatorId: 'operator-a',
+      audioData: new Float32Array(12_000),
+      sampleRate: 12_000,
+      duration: 1,
+      request: {
+        frameId: planned.frame!.frameId,
+        frameRevision: planned.frame!.revision,
+        decisionEpoch: 2,
+        slotStartMs: 15_000,
+        requestId: 'future-slot-encode',
+      },
+    });
+    expect(h.deps.audioMixer.scheduleFrameMixing).toHaveBeenCalledWith(
+      {frameId: planned.frame!.frameId, revision: planned.frame!.revision},
+      15_500, 15_500,
+    );
+    expect(h.setPTT).not.toHaveBeenCalled();
+  });
   it('cancels the owning frame when a non-default stream encode fails', () => {
     const harness = createHarness();
     const frame = harness.deps.digitalFrameCoordinator.prepareFrame({
