@@ -1,0 +1,30 @@
+name: aislop native digital code quality
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "packages/server/src/decode/**"
+      - "packages/server/src/operator/**"
+      - "packages/server/src/plugin/**"
+      - "packages/server/src/subsystems/**"
+      - "packages/server/src/routes/**"
+      - "packages/core/src/**"
+      - "packages/web/src/pages/about/**"
+      - ".github/workflows/aislop-native-auto-qso-review.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  code-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run aislop Marketplace quality gate
+        uses: scanaislop/aislop@v1
+        with:
+          version: latest
