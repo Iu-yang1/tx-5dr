@@ -4567,8 +4567,8 @@ describe('PluginManager standard-qso late re-decision', () => {
 
   describe('Q65/MSK144 native decoding to automatic TX and logbook acknowledgment', () => {
     it.each([
-      { mode: 'Q65' as const, periodMs: 60_000, text: 'BG5JSU K1ABC 73' },
-      { mode: 'MSK144' as const, periodMs: 5_000, text: 'BG5JSU K1ABC 73' },
+      { mode: 'Q65' as const, periodMs: 60_000, text: 'K1ABC BG5JSU 73' },
+      { mode: 'MSK144' as const, periodMs: 5_000, text: 'K1ABC BG5JSU 73' },
     ])('drives $mode decoded RRR through live strategy, PCM/PTT and QSO record', async ({mode, periodMs}) => {
       const persisted: RecordQSORequest['qsoRecord'][] = [];
       const h=await createRuntimeHarness({
@@ -4591,10 +4591,12 @@ describe('PluginManager standard-qso late re-decision', () => {
         ? [{kind:'slot-decode' as const,sessionId:'test-native',mode:'Q65' as const,
             slotId:`Q65-60B-1-${nativeTime}`,timestampMs:nativeTime+59_000,
             frequencyHz:1500,snrDb:-12,dtSeconds:0.25,
-            text:'K1ABC BG5JSU RRR',final:true}]
+            text:FT8MessageParser.generateMessage({type:FT8MessageType.RRR,
+              senderCallsign:'K1ABC',targetCallsign:'BG5JSU'}),final:true}]
         : [{kind:'burst-decode' as const,sessionId:'test-native',mode:'MSK144' as const,
             timestampMs:nativeTime+200,frequencyHz:1500,snrDb:-12,
-            observationWindowMs:100,text:'K1ABC BG5JSU RRR'}];
+            observationWindowMs:100,text:FT8MessageParser.generateMessage({type:FT8MessageType.RRR,
+              senderCallsign:'K1ABC',targetCallsign:'BG5JSU'})}];
       const projected=projectNativeDigitalFrames(events,mode);
       expect(projected).toHaveLength(1);
       const pack:SlotPack={
@@ -4610,7 +4612,7 @@ describe('PluginManager standard-qso late re-decision', () => {
       // handleNativeDecodedSlot is the real receive->strategy bridge.
       await h.pluginManager.handleNativeDecodedSlot(pack,pack.endMs+250);
       expect(h.pluginManager.getOperatorRuntimeStatus(id).currentSlot).toBe('TX5');
-      expect(h.pluginManager.getCurrentTransmission(id)).toMatch(/BG5JSU K1ABC 73/);
+      expect(h.pluginManager.getCurrentTransmission(id)).toMatch(/K1ABC BG5JSU 73/);
       await vi.waitFor(()=>expect(persisted).toHaveLength(1));
       expect(persisted[0]).toMatchObject({callsign:'K1ABC',myCallsign:'BG5JSU',mode});
 
