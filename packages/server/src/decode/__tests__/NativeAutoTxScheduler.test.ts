@@ -95,7 +95,7 @@ describe('native automatic UTC transmit scheduling',()=>{
 
   it('cancels an uncommitted UTC waveform when operator TX is switched off',async()=>{
     const h=harness();h.op.isTransmitting=true;h.service.start(0);
-    h.send.mockImplementation(()=>new Promise(()=>{}));
+    h.send.mockImplementation(()=>new Promise<MfskTxOutcome>(()=>{}));
     h.service.enable({mode:'Q65',operatorId:'op1',audioHz:1500});
     expect(h.send).toHaveBeenCalledTimes(1);
     h.op.isTransmitting=false;
