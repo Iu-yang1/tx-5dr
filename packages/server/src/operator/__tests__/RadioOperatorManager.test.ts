@@ -3751,18 +3751,22 @@ describe('RadioOperatorManager transmission acceptance notification', () => {
     });
     await addBasicOperator(manager, 'op1');
     let resolveStrategy!: (value: boolean) => void;
+    let transmissions = defaultTransmissionSet(null);
+    const initializeOperatorTransmission = vi.fn(() => new Promise<boolean>(
+      resolve => { resolveStrategy = resolve; },
+    ));
     manager.setPluginManager({
-      getCurrentTransmissions: vi.fn(() => defaultTransmissionSet('CQ BG4IAJ OM96')),
+      getCurrentTransmissions: vi.fn(() => transmissions),
       getOperatorRuntimeStatus: vi.fn(() => undefined),
-      initializeOperatorTransmission: vi.fn(() => new Promise<boolean>(
-        resolve => { resolveStrategy = resolve; },
-      )),
+      initializeOperatorTransmission,
     } as any);
-    // Make the initial read empty; the strategy becomes ready only after STOP.
-    const getCurrentTransmissions = (manager as any)._pluginManager.getCurrentTransmissions as ReturnType<typeof vi.fn>;
-    getCurrentTransmissions.mockReturnValueOnce([]);
     manager.start();
+    // The previous auto-TX state is inactive before this explicit user start.
+    manager.getOperatorById('op1')?.stop();
     manager.startOperator('op1');
+    expect(initializeOperatorTransmission).toHaveBeenCalledTimes(1);
+    // A strategy response arrived while user STOP superseded their TX intent.
+    transmissions = defaultTransmissionSet('CQ BG4IAJ OM96');
     manager.getOperatorById('op1')?.stop();
     resolveStrategy(true);
     await new Promise(resolve => setTimeout(resolve, 0));
