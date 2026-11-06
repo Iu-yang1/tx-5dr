@@ -27,7 +27,7 @@
     "smoke:ui": "yarn build && node ../plugin-api/scripts/packed-consumer-smoke.mjs --ui-scaffolds"
   },
   "dependencies": {
-    "@tx5dr/plugin-api": "^2.6.0"
+    "@tx5dr/plugin-api": "workspace:^"
   },
   "devDependencies": {
     "typescript": "^5.0.0"
