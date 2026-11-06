@@ -77,11 +77,25 @@ jobs:
               p.write_text(json.dumps(local,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
               print('Reconciled',path)
           version = json.loads(Path('package.json').read_text())['version']
+          sdk_version = json.loads(subprocess.check_output([
+              'git','show','upstream/main:packages/plugin-api/package.json'
+          ]))['version']
+          sdk_packages = {'plugin-api','contracts','core','create-tx5dr-plugin'}
+          host_packages = {'builtin-plugins','client-tools','electron-main',
+                           'electron-preload','server','shared-config','web'}
           for p in Path('packages').glob('*/package.json'):
               data = json.loads(p.read_text(encoding='utf-8'))
-              if 'version' in data and data['version'] != version:
-                  data['version'] = version
+              target = sdk_version if p.parent.name in sdk_packages else (
+                  version if p.parent.name in host_packages else None
+              )
+              if target and 'version' in data and data['version'] != target:
+                  data['version'] = target
                   p.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          info = Path('packages/server/src/generated/buildInfo.json')
+          data = json.loads(info.read_text(encoding='utf-8'))
+          data['version'] = version
+          data['pluginApiVersion'] = sdk_version
+          info.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
           PY
       - name: Generate consistent Yarn 4 lockfile
         shell: bash
@@ -95,7 +109,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git add -- package.json packages/*/package.json yarn.lock
+          git add -- package.json packages/*/package.json yarn.lock packages/server/src/generated/buildInfo.json
           if git diff --staged --quiet; then
             echo "Dependency graph already consistent"
             exit 0
