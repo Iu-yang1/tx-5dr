@@ -85,9 +85,11 @@ describe('native six-mode transmit protocol and physical lease boundaries',()=>{
       operatorId:'op1',audioHz:1500,q65Submode:'Q65-60B'});
     await entered;
     expect(service.isBusy()).toBe(true);
+    expect(service.getPendingOperatorId()).toBe('op1');
     service.cancel();
     await expect(pending).rejects.toThrow(/cancelled/);
     expect(service.isBusy()).toBe(false);
+    expect(service.getPendingOperatorId()).toBeNull();
     expect(c.sent).not.toHaveBeenCalled();
   });
 
@@ -101,9 +103,11 @@ describe('native six-mode transmit protocol and physical lease boundaries',()=>{
     const pending=service.send({mode:'Q65',text:'CQ K1ABC FN42',
       operatorId:'op1',audioHz:1500});
     await entered;
+    expect(service.getPendingOperatorId()).toBe('op1');
     service.cancel();
     await expect(pending).rejects.toThrow(/cancelled/);
     expect(service.isBusy()).toBe(false);
+    expect(service.getPendingOperatorId()).toBeNull();
     expect(c.sent).not.toHaveBeenCalled();
   });
 
