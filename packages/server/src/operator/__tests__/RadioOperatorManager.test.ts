@@ -63,6 +63,7 @@ function createManager(options: {
   callsignTracker?: { getGrid: (callsign: string) => string | undefined };
   getFakeFrequencyEnabled?: () => boolean;
   getTransmitCompensationMs?: () => number;
+  getCurrentMode?: () => typeof MODES.FT8;
 }) {
   const eventEmitter = new EventEmitter<DigitalRadioEngineEvents>();
   const slotPackManager = {
@@ -119,7 +120,7 @@ function createManager(options: {
     eventEmitter,
     encodeQueue: encodeQueue as any,
     clockSource: clockSource as any,
-    getCurrentMode: () => MODES.FT8,
+    getCurrentMode: options.getCurrentMode ?? (() => MODES.FT8),
     setRadioFrequency: vi.fn(),
     slotPackManager: slotPackManager as any,
     getRadioFrequency: options.getRadioFrequency,
@@ -369,6 +370,26 @@ function defaultTransmissionSet(text: string | null, audioFrequencyHz = 1500) {
     ? [{ streamId: 'default', text, audioFrequencyHz }]
     : [];
 }
+
+describe('RadioOperatorManager native frame isolation', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('does not mutate a legacy TX frame using zero-duration MSK144 slots', async () => {
+    const { manager, encodeQueue } = createManager({
+      logBook: { id: 'log-1', name: 'Test', provider: {} },
+      getCurrentMode: () => MODES.MSK144,
+      clockNow: 4_500,
+    });
+    await addBasicOperator(manager, 'op1');
+    const strategyStop = vi.spyOn(manager, 'requestStrategyStop');
+    expect(() => (manager as any).requestOperatorFrameMutation('op1', {
+      kind: 'context',
+      reason: 'MSK144 operator edited target',
+    })).not.toThrow();
+    expect(strategyStop).not.toHaveBeenCalled();
+    expect(encodeQueue.push).not.toHaveBeenCalled();
+  });
+});
 
 describe('RadioOperatorManager transmission maintenance', () => {
   afterEach(() => {
