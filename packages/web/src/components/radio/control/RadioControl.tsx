@@ -29,6 +29,8 @@ import {
   canWriteRadioFrequency,
   deriveMonitorActivationCtaState,
   filterDigitalFrequencyOptions,
+  getPresetFrequencyOptionKey,
+  resolveOperatingPresetMode,
   isAudioMonitorAvailableForInputSignal,
   resolveOperatingStateDisplayFrequency,
   shouldShowFakeFrequencyEntry,
@@ -1181,7 +1183,9 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
 
   // 加载预设频率列表
   React.useEffect(() => {
+    let requestSequence = 0;
     const loadFrequencies = async () => {
+      const requestId = ++requestSequence;
       if (!connection.state.isConnected) {
         setAvailableFrequencies([]);
         return;
@@ -1199,7 +1203,7 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
         if (response.success && Array.isArray(response.presets)) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const frequencyOptions: FrequencyOption[] = response.presets.map((preset: any) => ({
-            key: String(preset.frequency),
+            key: getPresetFrequencyOptionKey(preset),
             label: preset.description || `${formatBandLabel(preset.band)} ${formatFrequencyMHz(preset.frequency)} MHz`,
             frequency: preset.frequency,
             band: preset.band,
@@ -1207,18 +1211,24 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
             radioMode: preset.radioMode
           }));
 
-          setAvailableFrequencies(frequencyOptions);
+          if (requestId === requestSequence) setAvailableFrequencies(frequencyOptions);
         } else {
           logger.error('Failed to load frequencies: invalid response format', response);
         }
       } catch (error) {
         logger.error('Failed to load preset frequencies:', error);
       } finally {
-        setIsLoadingFrequencies(false);
+        if (requestId === requestSequence) setIsLoadingFrequencies(false);
       }
     };
 
-    loadFrequencies();
+    void loadFrequencies();
+    const onPresetsUpdated = () => { void loadFrequencies(); };
+    window.addEventListener('frequencyPresetsUpdated', onPresetsUpdated);
+    return () => {
+      requestSequence += 1;
+      window.removeEventListener('frequencyPresetsUpdated', onPresetsUpdated);
+    };
   }, [canUseAuthenticatedRest, connection.state.isConnected, formatBandLabel]);
 
   // 简化的监听开关控制
@@ -1661,11 +1671,14 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
     }
   };
 
+  // Use the active operating engine so voice and the new digital modes share the same selector.
+  const activePresetMode = resolveOperatingPresetMode(radioMode.engineMode, radioMode.currentMode?.name);
+
   // 根据当前模式筛选频率
   const filteredFrequencies = React.useMemo(() => {
     let filtered = filterDigitalFrequencyOptions(
       availableFrequencies,
-      radioMode.currentMode?.name,
+      activePresetMode,
       customFrequencyOption,
     );
 
@@ -1679,20 +1692,23 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
     }
 
     return filtered;
-  }, [availableFrequencies, radioMode.currentMode, customFrequencyOption, isAdmin, canSetFrequency, ability]);
+  }, [availableFrequencies, activePresetMode, customFrequencyOption, isAdmin, canSetFrequency, ability]);
 
   const selectedFrequencyOption = React.useMemo(() => {
-    const presetOption = filteredFrequencies.find(freq => freq.key === currentFrequency);
+    const currentHz = Number(currentFrequency);
+    const presetOption = filteredFrequencies.find(freq =>
+      freq.frequency === currentHz && freq.mode === activePresetMode && freq.key !== CURRENT_CUSTOM_FREQUENCY_KEY,
+    );
     if (presetOption) {
       return presetOption;
     }
 
-    if (customFrequencyOption && String(customFrequencyOption.frequency) === currentFrequency) {
+    if (customFrequencyOption && customFrequencyOption.frequency === currentHz) {
       return customFrequencyOption;
     }
 
     return null;
-  }, [filteredFrequencies, currentFrequency, customFrequencyOption]);
+  }, [filteredFrequencies, currentFrequency, activePresetMode, customFrequencyOption]);
 
   const selectedFrequencyKey = selectedFrequencyOption?.key ?? null;
 
@@ -1796,7 +1812,7 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
       const response = await setRadioFrequencyWithIntent(params);
 
       if (response.success) {
-        setCurrentFrequency(selectedFrequencyKey);
+        setCurrentFrequency(String(selectedFrequency.frequency));
         setCustomFrequencyOption(null);
         resetOperatorsAfterOperatingStateChange();
 
@@ -1872,12 +1888,13 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
       return;
     }
 
-    const frequencyKey = String(frequency);
-    const isPreset = availableFrequencies.some(item => item.key === frequencyKey);
+    const isPreset = availableFrequencies.some(item =>
+      item.frequency === frequency && item.mode === activePresetMode,
+    );
     if (!isPreset) {
       setCustomFrequencyOption(buildCurrentCustomFrequencyOption(
         frequency,
-        snapshot?.mode || radioMode.currentMode?.name || 'FT8',
+        activePresetMode || snapshot?.mode || 'FT8',
         snapshot?.band || '',
         snapshot?.radioMode,
       ));
@@ -1885,7 +1902,7 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
     }
 
     setCustomFrequencyOption(null);
-  }, [availableFrequencies, buildCurrentCustomFrequencyOption, radioMode.currentMode?.name, radioMode.currentRadioFrequency, radioMode.operatingState]);
+  }, [activePresetMode, availableFrequencies, buildCurrentCustomFrequencyOption, radioMode.currentRadioFrequency, radioMode.operatingState]);
 
   return (
     <>
