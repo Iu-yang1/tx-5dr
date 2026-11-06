@@ -239,11 +239,18 @@ export async function mfskCapabilityRoutes(fastify:FastifyInstance):Promise<void
       requireOperatorAbility(req=>(req.body as {operatorId?:string})?.operatorId??''),
     ],
   },async(_request,reply)=>reply.send({success:true,rfEnabled:true,remainingMs:0}));
-  fastify.post('/tx/disarm',{preHandler:[requireAbility('execute','RadioControl')]},
-    async(_request,reply)=>{
-      await DigitalRadioEngine.getInstance().disarmMfskNativeRfTx();
-      return reply.send({success:true,rfEnabled:false,remainingMs:0});
-    });
+  fastify.post('/tx/disarm',{preHandler:[
+    requireAbility('execute','RadioControl'),
+    async(request,reply)=>{
+      // The legacy STOP endpoint is still used by manual TX. During an
+      // automatic session, only its owning operator may terminate the lease.
+      const owner=DigitalRadioEngine.getInstance().getNativeAutoTxScheduler().status().operatorId;
+      if(owner)await requireOperatorAbility(()=>owner)(request,reply);
+    },
+  ]},async(_request,reply)=>{
+    await DigitalRadioEngine.getInstance().disarmMfskNativeRfTx();
+    return reply.send({success:true,rfEnabled:false,remainingMs:0});
+  });
   fastify.post('/tx/send',{
     preHandler:[
       requireAbility('execute','RadioControl'),
@@ -252,6 +259,12 @@ export async function mfskCapabilityRoutes(fastify:FastifyInstance):Promise<void
   },async(request,reply)=>{
     const payload=MfskPhysicalTxRequestSchema.parse(request.body);
     const engine=DigitalRadioEngine.getInstance();
+    // Manual RF requests must not race an operator-owned automatic UTC slot.
+    if(engine.getNativeAutoTxScheduler().status().enabled){
+      return reply.code(409).send({
+        success:false,error:'Disable native automatic TX before sending manually',
+      });
+    }
     const service=engine.getMfskNativeTxService();
     const result=await service.send(payload);
     if(!isMfskPhysicalTxConfirmed(result)){
