@@ -5,6 +5,8 @@ import {
   canWriteRadioFrequency,
   deriveMonitorActivationCtaState,
   filterDigitalFrequencyOptions,
+  getPresetFrequencyOptionKey,
+  resolveOperatingPresetMode,
   isAudioMonitorAvailableForInputSignal,
   isFakeFrequencySupportedMode,
   isCoreCapabilityAvailable,
@@ -44,6 +46,24 @@ describe('radioControl utils', () => {
     expect(isAudioMonitorAvailableForInputSignal('af')).toBe(true);
     expect(isAudioMonitorAvailableForInputSignal(undefined)).toBe(true);
     expect(isAudioMonitorAvailableForInputSignal('icom-12k-if')).toBe(false);
+  });
+
+  it('resolves presets for the operating engine instead of a stale sub-mode', () => {
+    expect(resolveOperatingPresetMode('digital', 'Q65')).toBe('Q65');
+    expect(resolveOperatingPresetMode('digital', 'MSK144')).toBe('MSK144');
+    expect(resolveOperatingPresetMode('digital', 'JTTY')).toBe('JTTY');
+    expect(resolveOperatingPresetMode('digital', 'WSPR')).toBe('WSPR');
+    expect(resolveOperatingPresetMode('voice', 'FT8')).toBe('VOICE');
+    expect(resolveOperatingPresetMode('image', 'SSTV')).toBe('SSTV');
+    expect(resolveOperatingPresetMode('cw', 'FT4')).toBe('CW');
+  });
+
+  it('distinguishes identical frequencies across digital modes', () => {
+    const ft4 = { key: getPresetFrequencyOptionKey({ mode: 'FT4', frequency: 3_575_000 }), mode: 'FT4' };
+    const jtty = { key: getPresetFrequencyOptionKey({ mode: 'JTTY', frequency: 3_575_000 }), mode: 'JTTY' };
+    expect(ft4.key).not.toBe(jtty.key);
+    expect(filterDigitalFrequencyOptions([ft4, jtty], 'JTTY')).toEqual([jtty]);
+    expect(filterDigitalFrequencyOptions([ft4, jtty], 'FT4')).toEqual([ft4]);
   });
 
   it('keeps digital presets available when current mode is unknown', () => {
