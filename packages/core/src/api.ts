@@ -592,6 +592,23 @@ export const api = {
   async transmitMfsk(request:import('@tx5dr/contracts').MfskPhysicalTxRequest):Promise<unknown>{
     return apiRequest('/mfsk/tx/send',{method:'POST',body:JSON.stringify(request)});
   },
+  async getMfskNativeAutoTxStatus(): Promise<{
+    enabled:boolean;running:boolean;mode:'Q65'|'MSK144'|'WSPR'|null;
+    operatorId:string|null;pending:boolean;lastScheduledStartMs:number|null;
+    lastPhysicalTxConfirmed:boolean|null;lastError:string|null;
+  }> {
+    return apiRequest('/mfsk/tx/auto/status');
+  },
+  async startMfskNativeAutoTx(request:{
+    mode:'Q65'|'MSK144'|'WSPR';operatorId:string;text?:string;audioHz:number;
+    q65Submode?:import('@tx5dr/contracts').Q65Submode;q65TxFirst?:boolean;
+    mskPeriodSeconds?:5|10|15|30;mskTxFirst?:boolean;
+  }):Promise<unknown>{
+    return apiRequest('/mfsk/tx/auto/start',{method:'POST',body:JSON.stringify(request)});
+  },
+  async stopMfskNativeAutoTx():Promise<unknown>{
+    return apiRequest('/mfsk/tx/auto/stop',{method:'POST'});
+  },
   async startMfskLiveRx(
     cfg: import('@tx5dr/contracts').MfskLiveRxStart,
   ): Promise<import('@tx5dr/contracts').MfskLiveRxStatus> {
