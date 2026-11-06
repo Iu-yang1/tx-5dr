@@ -3707,6 +3707,65 @@ describe('RadioOperatorManager transmission acceptance notification', () => {
     });
   });
 
+  it('initializes an empty FT8 strategy when TX is enabled and then queues its first waveform', async () => {
+    mockMaxSameTransmissionCount(20);
+    const encodeQueue = { push: vi.fn() };
+    const { manager } = createManager({
+      logBook: { id: 'log-1', name: 'Test Log', provider: {} },
+      clockNow: 4_500,
+      encodeQueue,
+    });
+    await addBasicOperator(manager, 'op1');
+    let resolveStrategy!: (value: boolean) => void;
+    let transmissions: ReturnType<typeof defaultTransmissionSet> = [];
+    const initializeOperatorTransmission = vi.fn(() => new Promise<boolean>(
+      (resolve) => { resolveStrategy = resolve; },
+    ));
+    manager.setPluginManager({
+      getCurrentTransmissions: vi.fn(() => transmissions),
+      initializeOperatorTransmission,
+    } as any);
+    manager.start();
+
+    manager.startOperator('op1');
+    expect(manager.getOperatorById('op1')?.isTransmitting).toBe(true);
+    expect(encodeQueue.push).not.toHaveBeenCalled();
+    expect(initializeOperatorTransmission).toHaveBeenCalledExactlyOnceWith('op1');
+
+    transmissions = defaultTransmissionSet('CQ BG4IAJ OM96');
+    resolveStrategy(true);
+    await vi.waitFor(() => expect(encodeQueue.push).toHaveBeenCalledTimes(1));
+    expect(encodeQueue.push.mock.calls[0]?.[0]).toMatchObject({
+      operatorId: 'op1', message: 'CQ BG4IAJ OM96',
+    });
+  });
+
+  it('does not encode an asynchronously initialized TX message after the operator stops', async () => {
+    const encodeQueue = { push: vi.fn() };
+    const { manager } = createManager({
+      logBook: { id: 'log-1', name: 'Test Log', provider: {} },
+      clockNow: 4_500,
+      encodeQueue,
+    });
+    await addBasicOperator(manager, 'op1');
+    let resolveStrategy!: (value: boolean) => void;
+    manager.setPluginManager({
+      getCurrentTransmissions: vi.fn(() => defaultTransmissionSet('CQ BG4IAJ OM96')),
+      initializeOperatorTransmission: vi.fn(() => new Promise<boolean>(
+        resolve => { resolveStrategy = resolve; },
+      )),
+    } as any);
+    // Make the initial read empty; the strategy becomes ready only after STOP.
+    const getCurrentTransmissions = (manager as any)._pluginManager.getCurrentTransmissions as ReturnType<typeof vi.fn>;
+    getCurrentTransmissions.mockReturnValueOnce([]);
+    manager.start();
+    manager.startOperator('op1');
+    manager.getOperatorById('op1')?.stop();
+    resolveStrategy(true);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(encodeQueue.push).not.toHaveBeenCalled();
+  });
+
   it('waits for queue target revalidation before encoding a resumed active entry', async () => {
     mockMaxSameTransmissionCount(20);
     const encodeQueue = { push: vi.fn() };
