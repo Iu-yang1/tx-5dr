@@ -28,6 +28,31 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Forward merge current fork main into upstream staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          if git merge-base --is-ancestor origin/main HEAD; then
+            echo 'Staging already contains fork main'
+          else
+            if ! git merge --no-commit --no-ff -X theirs origin/main; then
+              # Resolve remaining modify/delete conflicts toward latest fork main.
+              while IFS= read -r -d '' conflict; do
+                if git cat-file -e "origin/main:$conflict" 2>/dev/null; then
+                  git checkout --theirs -- "$conflict"
+                  git add -- "$conflict"
+                else
+                  git rm -f -- "$conflict"
+                fi
+                echo "Resolved current-main overlap: $conflict"
+              done < <(git diff --name-only --diff-filter=U -z)
+              test -z "$(git ls-files -u)"
+            fi
+            git commit -m "merge(fork): forward-port current main to upstream integration staging"
+          fi
       - name: Merge upstream dependency constraints while preserving fork-only packages
         shell: bash
         run: |
