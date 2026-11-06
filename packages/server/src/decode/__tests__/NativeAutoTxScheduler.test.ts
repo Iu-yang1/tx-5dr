@@ -129,6 +129,16 @@ describe('native automatic UTC transmit scheduling',()=>{
     h.service.stop();
   });
 
+  it('does not let a second operator replace an already enabled automatic TX session',async()=>{
+    const h=harness();h.op.isTransmitting=true;h.service.start(0);
+    h.service.enable({mode:'Q65',operatorId:'op1',audioHz:1500});
+    expect(()=>h.service.enable({mode:'Q65',operatorId:'op2',audioHz:1500}))
+      .toThrow(/already controlled by another operator/);
+    expect(h.service.status()).toMatchObject({enabled:true,operatorId:'op1'});
+    expect(h.send).toHaveBeenCalledTimes(1);
+    h.service.stop();
+  });
+
   it('disarms automatically when the native RX generation changes',async()=>{
     const h=harness();h.op.isTransmitting=true;h.service.start(0);
     h.service.enable({mode:'Q65',operatorId:'op1',audioHz:1500});
