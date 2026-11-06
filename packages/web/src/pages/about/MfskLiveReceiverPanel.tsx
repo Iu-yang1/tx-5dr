@@ -306,9 +306,9 @@ export function MfskLiveReceiverPanel({
       .finally(()=>setAutoPending(false));
   };
   const stopAutomaticTransmission=()=>{
-    if(autoPending)return;
+    if(autoPending||!currentOperatorId||!autoActive)return;
     setAutoPending(true);
-    void api.stopMfskNativeAutoTx().then(()=>api.getMfskNativeAutoTxStatus())
+    void api.stopMfskNativeAutoTx(currentOperatorId).then(()=>api.getMfskNativeAutoTxStatus())
       .then(setAutoStatus).catch(error=>setTxNotice(error instanceof Error?error.message:String(error)))
       .finally(()=>setAutoPending(false));
   };
