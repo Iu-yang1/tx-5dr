@@ -3396,9 +3396,18 @@ export class HamlibRuntime
   private async performPTTWrite(enabled: boolean): Promise<void> {
     this.checkConnected();
 
-    if (this.pttMethod === 'none' || this.pttMethod === 'vox') {
+    if (this.pttMethod === 'none') {
+      if (enabled) {
+        throw RadioError.pttActivationFailed(
+          'CAT PTT is disabled (PTT method: none); select CAT, DTR/RTS or an explicitly configured VOX path',
+          new Error('No physical PTT command was issued'),
+        );
+      }
       return;
     }
+    // VOX can key from audio but does not acknowledge RF PTT. Keep its
+    // explicitly configured behaviour separate from a CAT-keyed TX path.
+    if (this.pttMethod === 'vox') return;
 
     try {
       // The coordinator owns the user-visible timeout. Keep this critical

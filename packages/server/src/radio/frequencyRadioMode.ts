@@ -15,7 +15,9 @@ function hasNonEmptyString(value: unknown): value is string {
 
 function isDigitalAppMode(mode: string | undefined): boolean {
   const normalized = mode?.trim().toUpperCase();
-  return normalized === 'FT8' || normalized === 'FT4';
+  return normalized === 'FT8' || normalized === 'FT4'
+    || normalized === 'Q65' || normalized === 'MSK144'
+    || normalized === 'WSPR' || normalized === 'JTTY';
 }
 
 export function normalizeDigitalModeRadioModePreference(
