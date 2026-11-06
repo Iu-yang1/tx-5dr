@@ -33,6 +33,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
+      - name: Install required Python quality tools
+        run: |
+          python3 -m pip install --user ruff==0.14.6 --break-system-packages
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Snapshot accepted main-branch findings
         shell: bash
         run: |
