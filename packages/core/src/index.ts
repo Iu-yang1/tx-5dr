@@ -48,3 +48,4 @@ export * from './lotwStationLocation.js';
 
 // Multimode clock-pure scheduler (P1)
 export * from './clock/DigitalModeSchedule.js';
+export * from './updates.js';
