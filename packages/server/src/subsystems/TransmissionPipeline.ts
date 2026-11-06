@@ -60,8 +60,22 @@ export class TransmissionPipeline {
   private readonly terminalOperatorsByFrame = new Map<string, Set<string>>();
   private readonly onAirTransmissionKeys = new Set<string>();
   private operatorRemovalTransition: Promise<void> = Promise.resolve();
+  private lastTxWarning: { reason: string; atMs: number } | null = null;
 
   constructor(private readonly deps: TransmissionPipelineDeps) {}
+
+  private warnDigitalTxBlocked(reason: string): void {
+    const atMs = this.deps.clockSource.now();
+    if (this.lastTxWarning?.reason === reason && atMs - this.lastTxWarning.atMs < 30_000) return;
+    this.lastTxWarning = { reason, atMs };
+    this.deps.engineEmitter.emit('textMessage', {
+      title: 'Digital TX did not start',
+      text: reason,
+      color: 'warning',
+      timeout: 12_000,
+      key: 'digitalTxBlocked',
+    });
+  }
 
   getIsPTTActive(): boolean {
     return this.deps.physicalTxCoordinator.getSnapshot().phase !== 'idle';
@@ -332,6 +346,7 @@ export class TransmissionPipeline {
   }
 
   private handleEncodeError(error: Error, request: EncodeRequest): void {
+    this.warnDigitalTxBlocked(`Audio waveform encoding failed: ${error.message}`);
     logger.error('frame encode failed', {
       frameId: request.frameId,
       operatorId: request.operatorId,
@@ -467,6 +482,7 @@ export class TransmissionPipeline {
       mixedAudio.duration * 1_000,
     )) {
       const reason = 'complete frame no longer fits current slot after encode/mix';
+      this.warnDigitalTxBlocked(`Digital TX deferred: ${reason}`);
       this.deps.operatorManager.deferPreparedFrameToNextSlot(readyFrame.frameId, reason);
       logger.info('Deferring ready digital frame before physical commit', {
         frameId: readyFrame.frameId,
@@ -611,6 +627,7 @@ export class TransmissionPipeline {
         );
         activeLeaseId = null;
         const reason = 'digital waveform fully consumed before audio start';
+        this.warnDigitalTxBlocked(`Digital TX deferred: ${reason}`);
         this.deps.operatorManager.deferPreparedFrameToNextSlot(committed.frameId, reason);
         return;
       }
@@ -683,6 +700,7 @@ export class TransmissionPipeline {
         return;
       }
       if (error instanceof PhysicalTxPreparationError) {
+        this.warnDigitalTxBlocked(`TX audio output unavailable: ${message}. Check the radio's TX soundcard output device.`);
         this.deps.operatorManager.deferPreparedFrameToNextSlot(prepared.frameId, message);
         logger.warn('Deferring committed frame because physical audio output is not ready', {
           frameId: prepared.frameId,
@@ -697,6 +715,7 @@ export class TransmissionPipeline {
         });
         return;
       }
+      this.warnDigitalTxBlocked(`Digital TX/PTT failed: ${message}`);
       logger.error('physical digital transmission failed', {
         frameId: prepared.frameId,
         error: message,
@@ -841,6 +860,9 @@ export class TransmissionPipeline {
         streamGeneration: result.audioIssue?.streamGeneration,
         audioIssueKind: result.audioIssue?.kind,
       });
+    }
+    if (!result.success && !result.leaseContinues) {
+      this.warnDigitalTxBlocked(`Digital audio/PTT not confirmed: ${result.error ?? result.reason}`);
     }
     if (!result.success
       && !result.leaseContinues

@@ -374,7 +374,7 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
     this.on('frequencyChanged', (data) => {
       this.slotPackManager.setFrequencyContext(data);
     });
-    this.audioMixer = new AudioMixer(100);
+    this.audioMixer = new AudioMixer({ mixingWindowMs: 100, now: () => this.clockSource.now() });
     this.radioManager = new PhysicalRadioManager({
       connectionFactory: (config) => {
         const virtual = ConfigManager.getInstance().getActiveVirtualRadioProfile();
