@@ -8,6 +8,8 @@ on:
       - "packages/server/src/operator/**"
       - "packages/server/src/plugin/**"
       - "packages/server/src/subsystems/**"
+      - "packages/server/src/server.ts"
+      - "packages/electron-main/src/**"
       - "packages/server/src/routes/**"
       - "packages/core/src/**"
       - "packages/web/src/pages/about/**"
