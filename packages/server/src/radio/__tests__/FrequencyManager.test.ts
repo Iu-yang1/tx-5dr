@@ -90,3 +90,49 @@ describe('FrequencyManager image presets', () => {
     });
   });
 });
+
+describe('FrequencyManager native digital presets', () => {
+  it('offers USB dial frequencies for Q65, MSK144, JTTY and WSPR', () => {
+    const manager = new FrequencyManager();
+    const expected = {
+      Q65: [50_190_000, 144_120_000, 144_180_000, 432_080_000],
+      MSK144: [50_260_000, 50_280_000, 144_150_000, 144_360_000],
+      JTTY: [1_838_000, 3_575_000, 7_090_000, 10_140_000, 14_090_000],
+      WSPR: [1_836_600, 3_568_600, 7_038_600, 10_138_700, 14_095_600, 432_300_000],
+    };
+
+    for (const [mode, frequencies] of Object.entries(expected)) {
+      const presets = manager.getPresetsByMode(mode);
+      expect(presets.map((preset) => preset.frequency)).toEqual(expect.arrayContaining(frequencies));
+      expect(presets.every((preset) => preset.radioMode === 'USB')).toBe(true);
+      expect(new Set(presets.map((preset) => preset.frequency)).size).toBe(presets.length);
+    }
+  });
+
+  it('backfills absent modes into legacy saved catalogs without changing existing presets', () => {
+    const customized = [
+      { band: '20m', mode: 'FT8', radioMode: 'USB', frequency: 14_075_000, description: 'My FT8' },
+      { band: '2m', mode: 'Q65', radioMode: 'USB', frequency: 144_125_000, description: 'My Q65' },
+    ];
+    const manager = new FrequencyManager(customized);
+
+    expect(manager.getPresetsByMode('FT8')).toEqual([customized[0]]);
+    expect(manager.getPresetsByMode('Q65')).toEqual([customized[1]]);
+    expect(manager.getPresetsByMode('MSK144').length).toBeGreaterThan(0);
+    expect(manager.getPresetsByMode('JTTY').length).toBeGreaterThan(0);
+    expect(manager.getPresetsByMode('WSPR').length).toBeGreaterThan(0);
+    expect(manager.getPresetsByMode('FAX')).toHaveLength(49);
+  });
+
+  it('does not duplicate new digital presets when a catalog already stores them', () => {
+    const saved = [
+      { band: '20m', mode: 'JTTY', radioMode: 'USB', frequency: 14_090_000, description: 'Edited JTTY' },
+      { band: '20m', mode: 'WSPR', radioMode: 'USB', frequency: 14_095_600, description: 'Edited WSPR' },
+    ];
+    const manager = new FrequencyManager(saved);
+    expect(manager.getPresetsByMode('JTTY')).toEqual([saved[0]]);
+    expect(manager.getPresetsByMode('WSPR')).toEqual([saved[1]]);
+    expect(manager.getPresetsByMode('Q65').length).toBeGreaterThan(0);
+    expect(manager.getPresetsByMode('MSK144').length).toBeGreaterThan(0);
+  });
+});
