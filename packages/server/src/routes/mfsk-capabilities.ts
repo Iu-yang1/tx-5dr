@@ -3,27 +3,28 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { FastifyInstance } from 'fastify';
 import {
-  DIGITAL_CODEC_PROFILES,
   DigitalCodecRuntimeCapabilitySchema,
   MfskCodecProbeResponseSchema,
+  MfskCodecSimulationRequestSchema,
+  MfskCodecSimulationResponseSchema,
+  MfskPhysicalTxRequestSchema,
+  MfskManualQsoSchema,
+  WsprSpotsResponseSchema,
+  Q65SubmodeSchema,
+  MfskLiveRxStartSchema,
+  MfskLiveRxStatusSchema,
+  MfskLiveRxEventsSchema,
+  MfskLiveRxApContextUpdateSchema,
   type DigitalCodecMode,
   type MfskCodecProbeResponse,
 } from '@tx5dr/contracts';
-import { requireAbility } from '../auth/authPlugin.js';
+import { requireAbility, requireOperatorAbility } from '../auth/authPlugin.js';
 import { MFSK_NATIVE_MODULE_PATH } from '../decode/MfskNativeAdapter.js';
-import { MfskCodecSimulationRequestSchema, MfskCodecSimulationResponseSchema } from '@tx5dr/contracts';
 import { fileURLToPath } from 'node:url';
 import { isMfskPhysicalTxConfirmed } from '../decode/MfskNativeTxService.js';
 import { DigitalRadioEngine } from '../DigitalRadioEngine.js';
-import { requireOperatorAbility } from '../auth/authPlugin.js';
-import { MfskPhysicalTxRequestSchema, MfskManualQsoSchema, WsprSpotsResponseSchema } from '@tx5dr/contracts';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { Q65SubmodeSchema } from '@tx5dr/contracts';
-import {
-  MfskLiveRxStartSchema, MfskLiveRxStatusSchema, MfskLiveRxEventsSchema,
-  MfskLiveRxApContextUpdateSchema,
-} from '@tx5dr/contracts';
 
 const NativeAutomaticTxStartSchema = z.object({
   mode: z.enum(['Q65', 'MSK144', 'WSPR']),
