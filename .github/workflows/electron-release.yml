@@ -1223,7 +1223,7 @@ jobs:
           name: "TX-5DR ${{ github.event.inputs.version }} — Windows/Linux"
           body: |
             ## TX-5DR ${{ github.event.inputs.version }} — Windows/Linux
-            Windows x64、Linux x64/ARM64；-rc.N 为预发布候选版。不构建或发布 macOS。
+            Windows x64、Linux x64/ARM64 正式发布；仅 -rc.N 标签为预发布候选版。此工作流不构建或发布 macOS。
 
             **Commit:** [${{ steps.release_info.outputs.short_sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
             **Build:** ${{ steps.release_info.outputs.timestamp }}
@@ -1235,14 +1235,17 @@ jobs:
             - Native manual TX requires an explicit expiring operator/session RF authorization and a host-controlled physical PTT lease. RX never keys PTT.
             - WSPR spots are local observations, not completed QSOs.
 
-            ### Release Candidate fixes (rc.2)
+            ### Stable release fixes
             - Fixed the packaged Windows server crash: DigitalMessagePreflightService no longer imports unavailable wsjtx-lib.
             - Production FT8/FT4 preflight now uses the same mfsk-native Rust encoder.
             - Packaged Windows/Linux server preflight is exercised by CI before publishing.
+            - Restored production FT8/FT4 native waveform admission and corrected UTC-slot audio/PTT scheduling.
+            - Added visible physical TX failure diagnostics for CAT/PTT/audio; production DEBUG output and developer tools now default to off.
 
-            ### Release Candidate limitations
+            ### Known limitations
             - Windows x64 and Linux x64/ARM64 only; no macOS packages.
             - Hardware-specific CAT, AF, PTT and on-air QSO timing must be validated at each station.
+            - FT-DX10 actual USB-DATA audio, CAT PTT and RF emission have not been independently verified by repository CI; simulated PCM/PTT tests are not over-the-air proof.
             - Upstream does not yet support MSK40 shorthand or MSK144 adaptive RX equalization.
             - High-spread Watterson and fast-Doppler decoding parity is not established.
 
@@ -1259,6 +1262,7 @@ jobs:
             - Hamlib uses an isolated native worker; verify real CAT/PTT behaviour on an actual radio before transmitting.
             - SkyCAT port 4534 is a WSJT-X-only restricted rigctl proxy; independent TX-5DR frequency/mode writes to 4534 are acknowledged but not performed.
             - WaveLog v1/v2 sync should be validated against actual accounts with a small sample before bulk sync.
+            - Production diagnostics are minimized by default; set TX5DR_ENABLE_DIAGNOSTICS=1 and/or LOG_LEVEL for explicit troubleshooting.
           artifacts: "release-assets/*"
           token: ${{ secrets.GITHUB_TOKEN }}
           draft: false

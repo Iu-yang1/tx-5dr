@@ -477,7 +477,9 @@ jobs:
           name: "TX-5DR Server ${{ github.event.inputs.version }}"
           body: |
             ## TX-5DR Server ${{ github.event.inputs.version }}
-            Windows/Linux P9 six-mode candidate: -rc.N tags are prereleases, not stable. RF TX needs explicit operator consent.
+            Production server release for Linux x64/ARM64. Only -rc.N tags are prereleases; physical RF transmission continues to require explicit operator authorization.
+            Production logging defaults to warnings and errors; set TX5DR_ENABLE_DIAGNOSTICS=1 or LOG_LEVEL to diagnose a local station issue.
+            FT-DX10 USB-DATA audio, CAT PTT and actual RF output have not been proven by CI's simulated PCM/PTT tests.
 
             **Release Date** （发布日期）: ${{ steps.release_info.outputs.date }}
             **Commit**: [${{ steps.release_info.outputs.short_sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
