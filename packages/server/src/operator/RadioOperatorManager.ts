@@ -2228,7 +2228,7 @@ export class RadioOperatorManager {
       const oldest = this.nativeDecodeSignatures.keys().next().value;
       if (oldest !== undefined) this.nativeDecodeSignatures.delete(oldest);
     }
-    void this._pluginManager.handleNativeDecodedSlot(slotPack).catch(error => {
+    void this._pluginManager.handleNativeDecodedSlot(slotPack, this.clockSource.now()).catch(error => {
       logger.warn('Native QSO strategy decision failed', {
         mode, slotId: slotPack.slotId,
         error: error instanceof Error ? error.message : String(error),
