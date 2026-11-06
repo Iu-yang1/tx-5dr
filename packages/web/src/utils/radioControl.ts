@@ -6,6 +6,22 @@ export interface FrequencyOptionLike {
   mode: string;
 }
 
+/** The same dial frequency may be valid for several digital modes. */
+export function getPresetFrequencyOptionKey(preset: { mode: string; frequency: number }): string {
+  return `${preset.mode}:${preset.frequency}`;
+}
+
+/** Match presets to the active engine, not a potentially stale digital sub-mode. */
+export function resolveOperatingPresetMode(
+  engineMode: EngineMode | null | undefined,
+  currentModeName: string | null | undefined,
+): string | null {
+  if (engineMode === 'voice') return 'VOICE';
+  if (engineMode === 'cw') return 'CW';
+  if (engineMode === 'digital' || engineMode === 'image') return currentModeName ?? null;
+  return null;
+}
+
 export interface MonitorActivationCtaState {
   shouldShowActivationCta: boolean;
   hasUserActivation: boolean;
