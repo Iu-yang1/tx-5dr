@@ -531,14 +531,16 @@ export function MfskLiveReceiverPanel({
             isDisabled={(!txPending&&!txStatus.busy)||txStopPending}
             onPress={stopTransmission}>{t('codec.stopTx')}</Button>
         </div>
+        {!autoActive && (mode==='Q65'||mode==='MSK144'||mode==='WSPR') &&
+          <p className="text-xs text-warning-600" role="status">{t('codec.autoNeedsStart')}</p>}
         {autoActive && autoStatus?.pending && <p className="text-xs text-default-500" role="status">
-          AUTO TX: UTC slot pending; this does not yet indicate an active PTT.
+          {t('codec.autoPending')}
         </p>}
         {autoActive && autoStatus?.lastError && <p className="text-xs text-danger" role="alert">
           {t('codec.txFailed')}: {autoStatus.lastError}
         </p>}
         {autoActive && autoStatus?.lastPhysicalTxConfirmed === true && <p className="text-xs text-success" role="status">
-          AUTO TX: PTT/audio physically confirmed by the host.
+          {t('codec.autoConfirmed')}
         </p>}
         {txNotice && <p className="text-xs" role="status">{txNotice}</p>}
       </div>
