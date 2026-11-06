@@ -403,8 +403,7 @@ export class TransmissionPipeline {
 
     const mode = this.deps.getCurrentMode();
     const now = this.deps.clockSource.now();
-    const currentSlotStartMs = Math.floor(now / mode.slotMs) * mode.slotMs;
-    const slotStartMs = request.slotStartMs ?? currentSlotStartMs;
+    const slotStartMs = request.slotStartMs ?? Math.floor(now / mode.slotMs) * mode.slotMs;
     this.deps.audioMixer.addOperatorAudio(
       result.operatorId,
       result.audioData,
@@ -441,7 +440,9 @@ export class TransmissionPipeline {
     }
 
     const transmitStartMs = Math.max(0, (mode.transmitTiming || 0) - this.deps.getCompensationMs());
-    const targetPlaybackTime = currentSlotStartMs + transmitStartMs;
+    // Encode can complete during the preceding RX slot. Schedule against the
+    // frame's intended TX slot, not the wall-clock slot containing the encoder.
+    const targetPlaybackTime = slotStartMs + transmitStartMs;
     if (now >= targetPlaybackTime) {
       const mixedAudio = await this.deps.audioMixer.mixFrameById(
         request.frameId,
