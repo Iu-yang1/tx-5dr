@@ -207,6 +207,23 @@ export class TransmissionPipeline {
   ): Promise<void> {
     if (!this.isRemovalCommandCurrent(command)) return;
     const physical = this.deps.physicalTxCoordinator.getSnapshot();
+    // Native MFSK sends use the same physical audio/PTT lease, but have no
+    // DigitalFrameCoordinator frameId. An operator STOP must still release
+    // their on-air native lease; it must not fall through to strategy-only STOP.
+    if (physical.source === 'digital'
+      && physical.leaseId
+      && !physical.frameId
+      && physical.reason?.startsWith('native ')
+      && physical.operatorIds.includes(operatorId)) {
+      await this.deps.physicalTxCoordinator.forceInterruptLease(
+        physical.leaseId,
+        'operator stopped native digital transmission',
+      );
+      this.deps.operatorManager.requestStrategyStop(
+        operatorId, 'operator stopped native digital transmission',
+      );
+      return;
+    }
     if (physical.source !== 'digital'
       || !physical.frameId
       || !physical.leaseId
