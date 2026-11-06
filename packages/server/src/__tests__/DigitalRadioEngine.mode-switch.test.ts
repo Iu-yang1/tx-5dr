@@ -45,6 +45,7 @@ describe('DigitalRadioEngine mode switching', () => {
     });
 
     vi.spyOn(ConfigManager, 'getInstance').mockReturnValue({
+      getActiveVirtualRadioProfile: vi.fn(() => null),
       getCustomFrequencyPresets: vi.fn(() => options.customFrequencyPresets ?? null),
       getLastSelectedFrequency: vi.fn(() => options.lastFrequency ?? null),
       getRadioConfig: vi.fn(() => ({ type: 'none', digitalModeRadioMode: options.digitalModeRadioMode })),

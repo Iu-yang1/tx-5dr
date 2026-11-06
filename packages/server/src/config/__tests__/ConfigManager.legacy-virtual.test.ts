@@ -4,7 +4,7 @@ import path from 'node:path';
 import { expect, it } from 'vitest';
 import { ConfigManager } from '../config-manager.js';
 
-it('rejects a legacy virtual Profile without changing the file or selecting another Profile', async () => {
+it('rejects an incomplete virtual Profile without changing the file or selecting another Profile', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'tx5dr-legacy-virtual-'));
   const previous = process.env.TX5DR_CONFIG_DIR;
   const slot = ConfigManager as unknown as { instance?: ConfigManager };
@@ -14,7 +14,7 @@ it('rejects a legacy virtual Profile without changing the file or selecting anot
     slot.instance = undefined;
     const config = JSON.stringify({ activeProfileId: 'old', profiles: [{ id: 'old', radio: { type: 'virtual' } }] });
     await writeFile(path.join(directory, 'config.json'), config);
-    await expect(ConfigManager.getInstance().initialize()).rejects.toThrow('Legacy virtual radio Profiles');
+    await expect(ConfigManager.getInstance().initialize()).rejects.toThrow('config.profiles[0].name');
     expect(await readFile(path.join(directory, 'config.json'), 'utf8')).toBe(config);
     expect(ConfigManager.getInstance().getActiveProfileId()).toBeNull();
   } finally {
