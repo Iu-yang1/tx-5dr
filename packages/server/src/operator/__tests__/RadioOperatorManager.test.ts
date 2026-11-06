@@ -3723,6 +3723,7 @@ describe('RadioOperatorManager transmission acceptance notification', () => {
     ));
     manager.setPluginManager({
       getCurrentTransmissions: vi.fn(() => transmissions),
+      getOperatorRuntimeStatus: vi.fn(() => undefined),
       initializeOperatorTransmission,
     } as any);
     manager.start();
@@ -3752,6 +3753,7 @@ describe('RadioOperatorManager transmission acceptance notification', () => {
     let resolveStrategy!: (value: boolean) => void;
     manager.setPluginManager({
       getCurrentTransmissions: vi.fn(() => defaultTransmissionSet('CQ BG4IAJ OM96')),
+      getOperatorRuntimeStatus: vi.fn(() => undefined),
       initializeOperatorTransmission: vi.fn(() => new Promise<boolean>(
         resolve => { resolveStrategy = resolve; },
       )),
