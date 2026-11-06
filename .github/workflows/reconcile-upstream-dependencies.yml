@@ -91,6 +91,14 @@ jobs:
               if target and 'version' in data and data['version'] != target:
                   data['version'] = target
                   p.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          # Resolve the scaffold against the in-tree SDK rather than an npm
+          # publication that may not exist yet. Release packaging rewrites
+          # workspace:^ to an appropriate published semver dependency.
+          scaffold = Path('packages/create-tx5dr-plugin/package.json')
+          if scaffold.exists():
+              scaffold_manifest = json.loads(scaffold.read_text(encoding='utf-8'))
+              scaffold_manifest.setdefault('dependencies', {})['@tx5dr/plugin-api'] = 'workspace:^'
+              scaffold.write_text(json.dumps(scaffold_manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
           info = Path('packages/server/src/generated/buildInfo.json')
           data = json.loads(info.read_text(encoding='utf-8'))
           data['version'] = version
