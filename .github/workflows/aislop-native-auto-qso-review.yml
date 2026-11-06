@@ -12,6 +12,10 @@ on:
       - "packages/electron-main/src/**"
       - "packages/server/src/routes/**"
       - "packages/core/src/**"
+      - "packages/server/src/radio/FrequencyManager.ts"
+      - "packages/web/src/components/radio/control/**"
+      - "packages/web/src/components/settings/FrequencyPreset*.tsx"
+      - "packages/web/src/utils/radioControl.ts"
       - "packages/web/src/pages/about/**"
       - ".github/workflows/aislop-native-auto-qso-review.yml"
 
