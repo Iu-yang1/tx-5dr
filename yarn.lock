@@ -6101,15 +6101,6 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@tx5dr/contracts@npm:2.6.0":
-  version: 2.6.0
-  resolution: "@tx5dr/contracts@npm:2.6.0"
-  dependencies:
-    zod: "npm:^3.22.0"
-  checksum: 10c0/c4f46d01376b4e876c5142bd23d3a01191e7f5d8219aa68838ad80416c0db8432a3356afdb01fc167711d0433d75f201f081eae01b2c471a28ad928171f6fef5
-  languageName: node
-  linkType: hard
-
 "@tx5dr/contracts@workspace:*, @tx5dr/contracts@workspace:packages/contracts":
   version: 0.0.0-use.local
   resolution: "@tx5dr/contracts@workspace:packages/contracts"
@@ -6121,17 +6112,6 @@ __metadata:
     zod: "npm:^4.6.7"
   languageName: unknown
   linkType: soft
-
-"@tx5dr/core@npm:2.6.0":
-  version: 2.6.0
-  resolution: "@tx5dr/core@npm:2.6.0"
-  dependencies:
-    "@tx5dr/contracts": "npm:2.6.0"
-    adif-parser-ts: "npm:^0.6.22"
-    eventemitter3: "npm:^5.0.1"
-  checksum: 10c0/2e57934a54f8f0877fabe67ff53a47224d0d5c72d5594227ad95109b3c0891715fbf74c1606a988440cc2563639c6a465c23b118302b155e29ad861588646b7b
-  languageName: node
-  linkType: hard
 
 "@tx5dr/core@workspace:*, @tx5dr/core@workspace:packages/core":
   version: 0.0.0-use.local
@@ -6182,18 +6162,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@tx5dr/plugin-api@npm:^2.6.0":
-  version: 2.6.0
-  resolution: "@tx5dr/plugin-api@npm:2.6.0"
-  dependencies:
-    "@tx5dr/contracts": "npm:2.6.0"
-    "@tx5dr/core": "npm:2.6.0"
-    "@types/node": "npm:^20.11.24"
-  checksum: 10c0/94d5d6c2f63e43e40d8b6eda338f35b0f7e4cd61d20b37f7d6a2c83db465e8e408fc56a81a6f0a299810761635eaf41a9975b74856f3f42e5c78093a707a318f
-  languageName: node
-  linkType: hard
-
-"@tx5dr/plugin-api@workspace:*, @tx5dr/plugin-api@workspace:packages/plugin-api":
+"@tx5dr/plugin-api@workspace:*, @tx5dr/plugin-api@workspace:^, @tx5dr/plugin-api@workspace:packages/plugin-api":
   version: 0.0.0-use.local
   resolution: "@tx5dr/plugin-api@workspace:packages/plugin-api"
   dependencies:
@@ -8951,7 +8920,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "create-tx5dr-plugin@workspace:packages/create-tx5dr-plugin"
   dependencies:
-    "@tx5dr/plugin-api": "npm:^2.6.0"
+    "@tx5dr/plugin-api": "workspace:^"
     typescript: "npm:^5.0.0"
   bin:
     create-tx5dr-plugin: ./dist/index.js
