@@ -12,9 +12,9 @@ describe('NullConnection standalone PTT', () => {
   const close = vi.fn(async () => {});
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(PttHardware).mockImplementation(() => ({
-      open, set, close,
-    }) as unknown as PttHardware);
+    vi.mocked(PttHardware).mockImplementation(function mockedPttHardware() {
+      return { open, set, close } as unknown as PttHardware;
+    });
   });
 
   it('keeps no-CAT / VOX profiles hardware-free', async () => {

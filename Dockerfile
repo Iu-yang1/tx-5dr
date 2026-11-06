@@ -129,8 +129,8 @@ RUN rm -rf node_modules/wsjtx-lib && \
     rm -rf node_modules/.cache \
     packages/*/node_modules/.cache
 
-# 运行时镜像
-FROM node:22-slim
+# 运行时使用 Debian 13，确保本机库支持 GLIBCXX_3.4.32；避免在 Bookworm 中混装 libc6。
+FROM node:22-trixie-slim
 
 # 设置环境变量
 ENV DEBIAN_FRONTEND=noninteractive
@@ -143,8 +143,8 @@ RUN bash /tmp/tx5dr-linux/install.sh --docker
 
 # 安装运行时依赖
 RUN apt-get update && apt-get install -y \
-    libasound2 \
-    libglib2.0-0 \
+    libasound2t64 \
+    libglib2.0-0t64 \
     libpulse0 \
     libxcomposite1 \
     libxdamage1 \
@@ -158,7 +158,7 @@ RUN apt-get update && apt-get install -y \
     libjack-jackd2-0 \
     libxi6 \
     libxext6 \
-    libhamlib4 \
+    libhamlib4t64 \
     udev \
     nginx \
     supervisor \

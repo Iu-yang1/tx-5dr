@@ -154,7 +154,7 @@ export interface PluginDefinition<
     maxSimultaneousSignals?: number;
   };
 
-  /** Development-only virtual-radio peer scenarios. The Host owns execution and RF safety. */
+  /** Declarative audio peer scenarios. The Host owns execution and RF safety. */
   simulationScenarios?: SimulationScenarioDescriptor[];
 
   /**
@@ -283,6 +283,9 @@ export interface PluginDefinition<
    * Use this for startup work such as warming caches, scheduling Host timers or
    * sending initial panel data. Await required asynchronous work before returning;
    * do not detach continuations that retain Host capabilities after the callback.
+   * A remote service being offline should normally produce plugin-owned degraded
+   * status and a later Host-timer retry, not a rejected onLoad. Only resolve after
+   * local initialization is safe; an escaping exception quarantines the instance.
    */
   onLoad?(ctx: PluginContextFor<Permissions>): void | Promise<void>;
 

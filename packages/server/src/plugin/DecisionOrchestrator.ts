@@ -1065,6 +1065,9 @@ export class DecisionOrchestrator {
       qsoLifecycleEpoch: lifecycleEpoch,
       qsoRuntimeGeneration: runtimeGeneration,
       qsoRecord,
+      // Scope history reconstruction to the contact attempt, not just the slot
+      // where the strategy decided the contact was established.
+      startedAt: effect.startedAt,
       persistencePolicy: effect.persistencePolicy,
       destination: effect.destination,
       sourcePluginName,

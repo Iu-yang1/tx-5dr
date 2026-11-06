@@ -13,7 +13,7 @@ import {
   SimulationScenarioEngine,
   type SimulationDecodedMessage,
   type SimulationReplyDecision,
-} from './SimulationScenarioEngine.js';
+} from '../simulation/SimulationScenarioEngine.js';
 
 const logger = createLogger('VirtualRadioSession');
 const SAMPLE_RATE = 12_000;

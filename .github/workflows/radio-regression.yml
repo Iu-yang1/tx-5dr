@@ -32,6 +32,10 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y libasound2-dev libpulse-dev libhamlib-dev libhamlib4 libopus-dev build-essential python3-dev pkg-config
       - name: Install dependencies
+        # CI is CPU-only. Avoid optional CUDA NuGet downloads which can time out
+        # and incorrectly fail the build before any tests execute.
+        env:
+          ONNXRUNTIME_NODE_INSTALL: skip
         run: yarn install --immutable
       - name: Build
         run: yarn build
@@ -51,7 +55,7 @@ jobs:
           EXISTING=()
           for f in "${TESTS[@]}"; do if test -f "$f"; then EXISTING+=("$f"); fi; done
           if test ${#EXISTING[@]} -eq 0; then exit 1; fi
-          yarn exec vitest run "${EXISTING[@]}" --maxWorkers=2 --minWorkers=1
+          yarn exec vitest run "${EXISTING[@]}" --maxWorkers=2
 
   backend:
     runs-on: ubuntu-24.04
@@ -70,6 +74,10 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y libasound2-dev libpulse-dev libhamlib-dev libhamlib4 libopus-dev build-essential python3-dev pkg-config
       - name: Install dependencies
+        # CI is CPU-only. Avoid optional CUDA NuGet downloads which can time out
+        # and incorrectly fail the build before any tests execute.
+        env:
+          ONNXRUNTIME_NODE_INSTALL: skip
         run: yarn install --immutable
       - name: Build
         run: yarn build
@@ -101,4 +109,4 @@ jobs:
           EXISTING=()
           for f in "${TESTS[@]}"; do if test -f "$f"; then EXISTING+=("$f"); fi; done
           if test ${#EXISTING[@]} -eq 0; then exit 1; fi
-          yarn exec vitest run "${EXISTING[@]}" --maxWorkers=2 --minWorkers=1
+          yarn exec vitest run "${EXISTING[@]}" --maxWorkers=2

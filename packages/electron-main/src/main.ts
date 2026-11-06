@@ -4277,12 +4277,12 @@ function setupIpcHandlers() {
     await getDesktopUpdateService().openDownload(url);
   });
 
-  ipcMain.handle('updater:download', async () => {
-    return getDesktopUpdateService().download();
+  ipcMain.handle('updater:download', async (_event, request: unknown) => {
+    return getDesktopUpdateService().download(request);
   });
 
-  ipcMain.handle('updater:installAndRestart', async () => {
-    return getDesktopUpdateService().installAndRestart();
+  ipcMain.handle('updater:installAndRestart', async (_event, request: unknown) => {
+    return getDesktopUpdateService().installAndRestart(request);
   });
 
   ipcMain.handle('https:getStatus', async () => {

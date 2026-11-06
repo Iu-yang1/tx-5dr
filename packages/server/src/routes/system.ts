@@ -1,3 +1,5 @@
+import { UpdatePreferencesSchema } from '@tx5dr/contracts';
+import { getUpdatePreferences, setUpdatePreferences, canEditUpdateChannel } from '../services/UpdatePreferences.js';
 import { createReadStream } from 'node:fs';
 import { access } from 'node:fs/promises';
 import path from 'node:path';
@@ -11,7 +13,7 @@ import {
   UpdateNtpServerListRequestSchema,
   UpdateSystemLoggingSettingsSchema,
 } from '@tx5dr/contracts';
-import { zodToJsonSchema } from 'zod-to-json-schema';
+import { z } from 'zod';
 import { requireAbility } from '../auth/authPlugin.js';
 import { DigitalRadioEngine } from '../DigitalRadioEngine.js';
 import { ConfigManager } from '../config/config-manager.js';
@@ -46,6 +48,17 @@ export async function systemRoutes(fastify: FastifyInstance) {
     return reply.send(await getSystemUpdateStatus());
   });
 
+  fastify.get('/update-preferences', { preHandler: [requireAbility('manage', 'all')] }, async (_request, reply) => {
+    if (!await canEditUpdateChannel()) return reply.code(409).send({ error: 'update_owned_by_native_host' });
+    return getUpdatePreferences();
+  });
+  fastify.put('/update-preferences', { preHandler: [requireAbility('manage', 'all')] }, async (request, reply) => {
+    if (!await canEditUpdateChannel()) return reply.code(409).send({ error: 'update_owned_by_native_host' });
+    const parsed = UpdatePreferencesSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'invalid_update_channel' });
+    return setUpdatePreferences(parsed.data);
+  });
+
   // 获取网络访问地址
   fastify.get('/network-info', async (request, reply) => {
     const info = getNetworkAccessInfo({
@@ -69,7 +82,7 @@ export async function systemRoutes(fastify: FastifyInstance) {
 
   fastify.put('/logging', {
     schema: {
-      body: zodToJsonSchema(UpdateSystemLoggingSettingsSchema),
+      body: z.toJSONSchema(UpdateSystemLoggingSettingsSchema, { target: 'draft-7', io: 'input' }),
     },
     preHandler: [requireAbility('manage', 'all')],
   }, async (request, reply) => {
@@ -88,7 +101,7 @@ export async function systemRoutes(fastify: FastifyInstance) {
 
   fastify.post('/clock/offset', {
     schema: {
-      body: zodToJsonSchema(SetClockOffsetRequestSchema),
+      body: z.toJSONSchema(SetClockOffsetRequestSchema, { target: 'draft-7', io: 'input' }),
     },
     preHandler: [requireAbility('manage', 'all')],
   }, async (request, reply) => {
@@ -106,7 +119,7 @@ export async function systemRoutes(fastify: FastifyInstance) {
 
   fastify.put('/clock/auto-apply', {
     schema: {
-      body: zodToJsonSchema(SetClockAutoApplyRequestSchema),
+      body: z.toJSONSchema(SetClockAutoApplyRequestSchema, { target: 'draft-7', io: 'input' }),
     },
     preHandler: [requireAbility('manage', 'all')],
   }, async (request, reply) => {
@@ -127,7 +140,7 @@ export async function systemRoutes(fastify: FastifyInstance) {
 
   fastify.put('/clock/settings', {
     schema: {
-      body: zodToJsonSchema(UpdateNtpServerListRequestSchema),
+      body: z.toJSONSchema(UpdateNtpServerListRequestSchema, { target: 'draft-7', io: 'input' }),
     },
     preHandler: [requireAbility('manage', 'all')],
   }, async (request, reply) => {

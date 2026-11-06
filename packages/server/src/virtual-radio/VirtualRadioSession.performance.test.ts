@@ -8,7 +8,7 @@ import { WSJTXEncodeWorkQueue, type EncodeRequest, type EncodeResult } from '../
 import { VirtualRadioProfileSchema } from '../config/virtualRadioProfile.js';
 import { VirtualRadioSession } from './VirtualRadioSession.js';
 import { AudioMixer } from '../audio/AudioMixer.js';
-import { wwDigiSimulationScenarios } from './testFixtures/ww-digi-simulation-scenarios.js';
+import { wwDigiSimulationScenarios } from '../simulation/testFixtures/ww-digi-simulation-scenarios.js';
 
 const tempDirs: string[] = [];
 

@@ -1,3 +1,4 @@
+import { prepareStationTest } from './station-testing/StationTestRuntime.js';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Server - Fastify服务器配置需要使用any
 
@@ -444,6 +445,7 @@ export async function createServer() {
   bootstrapCoordinator.startPhase('config-auth', 'Reading base configuration');
   await configManager.initialize();
   fastify.log.info('Config manager initialized');
+  const stationTest = await prepareStationTest();
 
   bootstrapCoordinator.startPhase('audio-device-discovery', 'Discovering audio devices');
   await AudioDeviceManager.getInstance().initializeDeviceRegistry();
@@ -484,6 +486,7 @@ export async function createServer() {
   bootstrapCoordinator.startPhase('engine-bootstrap', 'Assembling radio engine');
   await digitalRadioEngine.initialize();
   bootstrapCoordinator.completePhase('engine-bootstrap');
+  await stationTest?.attach(digitalRadioEngine, fastify, () => process.kill(process.pid, 'SIGTERM'));
   bootLogger.info('digital radio engine initialized');
   ConsoleLogger.getInstance().flushSync();
 
@@ -627,6 +630,7 @@ export async function createServer() {
     digitalRadioEngine.operatorManager.qsoCompletions.stopAccepting();
     PersistenceCoordinator.getInstance().blockNewMutations();
 
+    let engineStopError: string | undefined;
     try {
       if (digitalRadioEngine.getStatus().isRunning) {
         await Promise.race([
@@ -640,6 +644,7 @@ export async function createServer() {
         ]);
       }
     } catch (error) {
+      engineStopError = error instanceof Error ? error.message : String(error);
       fastify.log.warn({ error }, 'engine stop failed during internal prepare-shutdown');
     }
 
@@ -666,7 +671,8 @@ export async function createServer() {
     const errors = logbookCloseError
       ? [{ name: 'logbooks', error: logbookCloseError }, ...flushResult.errors]
       : flushResult.errors;
-    const success = logbookCloseError === undefined && flushResult.ok;
+    if (engineStopError) errors.unshift({ name: 'engine', error: engineStopError });
+    const success = engineStopError === undefined && logbookCloseError === undefined && flushResult.ok;
     return reply.code(success ? 200 : 500).send({
       success,
       errors,
