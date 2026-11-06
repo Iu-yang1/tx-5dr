@@ -1,6 +1,6 @@
 {
   "channel": "nightly",
-  "version": "1.0.1-rc.5",
+  "version": "1.0.1-rc.6",
   "pluginApiVersion": "2.5.0",
   "commit": "development",
   "commitShort": "development",
