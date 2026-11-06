@@ -2159,13 +2159,13 @@ export class PluginManager {
    * run the FT8 SlotClock. Feed the shared strategy decision engine from
    * actual decoded native SlotPacks, never from WSPR beacon observations.
    */
-  async handleNativeDecodedSlot(slotPack: SlotPack): Promise<void> {
+  async handleNativeDecodedSlot(slotPack: SlotPack, nowMs: number): Promise<void> {
     const mode = this.deps.getCurrentMode();
     if (mode.name !== 'Q65' && mode.name !== 'MSK144') return;
     if (slotPack.frames.length === 0) return;
     const slotMs = slotPack.endMs - slotPack.startMs;
     if (!Number.isSafeInteger(slotMs) || slotMs <= 0) return;
-    const startMs = Math.max(slotPack.endMs, Math.floor(Date.now() / slotMs) * slotMs);
+    const startMs = Math.max(slotPack.endMs, Math.floor(nowMs / slotMs) * slotMs);
     await this.orchestrator.handleSlotStart({
       id: `native-${mode.name}-${startMs}`,
       startMs,
