@@ -736,7 +736,7 @@ describe('TransmissionPipeline lifecycle integration', () => {
     expect(harness.deps.physicalTxCoordinator.getSnapshot()).toMatchObject({
       source: 'digital',
       operatorIds: ['operator-a'],
-      frameId: null,
+      frameId: undefined,
       pttConfirmed: true,
     });
 
