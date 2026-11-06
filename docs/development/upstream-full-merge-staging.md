@@ -62,3 +62,12 @@ This report does not claim the conflict-side upstream content was ported.
 Check all package/lockfile combinations, native Node ABI, audio and PTT
 sequencing, ICOM/Yaesu CAT, all digital modes, i18n and NSIS installed
 node.exe. Do not merge this branch without green integration CI.
+
+## Validation checkpoint — follow-up integration
+
+- The integration branch now includes the current fork main history via a forward merge, in addition to upstream `ad38a085`.
+- The Yarn dependency graph was regenerated successfully with a local workspace dependency for `create-tx5dr-plugin` on `@tx5dr/plugin-api`. This addresses the initial missing npm SDK resolution, but is not sufficient to establish native ABI or package compatibility.
+- All 42 original fork-retained overlap paths above remain *review debt*, even when GitHub reports a clean Git merge. Do not equate 'behind 0' or a green dependency-resolution job with complete semantic integration.
+- Preserve current fork safety policy for FT8/FT4 native TX, Q65/MSK144/WSPR AUTO TX authorization, real CAT/PTT leases, and production diagnostics defaults when reconciling upstream improvements.
+- The upstream release workflow was reworked into reusable `workflow_call` jobs. Our existing direct desktop/server/Docker publish dispatch must be kept functional; workflow imports require a dedicated contract review, not an untested overwrite.
+- Before a stable release, execute and inspect the full backend/frontend/native/installer CI on *this combined source*, plus an honest hardware validation disclosure.
