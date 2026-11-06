@@ -33,7 +33,26 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Gate only changed files against main
+      - name: Snapshot accepted main-branch findings
+        shell: bash
         run: |
+          set -euo pipefail
           git fetch --no-tags origin main:refs/remotes/origin/main
+          git worktree add --detach "$RUNNER_TEMP/aislop-main" origin/main
+          (
+            cd "$RUNNER_TEMP/aislop-main"
+            npx --yes aislop@0.14.0 baseline write
+          )
+          mkdir -p .aislop
+          cp "$RUNNER_TEMP/aislop-main/.aislop/ci-baseline.json" .aislop/ci-baseline.json
+          cat > .aislop/config.yml <<'YAML'
+          ci:
+            baseline: .aislop/ci-baseline.json
+            failBelow: 0
+            format: human
+          YAML
+      - name: Gate PR on new findings, including new warnings
+        shell: bash
+        run: |
+          set -euo pipefail
           npx --yes aislop@0.14.0 ci --changes --base origin/main --human
