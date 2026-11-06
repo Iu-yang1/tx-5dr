@@ -201,11 +201,22 @@ export async function mfskCapabilityRoutes(fastify:FastifyInstance):Promise<void
     }
   });
 
-  fastify.post('/tx/auto/stop',{preHandler:[requireAbility('execute','RadioControl')]},
-    async (_request,reply)=>{
-      await DigitalRadioEngine.getInstance().disarmMfskNativeRfTx();
-      return reply.send(DigitalRadioEngine.getInstance().getNativeAutoTxScheduler().status());
-    });
+  fastify.post('/tx/auto/stop',{
+    preHandler:[
+      requireAbility('execute','RadioControl'),
+      requireOperatorAbility(req=>(req.body as {operatorId?:string})?.operatorId??''),
+    ],
+  },async(request,reply)=>{
+    const { operatorId }=z.object({operatorId:z.string().min(1).max(128)}).parse(request.body);
+    const engine=DigitalRadioEngine.getInstance();
+    const scheduler=engine.getNativeAutoTxScheduler();
+    const owner=scheduler.status().operatorId;
+    if(owner && owner!==operatorId){
+      return reply.code(409).send({success:false,error:'Native automatic TX belongs to a different operator'});
+    }
+    if(owner===operatorId)await engine.disarmMfskNativeRfTx();
+    return reply.send(scheduler.status());
+  });
 
   // Dedicated, user-triggered TX. Existing audio/PTT coordinator owns the
   // normal key-on, waveform playback, and key-off sequence.
