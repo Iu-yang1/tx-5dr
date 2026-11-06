@@ -1194,7 +1194,25 @@ export class RadioOperatorManager {
       return started;
     }
 
-    // 立即检查并触发发射（如果在发射周期内）
+    // An enabled operator is not an on-air transmission. The strategy may
+    // still be initializing its TX6 text, especially on first start after a
+    // native/FT8 mode transition. Resolve that text before the first encode.
+    if ((this._pluginManager?.getCurrentTransmissions(operatorId)?.length ?? 0) === 0
+      && this._pluginManager?.initializeOperatorTransmission) {
+      void this._pluginManager.initializeOperatorTransmission(operatorId).then((ready) => {
+        if (ready && operator.isTransmitting) {
+          this.checkAndTriggerTransmission(operatorId);
+        }
+      }).catch((error) => {
+        logger.warn('Failed to initialize transmit content when operator was enabled', {
+          operatorId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+      return started;
+    }
+
+    // Immediate encode if the current UTC cycle belongs to the operator.
     this.checkAndTriggerTransmission(operatorId);
     return started;
   }
@@ -1643,6 +1661,15 @@ export class RadioOperatorManager {
     if (!this.isRunning || this.pendingTransmissions.length === 0) return;
 
     const currentMode = this.getCurrentMode();
+    // Native Q65/MSK144/WSPR use their own encoder and UTC scheduler.
+    // Never silently turn a native operator intent into an FT8 waveform.
+    if (currentMode.name !== 'FT8' && currentMode.name !== 'FT4') {
+      this.pendingTransmissions = [];
+      logger.debug('Ignored legacy FT8/FT4 encode queue in native mode', {
+        mode: currentMode.name,
+      });
+      return;
+    }
     const slotStartMs = slotInfo.startMs;
     const now = this.clockSource.now();
     const timeSinceSlotStartMs = now - slotStartMs;
@@ -2025,6 +2052,12 @@ export class RadioOperatorManager {
     },
   ): void {
     if (this.transmissionMaintenanceReason) return;
+    // Native Q65/MSK144/WSPR have their own encoder, TX parity and physical
+    // lease lifecycle. In particular MSK144.slotMs is 0 (a streaming mode):
+    // attempting a legacy FT8 frame mutation would divide by zero or stop an
+    // unrelated native lease. Native auto-TX polls current strategy text.
+    const currentModeName = this.getCurrentMode().name;
+    if (currentModeName !== 'FT8' && currentModeName !== 'FT4') return;
     if (this._pluginManager?.isQueueExecutionSuspended?.(operatorId)) return;
 
     if (mutation.kind === 'frequency' && this.isFakeFrequencyCommittedForCurrentSlot()) {
@@ -2109,6 +2142,8 @@ export class RadioOperatorManager {
     }
 
     const currentMode = this.getCurrentMode();
+    // The legacy WSJT-X work queue must never modulate a native mode.
+    if (currentMode.name !== 'FT8' && currentMode.name !== 'FT4') return;
     const now = this.clockSource.now();
     const slotMs = currentMode.slotMs;
     const currentSlotStartMs = Math.floor(now / slotMs) * slotMs;
@@ -2188,6 +2223,31 @@ export class RadioOperatorManager {
    * 立即评估是否需要重决策（依赖 messageSet 过滤防止无效触发）。
    * @param slotPack 更新后的 SlotPack
    */
+  private readonly nativeDecodeSignatures = new Map<string, string>();
+
+  onNativeDecodedSlotPack(slotPack: SlotPack): void {
+    if (!this.isRunning || !this._pluginManager?.handleNativeDecodedSlot) return;
+    const mode = this.getCurrentMode().name;
+    if (mode !== 'Q65' && mode !== 'MSK144') return;
+    if (!slotPack.frames.length) return;
+    const key = `${mode}:${slotPack.slotId}`;
+    const signature = slotPack.frames.map(frame =>
+      `${frame.message}|${frame.snr}|${frame.freq}|${frame.dt}`,
+    ).join(';');
+    if (this.nativeDecodeSignatures.get(key) === signature) return;
+    this.nativeDecodeSignatures.set(key, signature);
+    if (this.nativeDecodeSignatures.size > 64) {
+      const oldest = this.nativeDecodeSignatures.keys().next().value;
+      if (oldest !== undefined) this.nativeDecodeSignatures.delete(oldest);
+    }
+    void this._pluginManager.handleNativeDecodedSlot(slotPack, this.clockSource.now()).catch(error => {
+      logger.warn('Native QSO strategy decision failed', {
+        mode, slotId: slotPack.slotId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
+
   reDecideOnLateDecodes(slotPack: SlotPack): void {
     if (!this.isRunning) return;
 

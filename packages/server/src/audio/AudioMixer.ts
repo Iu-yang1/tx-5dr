@@ -51,6 +51,8 @@ export interface AudioMixerOptions {
   mixingWindowMs?: number;
   multiSignalRmsBackoffDb?: number;
   multiSignalPeakCeiling?: number;
+  /** Same UTC-adjusted clock as the digital slot and physical TX coordinators. */
+  now?: () => number;
 }
 
 /** Mixes immutable, explicitly selected frame snapshots. */
@@ -61,6 +63,7 @@ export class AudioMixer extends EventEmitter {
   private scheduledFrame: FrameAudioIdentity | null = null;
 
   private readonly mixingWindowMs: number;
+  private readonly now: () => number;
   private readonly multiSignalRmsBackoffDb: number;
   private readonly multiSignalPeakCeiling: number;
 
@@ -68,6 +71,7 @@ export class AudioMixer extends EventEmitter {
     super();
     const resolved = typeof options === 'number' ? { mixingWindowMs: options } : options;
     this.mixingWindowMs = resolved.mixingWindowMs ?? 100;
+    this.now = resolved.now ?? Date.now;
     this.multiSignalRmsBackoffDb = resolved.multiSignalRmsBackoffDb ?? 6;
     this.multiSignalPeakCeiling = resolved.multiSignalPeakCeiling ?? 0.95;
   }
@@ -98,7 +102,7 @@ export class AudioMixer extends EventEmitter {
         sampleRate,
         slotStartMs,
         requestId,
-        encodedAt: Date.now(),
+        encodedAt: this.now(),
       },
       txDialShiftHz,
     );
@@ -147,7 +151,7 @@ export class AudioMixer extends EventEmitter {
     this.scheduledPlaybackStartMs = playbackStartTime ?? null;
     let delay = this.mixingWindowMs;
     if (targetPlaybackTime !== undefined) {
-      const remaining = targetPlaybackTime - Date.now();
+      const remaining = targetPlaybackTime - this.now();
       delay = remaining > this.mixingWindowMs
         ? Math.max(0, remaining - 50)
         : Math.max(0, remaining);
@@ -305,7 +309,7 @@ export class AudioMixer extends EventEmitter {
     this.scheduledFrame = null;
     this.scheduledPlaybackStartMs = null;
     if (!frame) return;
-    const elapsedTimeMs = playbackStart === null ? 0 : Math.max(0, Date.now() - playbackStart);
+    const elapsedTimeMs = playbackStart === null ? 0 : Math.max(0, this.now() - playbackStart);
     const mixed = await this.mixFrameById(frame.frameId, frame.revision, elapsedTimeMs);
     if (mixed) this.emit('mixedAudioReady', mixed);
   }

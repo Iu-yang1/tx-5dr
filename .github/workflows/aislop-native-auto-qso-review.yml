@@ -1,0 +1,64 @@
+name: aislop native digital code quality
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "packages/server/src/decode/**"
+      - "packages/server/src/operator/**"
+      - "packages/server/src/plugin/**"
+      - "packages/server/src/subsystems/**"
+      - "packages/server/src/server.ts"
+      - "packages/electron-main/src/**"
+      - "packages/server/src/routes/**"
+      - "packages/core/src/**"
+      - "packages/web/src/pages/about/**"
+      - ".github/workflows/aislop-native-auto-qso-review.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  code-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run aislop Marketplace baseline report
+        continue-on-error: true
+        uses: scanaislop/aislop@v1
+        with:
+          version: latest
+      - name: Setup Node for PR-diff quality gate
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install required Python quality tools
+        run: |
+          python3 -m pip install --user ruff==0.14.6 --break-system-packages
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Snapshot accepted main-branch findings
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          git worktree add --detach "$RUNNER_TEMP/aislop-main" origin/main
+          (
+            cd "$RUNNER_TEMP/aislop-main"
+            npx --yes aislop@0.20.0 baseline write
+          )
+          mkdir -p .aislop
+          cp "$RUNNER_TEMP/aislop-main/.aislop/ci-baseline.json" .aislop/ci-baseline.json
+          cat > .aislop/config.yml <<'YAML'
+          ci:
+            baseline: .aislop/ci-baseline.json
+            failBelow: 0
+            format: human
+          YAML
+      - name: Gate PR on new findings, including new warnings
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes aislop@0.20.0 ci --changes --base origin/main --human

@@ -470,6 +470,11 @@ export const RadioDeviceSettings = forwardRef<RadioDeviceSettingsRef, RadioDevic
             </SelectItem>
           ))}
         </Select>
+        {config.type === 'serial' && config.serial?.rigModel === 1042 && (
+          <p className="text-xs text-warning-600" role="note">
+            {t('radio.ftdx10DigitalTxAudioHint')}
+          </p>
+        )}
       </CardBody>
     </Card>
   );

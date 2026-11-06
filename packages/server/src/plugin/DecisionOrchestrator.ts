@@ -590,12 +590,17 @@ export class DecisionOrchestrator {
     const LOCAL_OPERATOR_SIMULATED_SNR = 10;
     const operator = this.deps.getOperatorById(operatorId);
     const currentMode = this.deps.getCurrentMode();
+    // MSK144 is a burst stream, with slotMs=0 in the generic descriptor.
+    // Its local TX echo must never enter the other operator's QSO decision
+    // just because the legacy FT8 cycle calculation returned NaN.
     const isOperatorTransmittingInSourceSlot = operator?.isTransmitting === true
-      && CycleUtils.isOperatorTransmitCycleFromMs(
-        operator.getTransmitCycles(),
-        slotPack.startMs,
-        currentMode.slotMs,
-      );
+      && (currentMode.slotMs > 0
+        ? CycleUtils.isOperatorTransmitCycleFromMs(
+          operator.getTransmitCycles(),
+          slotPack.startMs,
+          currentMode.slotMs,
+        )
+        : true);
 
     const parsedMessages = await Promise.all(slotPack.frames.map(async (frame) => {
       const isLocalTxEcho = frame.snr === -999;

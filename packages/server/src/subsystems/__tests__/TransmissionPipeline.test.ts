@@ -196,8 +196,45 @@ function createHarness(options: {
 }
 
 describe('TransmissionPipeline lifecycle integration', () => {
+  it('schedules a future-slot FT8 encode for its TX boundary, never the preceding RX slot', async () => {
+    const h = createHarness({nowMs: 14_000});
+    const planned = h.deps.digitalFrameCoordinator.prepareFrame({
+      slotId: 'slot-15000',
+      intents: [{
+        operatorId: 'operator-a',
+        source: 'plugin', reason: 'UTC encodeStart',
+        text: 'CQ BG5JSU OL79', decisionEpoch: 2,
+      }],
+      nowMs: 14_000,
+      slotEndMs: 30_000,
+      expectedDurationMs: 12_640,
+      playbackStartMs: 15_500,
+    });
+    expect(planned.frame).toBeDefined();
+    h.deps.digitalFrameCoordinator.beginEncoding(planned.frame!.frameId);
+    await (h.pipeline as any).handleEncodeComplete({
+      operatorId: 'operator-a',
+      audioData: new Float32Array(12_000),
+      sampleRate: 12_000,
+      duration: 1,
+      request: {
+        frameId: planned.frame!.frameId,
+        frameRevision: planned.frame!.revision,
+        decisionEpoch: 2,
+        slotStartMs: 15_000,
+        requestId: 'future-slot-encode',
+      },
+    });
+    expect(h.deps.audioMixer.scheduleFrameMixing).toHaveBeenCalledWith(
+      {frameId: planned.frame!.frameId, revision: planned.frame!.revision},
+      15_500, 15_500,
+    );
+    expect(h.setPTT).not.toHaveBeenCalled();
+  });
   it('cancels the owning frame when a non-default stream encode fails', () => {
     const harness = createHarness();
+    const messages: Array<{ title: string; text: string }> = [];
+    harness.deps.engineEmitter.on('textMessage', (message) => messages.push(message));
     const frame = harness.deps.digitalFrameCoordinator.prepareFrame({
       slotId: 'slot-1',
       intents: [{
@@ -224,6 +261,10 @@ describe('TransmissionPipeline lifecycle integration', () => {
 
     expect(harness.deps.digitalFrameCoordinator.getFrame(frame.frame!.frameId))
       .toMatchObject({ phase: 'cancelled' });
+    expect(messages).toEqual([expect.objectContaining({
+      title: 'Digital TX did not start',
+      text: expect.stringContaining('encoder failed'),
+    })]);
   });
 
   it('reports on-air only after PTT confirmation and audio start, then completes once', async () => {
@@ -719,6 +760,34 @@ describe('TransmissionPipeline lifecycle integration', () => {
     harness.getAudioDone(1).resolve();
     await Promise.all([initialHandling, removal]);
     expect(harness.setPTT.mock.calls.map(([active]) => active)).toEqual([true, false]);
+  });
+
+  it('releases native Q65 PTT when an operator stops an unframed TX lease', async () => {
+    const harness = createHarness();
+    const sending = harness.deps.physicalTxCoordinator.transmitAudio({
+      source: 'digital',
+      operatorIds: ['operator-a'],
+      reason: 'native Q65 manual transmission',
+      audioData: new Float32Array(12_000),
+      sampleRate: 12_000,
+      playbackKind: 'digital',
+      assertPtt: true,
+    });
+    await vi.waitFor(() => expect(harness.playAudio).toHaveBeenCalledTimes(1));
+    expect(harness.deps.physicalTxCoordinator.getSnapshot()).toMatchObject({
+      source: 'digital',
+      operatorIds: ['operator-a'],
+      frameId: undefined,
+      pttConfirmed: true,
+    });
+
+    await harness.pipeline.removeOperatorFromTransmission('operator-a');
+    await sending;
+    expect(harness.setPTT.mock.calls.map(([active]) => active)).toEqual([true, false]);
+    expect(harness.deps.physicalTxCoordinator.getSnapshot().phase).toBe('idle');
+    expect(harness.deps.operatorManager.requestStrategyStop).toHaveBeenCalledWith(
+      'operator-a', 'operator stopped native digital transmission',
+    );
   });
 
   it('releases PTT when the last active frame operator is explicitly removed', async () => {

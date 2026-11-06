@@ -1,6 +1,6 @@
 {
   "name": "@tx5dr/electron-main",
-  "version": "1.0.1-rc.5",
+  "version": "1.0.1-rc.6",
   "type": "commonjs",
   "description": "TX-5DR Ham Radio FT8 Application",
   "author": "BG5DRB",

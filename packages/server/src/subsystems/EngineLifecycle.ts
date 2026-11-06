@@ -32,6 +32,7 @@ import type { WSJTXDecodeWorkQueue } from '../decode/WSJTXDecodeWorkQueue.js';
 import type { PhysicalTxCoordinator } from '../transmission/PhysicalTxCoordinator.js';
 import type { ImageRadioService } from '../image-radio/ImageRadioService.js';
 import type { MfskLiveRxService } from '../decode/MfskLiveRxService.js';
+import type { NativeAutoTxScheduler } from '../decode/NativeAutoTxScheduler.js';
 
 const logger = createLogger('EngineLifecycle');
 
@@ -60,6 +61,7 @@ export interface EngineLifecycleDeps {
   getAudioSidecar: () => AudioSidecarController;
   getImageRadioService?: () => ImageRadioService | null;
   getMfskLiveRxService?: () => MfskLiveRxService | null;
+  getNativeAutoTxScheduler?: () => NativeAutoTxScheduler | null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getStatus: () => any;
 }
@@ -460,7 +462,9 @@ export class EngineLifecycle {
    */
   private buildNativeDigitalModeResourcePlan(name:string):SimplifiedResourceConfig[] {
     const service=this.deps.getMfskLiveRxService?.()??null;
+    const autoTx=this.deps.getNativeAutoTxScheduler?.()??null;
     if(!service)throw new Error('Native mode requires isolated receiver service');
+    if(!autoTx)throw new Error('Native mode requires an automatic TX lifecycle controller');
     return [
       {
         name:'mfskNativeReceiver',
@@ -483,6 +487,18 @@ export class EngineLifecycle {
         start:async()=>this.deps.spectrumScheduler.start(),
         stop:async()=>this.deps.spectrumScheduler.stop(),
         priority:6,dependencies:[],optional:false,
+      },
+      {
+        name:'nativeOperatorManager',
+        start:async()=>this.deps.operatorManager.start(),
+        stop:async()=>this.deps.operatorManager.stop(),
+        priority:7,dependencies:['mfskNativeReceiver'],optional:false,
+      },
+      {
+        name:'nativeAutoTxScheduler',
+        start:async()=>autoTx.start(),
+        stop:async()=>autoTx.stop(),
+        priority:8,dependencies:['mfskNativeReceiver','nativeOperatorManager'],optional:false,
       },
     ];
   }

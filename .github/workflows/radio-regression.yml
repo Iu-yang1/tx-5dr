@@ -87,6 +87,10 @@ jobs:
             src/radio/__tests__/HamlibConnection.test.ts
             src/radio/__tests__/PhysicalRadioManager.test.ts
             src/operator/__tests__/RadioOperatorManager.test.ts
+            src/plugin/__tests__/PluginManager.standard-qso.test.ts
+            src/decode/__tests__/NativeAutoTxScheduler.test.ts
+            src/decode/__tests__/MfskNativeTxService.test.ts
+            src/subsystems/__tests__/TransmissionPipeline.test.ts
             src/subsystems/__tests__/RadioBridge.test.ts
             src/__tests__/DigitalRadioEngine.mode-switch.test.ts
             src/radio/connections/hamlib/__tests__/HamlibNativeMonitor.test.ts

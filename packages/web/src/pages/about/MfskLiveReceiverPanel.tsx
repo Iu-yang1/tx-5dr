@@ -70,6 +70,8 @@ export function MfskLiveReceiverPanel({
   const [mskTxFirst,setMskTxFirst] = useState(true);
   const [q65TxFirst,setQ65TxFirst] = useState(true);
   const [txPending,setTxPending] = useState(false);
+  const [autoPending,setAutoPending] = useState(false);
+  const [autoStatus,setAutoStatus] = useState<Awaited<ReturnType<typeof api.getMfskNativeAutoTxStatus>>|null>(null);
   const [txStopPending,setTxStopPending] = useState(false);
   const [txNotice,setTxNotice] = useState<string | null>(null);
   const [dxCall,setDxCall] = useState('');
@@ -99,6 +101,9 @@ export function MfskLiveReceiverPanel({
           }).catch(()=>{if(active)setWsprSpots([]);});
         }
       }).catch(()=>{/* Feature is optional on non-experimental server. */});
+      void api.getMfskNativeAutoTxStatus().then(value=>{if(active)setAutoStatus(value);}).catch(()=>{
+        if(active)setAutoStatus(null);
+      });
       void api.getMfskNativeTxStatus(currentOperatorId??undefined).then(value=>{if(active)setTxStatus(value);}).catch(()=>{
         if(active)setTxStatus({rfEnabled:false,busy:false,remainingMs:0});
       });
@@ -279,8 +284,37 @@ export function MfskLiveReceiverPanel({
       .finally(()=>setQsoBusy(false));
   };
 
+  const autoActive=autoStatus?.enabled===true && autoStatus.mode===mode
+    && autoStatus.operatorId===currentOperatorId;
+  const startAutomaticTransmission=()=>{
+    if(autoPending||!mayArmRf||!receiverMatches||!currentOperatorId||autoActive)return;
+    const audioHz=Number(mode==='MSK144'?1500:txFrequency);
+    if(!Number.isFinite(audioHz)||audioHz<100||audioHz>5500){
+      setTxNotice(t('codec.liveInvalidFrequency'));return;
+    }
+    setAutoPending(true);
+    setTxNotice(null);
+    void api.startMfskNativeAutoTx({
+      mode:mode as 'Q65'|'MSK144'|'WSPR',
+      operatorId:currentOperatorId,
+      audioHz,
+      ...(mode==='WSPR'?{text:text.trim()}:{}),
+      ...(mode==='Q65'?{q65Submode:activeSubmode,q65TxFirst}:{}),
+      ...(mode==='MSK144'?{mskPeriodSeconds:mskPeriod,mskTxFirst}:{}),
+    }).then(()=>api.getMfskNativeAutoTxStatus()).then(setAutoStatus)
+      .catch(error=>setTxNotice(error instanceof Error?error.message:String(error)))
+      .finally(()=>setAutoPending(false));
+  };
+  const stopAutomaticTransmission=()=>{
+    if(autoPending||!currentOperatorId||!autoActive)return;
+    setAutoPending(true);
+    void api.stopMfskNativeAutoTx(currentOperatorId).then(()=>api.getMfskNativeAutoTxStatus())
+      .then(setAutoStatus).catch(error=>setTxNotice(error instanceof Error?error.message:String(error)))
+      .finally(()=>setAutoPending(false));
+  };
+
   const transmit=()=>{
-    if(!mayArmRf || !currentOperatorId || !receiverMatches || txStatus.busy || txPending || txStopPending) return;
+    if(!mayArmRf || !currentOperatorId || !receiverMatches || autoStatus?.enabled || txStatus.busy || txPending || txStopPending) return;
     const hz=Number(mode==='MSK144'?1500:txFrequency);
     if(!Number.isFinite(hz)||hz<100||hz>5500) {
       setTxNotice(t('codec.liveInvalidFrequency')); return;
@@ -480,13 +514,34 @@ export function MfskLiveReceiverPanel({
         </div>}
         <div className="flex gap-2 items-center flex-wrap">
           <Button size="sm" color="warning" isLoading={txPending}
-            isDisabled={!mayArmRf||!receiverMatches||txStatus.busy||!currentOperatorId||
+            isDisabled={!mayArmRf||!receiverMatches||autoStatus?.enabled||txStatus.busy||!currentOperatorId||
               !text.trim()||txPending||txStopPending}
             onPress={transmit}>{t('codec.manualTx')}</Button>
+          {(mode==='Q65'||mode==='MSK144'||mode==='WSPR') && (
+            autoActive ? <Button size="sm" color="warning" variant="flat"
+              isLoading={autoPending} isDisabled={autoPending}
+              onPress={stopAutomaticTransmission}>STOP AUTO</Button>
+            : <Button size="sm" color="primary" variant="flat"
+              isLoading={autoPending}
+              isDisabled={!mayArmRf||!receiverMatches||!currentOperatorId||txStatus.busy||autoPending||
+                (mode==='WSPR'&&!text.trim())}
+              onPress={startAutomaticTransmission}>AUTO TX</Button>
+          )}
           <Button size="sm" variant="flat" isLoading={txStopPending}
             isDisabled={(!txPending&&!txStatus.busy)||txStopPending}
             onPress={stopTransmission}>{t('codec.stopTx')}</Button>
         </div>
+        {!autoActive && (mode==='Q65'||mode==='MSK144'||mode==='WSPR') &&
+          <p className="text-xs text-warning-600" role="status">{t('codec.autoNeedsStart')}</p>}
+        {autoActive && autoStatus?.pending && <p className="text-xs text-default-500" role="status">
+          {t('codec.autoPending')}
+        </p>}
+        {autoActive && autoStatus?.lastError && <p className="text-xs text-danger" role="alert">
+          {t('codec.txFailed')}: {autoStatus.lastError}
+        </p>}
+        {autoActive && autoStatus?.lastPhysicalTxConfirmed === true && <p className="text-xs text-success" role="status">
+          {t('codec.autoConfirmed')}
+        </p>}
         {txNotice && <p className="text-xs" role="status">{txNotice}</p>}
       </div>
       {(mode==='Q65'||mode==='JTTY'||mode==='MSK144') && <section className="rounded-xl border border-default-200 bg-content1 p-3 space-y-2">

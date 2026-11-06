@@ -64,6 +64,7 @@ function createManager(options: {
   callsignTracker?: { getGrid: (callsign: string) => string | undefined };
   getFakeFrequencyEnabled?: () => boolean;
   getTransmitCompensationMs?: () => number;
+  getCurrentMode?: () => typeof MODES.FT8;
 }) {
   const eventEmitter = new EventEmitter<DigitalRadioEngineEvents>();
   const slotPackManager = {
@@ -121,7 +122,7 @@ function createManager(options: {
     eventEmitter,
     encodeQueue: encodeQueue as any,
     clockSource: clockSource as any,
-    getCurrentMode: () => MODES.FT8,
+    getCurrentMode: options.getCurrentMode ?? (() => MODES.FT8),
     setRadioFrequency: vi.fn(),
     slotPackManager: slotPackManager as any,
     getRadioFrequency: options.getRadioFrequency,
@@ -372,6 +373,26 @@ function defaultTransmissionSet(text: string | null, audioFrequencyHz = 1500) {
     ? [{ streamId: 'default', text, audioFrequencyHz }]
     : [];
 }
+
+describe('RadioOperatorManager native frame isolation', () => {
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('does not mutate a legacy TX frame using zero-duration MSK144 slots', async () => {
+    const { manager, encodeQueue } = createManager({
+      logBook: { id: 'log-1', name: 'Test', provider: {} },
+      getCurrentMode: () => MODES.MSK144,
+      clockNow: 4_500,
+    });
+    await addBasicOperator(manager, 'op1');
+    const strategyStop = vi.spyOn(manager, 'requestStrategyStop');
+    expect(() => (manager as any).requestOperatorFrameMutation('op1', {
+      kind: 'context',
+      reason: 'MSK144 operator edited target',
+    })).not.toThrow();
+    expect(strategyStop).not.toHaveBeenCalled();
+    expect(encodeQueue.push).not.toHaveBeenCalled();
+  });
+});
 
 describe('RadioOperatorManager transmission maintenance', () => {
   afterEach(() => {
@@ -3914,6 +3935,72 @@ describe('RadioOperatorManager transmission acceptance notification', () => {
       slotStartMs: 0,
       timeSinceSlotStartMs: 4_500,
     });
+  });
+
+  it('initializes an empty FT8 strategy when TX is enabled and then queues its first waveform', async () => {
+    mockMaxSameTransmissionCount(20);
+    const encodeQueue = { push: vi.fn() };
+    const { manager } = createManager({
+      logBook: { id: 'log-1', name: 'Test Log', provider: {} },
+      clockNow: 4_500,
+      encodeQueue,
+    });
+    await addBasicOperator(manager, 'op1');
+    let resolveStrategy!: (value: boolean) => void;
+    let transmissions: ReturnType<typeof defaultTransmissionSet> = [];
+    const initializeOperatorTransmission = vi.fn(() => new Promise<boolean>(
+      (resolve) => { resolveStrategy = resolve; },
+    ));
+    manager.setPluginManager({
+      getCurrentTransmissions: vi.fn(() => transmissions),
+      getOperatorRuntimeStatus: vi.fn(() => undefined),
+      initializeOperatorTransmission,
+    } as any);
+    manager.start();
+
+    manager.startOperator('op1');
+    expect(manager.getOperatorById('op1')?.isTransmitting).toBe(true);
+    expect(encodeQueue.push).not.toHaveBeenCalled();
+    expect(initializeOperatorTransmission).toHaveBeenCalledTimes(1);
+    expect(initializeOperatorTransmission).toHaveBeenCalledWith('op1');
+
+    transmissions = defaultTransmissionSet('CQ BG4IAJ OM96');
+    resolveStrategy(true);
+    await vi.waitFor(() => expect(encodeQueue.push).toHaveBeenCalledTimes(1));
+    expect(encodeQueue.push.mock.calls[0]?.[0]).toMatchObject({
+      operatorId: 'op1', message: 'CQ BG4IAJ OM96',
+    });
+  });
+
+  it('does not encode an asynchronously initialized TX message after the operator stops', async () => {
+    const encodeQueue = { push: vi.fn() };
+    const { manager } = createManager({
+      logBook: { id: 'log-1', name: 'Test Log', provider: {} },
+      clockNow: 4_500,
+      encodeQueue,
+    });
+    await addBasicOperator(manager, 'op1');
+    let resolveStrategy!: (value: boolean) => void;
+    let transmissions = defaultTransmissionSet(null);
+    const initializeOperatorTransmission = vi.fn(() => new Promise<boolean>(
+      resolve => { resolveStrategy = resolve; },
+    ));
+    manager.setPluginManager({
+      getCurrentTransmissions: vi.fn(() => transmissions),
+      getOperatorRuntimeStatus: vi.fn(() => undefined),
+      initializeOperatorTransmission,
+    } as any);
+    manager.start();
+    // The previous auto-TX state is inactive before this explicit user start.
+    manager.getOperatorById('op1')?.stop();
+    manager.startOperator('op1');
+    expect(initializeOperatorTransmission).toHaveBeenCalledTimes(1);
+    // A strategy response arrived while user STOP superseded their TX intent.
+    transmissions = defaultTransmissionSet('CQ BG4IAJ OM96');
+    manager.getOperatorById('op1')?.stop();
+    resolveStrategy(true);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(encodeQueue.push).not.toHaveBeenCalled();
   });
 
   it('waits for queue target revalidation before encoding a resumed active entry', async () => {

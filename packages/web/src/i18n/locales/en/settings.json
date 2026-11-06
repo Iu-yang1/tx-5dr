@@ -192,6 +192,7 @@
     "digitalModeRadioModeTitle": "FT8/FT4 Radio Mode",
     "digitalModeRadioModeDesc": "Choose whether FT8/FT4 frequency switches also write the radio CAT mode for this profile.",
     "digitalModeRadioModeLabel": "Digital mode radio mode",
+    "ftdx10DigitalTxAudioHint": "FT-DX10 digital TX: select USB-DATA; on the radio set DATA MOD SOURCE=REAR, REAR SELECT=USB and RPORT GAIN above 0. Select the radio's USB Audio CODEC for Windows TX output. Working SSB voice does not confirm the DATA audio path.",
     "digitalModeRadioModeOptions": {
       "none": "Do not set radio mode",
       "usb": "USB (upper sideband)",

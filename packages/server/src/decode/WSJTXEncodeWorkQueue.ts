@@ -59,9 +59,10 @@ export function assertNativeSlottedEncodeAdmission(
     }
     return;
   }
-  // The new native implementation cannot borrow the legacy physical chain
-  // without an explicit product gate and complete frame identity.
-  if(!rfEnabled)throw new Error('mfsk-native RF transmission is disabled pending P9 acceptance');
+  // A normal radio session may encode only a complete, aligned, coordinator-owned
+  // frame. The operator TX switch, radio connection, audio output and actual
+  // PTT remain independently gated by the physical TX coordinator.
+  if(!rfEnabled)throw new Error('mfsk-native RF transmission was explicitly disabled');
   const mode=request.mode==='FT4'?'FT4':'FT8';
   const slotMs=mode==='FT4'?7500:15000;
   if(!request.operatorId || request.operatorId.startsWith('simulation:')
@@ -151,12 +152,14 @@ export class WSJTXEncodeWorkQueue extends EventEmitter<EncodeWorkQueueEvents> {
 
       // Native mode is explicitly opted into; a missing module fails closed.
       if (this.native) {
-        // An explicit, default-disabled RF gate may unlock the *existing*
-        // coordinator-owned frame flow for integration testing. A waveform
-        // emitted here is not a PTT request and still needs a valid lease.
+        // Release builds select mfsk-native by default. Requiring an opt-in
+        // environment variable here silently prevented every FT8/FT4 TX even
+        // with the operator switch ON. Keep an explicit emergency opt-out,
+        // while requiring a valid frame before the physical audio/PTT lease.
+        const rfOverride = process.env.TX5DR_ENABLE_MFSK_RF_TX;
         assertNativeSlottedEncodeAdmission(
           request,
-          process.env.TX5DR_ENABLE_MFSK_RF_TX === '1',
+          rfOverride !== '0' && rfOverride !== 'false',
         );
         const mode = request.mode === 'FT4' ? 'FT4' : 'FT8';
         const waveform = this.native.encodeSlotted(mode, request.message, request.frequency);

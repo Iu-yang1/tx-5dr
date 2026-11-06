@@ -192,6 +192,7 @@
     "digitalModeRadioModeTitle": "FT8/FT4 無線モード",
     "digitalModeRadioModeDesc": "このプロファイルで FT8/FT4 の周波数を切り替えるときに、無線の CAT モードも書き込むかを選択します。",
     "digitalModeRadioModeLabel": "デジタルモードの無線モード",
+    "ftdx10DigitalTxAudioHint": "FT-DX10 のデジタル送信：USB-DATA を選び、無線機の DATA MOD SOURCE=REAR、REAR SELECT=USB、RPORT GAIN>0 に設定してください。Windows の送信出力には無線機の USB Audio CODEC を選びます。SSB 音声送信の成功は DATA 音声経路の確認にはなりません。",
     "digitalModeRadioModeOptions": {
       "none": "無線モードを設定しない",
       "usb": "USB（上側波帯）",

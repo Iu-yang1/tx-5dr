@@ -1,0 +1,155 @@
+name: Reconcile staged upstream dependency graph
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/reconcile-upstream-dependencies.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tx5dr-upstream-dependency-reconcile
+  cancel-in-progress: false
+
+jobs:
+  regenerate-lockfile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout staged upstream branch
+        uses: actions/checkout@v4
+        with:
+          ref: integration/upstream-full-20261106
+          fetch-depth: 0
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Forward merge current fork main into upstream staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          if git merge-base --is-ancestor origin/main HEAD; then
+            echo 'Staging already contains fork main'
+          else
+            if ! git merge --no-commit --no-ff -X theirs origin/main; then
+              # Resolve remaining modify/delete conflicts toward latest fork main.
+              while IFS= read -r -d '' conflict; do
+                if git cat-file -e "origin/main:$conflict" 2>/dev/null; then
+                  git checkout --theirs -- "$conflict"
+                  git add -- "$conflict"
+                else
+                  git rm -f -- "$conflict"
+                fi
+                echo "Resolved current-main overlap: $conflict"
+              done < <(git diff --name-only --diff-filter=U -z)
+              test -z "$(git ls-files -u)"
+            fi
+            git commit -m "merge(fork): forward-port current main to upstream integration staging"
+          fi
+      - name: Merge upstream dependency constraints while preserving fork-only packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git remote add upstream https://github.com/boybook/tx-5dr.git
+          git fetch --no-tags upstream main
+          python3 - <<'PY'
+          import json
+          import subprocess
+          from pathlib import Path
+          categories = ['dependencies','devDependencies','peerDependencies','optionalDependencies']
+          targets = [
+              'package.json',
+              'packages/builtin-plugins/package.json',
+              'packages/client-tools/package.json',
+              'packages/electron-main/package.json',
+              'packages/electron-preload/package.json',
+              'packages/server/package.json',
+              'packages/shared-config/package.json',
+              'packages/web/package.json',
+          ]
+          for path in targets:
+              p = Path(path)
+              if not p.exists(): continue
+              local = json.loads(p.read_text(encoding='utf-8'))
+              try:
+                  raw = subprocess.check_output(['git','show',f'upstream/main:{path}'])
+                  upstream = json.loads(raw)
+              except (subprocess.CalledProcessError, ValueError):
+                  print('Skipping unknown upstream manifest',path)
+                  continue
+              for cat in categories:
+                  for name, version in upstream.get(cat, {}).items():
+                      for other in categories:
+                          if other != cat: local.get(other, {}).pop(name, None)
+                      local.setdefault(cat, {})[name] = version
+              if path == 'package.json':
+                  local['resolutions'] = {
+                      **local.get('resolutions',{}),
+                      **upstream.get('resolutions',{}),
+                  }
+              if 'scripts' in upstream:
+                  for key,value in upstream['scripts'].items():
+                      local.setdefault('scripts',{}).setdefault(key,value)
+              p.write_text(json.dumps(local,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+              print('Reconciled',path)
+          version = json.loads(Path('package.json').read_text())['version']
+          sdk_version = json.loads(subprocess.check_output([
+              'git','show','upstream/main:packages/plugin-api/package.json'
+          ]))['version']
+          sdk_packages = {'plugin-api','contracts','core','create-tx5dr-plugin'}
+          host_packages = {'builtin-plugins','client-tools','electron-main',
+                           'electron-preload','server','shared-config','web'}
+          for p in Path('packages').glob('*/package.json'):
+              data = json.loads(p.read_text(encoding='utf-8'))
+              target = sdk_version if p.parent.name in sdk_packages else (
+                  version if p.parent.name in host_packages else None
+              )
+              if target and 'version' in data and data['version'] != target:
+                  data['version'] = target
+                  p.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          # Resolve the scaffold against the in-tree SDK rather than an npm
+          # publication that may not exist yet. Release packaging rewrites
+          # workspace:^ to an appropriate published semver dependency.
+          scaffold = Path('packages/create-tx5dr-plugin/package.json')
+          if scaffold.exists():
+              scaffold_manifest = json.loads(scaffold.read_text(encoding='utf-8'))
+              scaffold_manifest.setdefault('dependencies', {})['@tx5dr/plugin-api'] = 'workspace:^'
+              scaffold.write_text(json.dumps(scaffold_manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          info = Path('packages/server/src/generated/buildInfo.json')
+          data = json.loads(info.read_text(encoding='utf-8'))
+          data['version'] = version
+          data['pluginApiVersion'] = sdk_version
+          info.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          PY
+      - name: Generate consistent Yarn 4 lockfile
+        shell: bash
+        env:
+          YARN_ENABLE_IMMUTABLE_INSTALLS: 'false'
+        run: |
+          set -euo pipefail
+          corepack enable
+          yarn install --mode=skip-build
+      - name: Commit dependency graph on staging branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -- package.json packages/*/package.json yarn.lock packages/server/src/generated/buildInfo.json
+          if git diff --staged --quiet; then
+            echo "Dependency graph already consistent"
+            exit 0
+          fi
+          git commit -m "chore(upstream): reconcile security dependency upgrades and Yarn lock"
+          git push origin HEAD:refs/heads/integration/upstream-full-20261106
+          echo "## Staged dependency migration" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Main fork version and fork-only packages retained" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Upstream direct dependency upgrades and resolutions applied" >> "$GITHUB_STEP_SUMMARY"

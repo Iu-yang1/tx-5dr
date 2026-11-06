@@ -428,7 +428,9 @@ export async function createServer() {
   const fastify = Fastify({
     trustProxy: true,
     logger: {
-      level: 'info',
+      level: /^(debug|info|warn|error|silent)$/.test(process.env.LOG_LEVEL?.toLowerCase() ?? '')
+        ? process.env.LOG_LEVEL!.toLowerCase()
+        : (process.env.NODE_ENV === 'production' ? 'warn' : 'info'),
       // 减少健康检查请求的日志噪音
       serializers: {
         req(request) {

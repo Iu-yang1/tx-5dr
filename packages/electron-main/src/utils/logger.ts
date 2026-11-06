@@ -16,6 +16,8 @@ export interface Logger {
 export function createLogger(module: string): Logger {
   return {
     debug: (msg, ctx) => {
+      const diagnosticsEnabled = /^(1|true|yes|on)$/i.test(process.env.TX5DR_ENABLE_DIAGNOSTICS?.trim() ?? '');
+      if (process.env.NODE_ENV !== 'development' && !diagnosticsEnabled) return;
       const safeMessage = redactSensitiveText(`[${module}] ${msg}`);
       ctx !== undefined ? log.debug(safeMessage, redactSensitiveLogValue(ctx)) : log.debug(safeMessage);
     },
