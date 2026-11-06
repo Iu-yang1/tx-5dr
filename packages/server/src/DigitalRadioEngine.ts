@@ -37,6 +37,7 @@ import { EventEmitter } from 'eventemitter3';
 import { MfskLiveRxService } from './decode/MfskLiveRxService.js';
 import { MfskRfArmGate } from './decode/MfskRfArmGate.js';
 import { MfskNativeTxService } from './decode/MfskNativeTxService.js';
+import { NativeAutoTxScheduler } from './decode/NativeAutoTxScheduler.js';
 import { projectNativeDigitalFrames } from './decode/NativeDigitalSlotBridge.js';
 import {
   AudioStreamManager,
@@ -256,6 +257,7 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
   private audioStreamManager: AudioStreamManager;
   private mfskLiveRxService: MfskLiveRxService;
   private mfskNativeTxService: MfskNativeTxService;
+  private nativeAutoTxScheduler: NativeAutoTxScheduler;
   private mfskRfArmGate: MfskRfArmGate;
   private physicalTxAudioBackend: PhysicalTxAudioBackend;
   private realDecodeQueue: WSJTXDecodeWorkQueue;
@@ -427,6 +429,41 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
       now:()=>this.clockSource.now(),
       transmitAudio:request=>this.physicalTxCoordinator.transmitAudio(request),
       stopTuneTone:()=>this.stopTuneTone('native digital transmitter started'),
+    });
+    this.nativeAutoTxScheduler = new NativeAutoTxScheduler({
+      now: () => this.clockSource.now(),
+      mode: () => this.currentMode.name,
+      receiver: () => this.mfskLiveRxService.status(),
+      operator: (id) => {
+        const op = this._operatorManager?.getOperatorById(id);
+        return op ? {
+          id, isTransmitting: op.isTransmitting,
+          callsign: op.config.myCallsign, grid: op.config.myGrid,
+        } : undefined;
+      },
+      transmissions: id => this._pluginManager?.getCurrentTransmissions(id) ?? [],
+      nativeBusy: () => this.mfskNativeTxService.isBusy(),
+      physicalPhase: () => this.physicalTxCoordinator.getSnapshot().phase,
+      send: request => this.mfskNativeTxService.send(request),
+      cancelNativeTx: () => this.mfskNativeTxService.cancel(),
+    });
+    this.on('operatorStatusUpdate', status => {
+      this.nativeAutoTxScheduler.onOperatorStateChanged(status.id);
+      if (status.isTransmitting) return;
+      // The normal operator STOP does not pass through the legacy digital
+      // frame-removal path. Cancel a native encoder/UTC wait owned by this
+      // operator and independently interrupt any already keyed native lease.
+      if (this.mfskNativeTxService.getPendingOperatorId() === status.id) {
+        this.mfskNativeTxService.cancel();
+      }
+      const physical=this.physicalTxCoordinator.getSnapshot();
+      if(physical.leaseId && physical.source==='digital'
+        && physical.reason?.startsWith('native ')
+        && physical.operatorIds.includes(status.id)){
+        void this.physicalTxCoordinator.forceInterruptLease(
+          physical.leaseId,'native operator TX switched off',
+        ).catch(error=>logger.error('Failed to release native PTT on operator STOP',error));
+      }
     });
     // A native worker crash or a receiver restart is an RF boundary, not
     // merely a decode warning. Cancel an uncommitted UTC send immediately
@@ -937,6 +974,7 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
   }
 
   public async disarmMfskNativeRfTx():Promise<void>{
+    this.nativeAutoTxScheduler.disable();
     this.mfskRfArmGate.revoke();
     this.mfskNativeTxService.cancel();
     const snapshot=this.physicalTxCoordinator.getSnapshot();
@@ -947,6 +985,10 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
 
   public getMfskNativeTxService(): MfskNativeTxService {
     return this.mfskNativeTxService;
+  }
+
+  public getNativeAutoTxScheduler(): NativeAutoTxScheduler {
+    return this.nativeAutoTxScheduler;
   }
 
   public getMfskLiveRxService(): MfskLiveRxService {
@@ -1517,6 +1559,7 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
       isVirtualRadioActive: () => this.virtualRadioSession !== null,
       getImageRadioService: () => this.imageRadioService,
       getMfskLiveRxService: () => this.mfskLiveRxService,
+      getNativeAutoTxScheduler: () => this.nativeAutoTxScheduler,
       getStatus: () => this.getStatus(),
     });
     this.engineLifecycle.setVoiceSessionManager(this.voiceSessionManager);

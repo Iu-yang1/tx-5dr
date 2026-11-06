@@ -21,6 +21,10 @@ const mock = vi.hoisted(() => ({
     events: [],
   })),
   txStatus: vi.fn(async () => ({ rfEnabled: true, busy: false, remainingMs: 90000 })),
+  autoStatus: vi.fn(async () => ({ enabled:false,running:true,mode:null,operatorId:null,
+    pending:false,lastScheduledStartMs:null,lastPhysicalTxConfirmed:null,lastError:null })),
+  autoStart: vi.fn(async () => ({ enabled:true })),
+  autoStop: vi.fn(async () => ({ enabled:false })),
   wsprSpots: vi.fn(async () => ({ spots: [] as unknown[] })),
 }));
 
@@ -44,6 +48,9 @@ vi.mock('../../store/radioStore', () => ({
 vi.mock('@tx5dr/core', () => ({ api: {
   getMfskLiveRxEvents:mock.events,
   getMfskNativeTxStatus:mock.txStatus,
+  getMfskNativeAutoTxStatus:mock.autoStatus,
+  startMfskNativeAutoTx:mock.autoStart,
+  stopMfskNativeAutoTx:mock.autoStop,
   armMfskNativeTx:mock.arm,
   disarmMfskNativeTx:mock.disarm,
   startMfskLiveRx:mock.start,
@@ -191,4 +198,25 @@ it('rounds the WSPR spot strength and AF frequency consistently',async()=>{
   await waitFor(()=>expect(screen.getByText('K1ABC')).toBeTruthy());
   expect(screen.getByText('-28')).toBeTruthy();
   expect(screen.getByText('1499')).toBeTruthy();
+});
+
+it('starts automatic Q65 transmit with the confirmed receiver submode and operator identity',async()=>{
+  render(<MfskLiveReceiverPanel surface="operator"/>);
+  await waitFor(()=>expect(screen.getByText('AUTO TX')).toBeTruthy());
+  fireEvent.click(screen.getByText('AUTO TX'));
+  await waitFor(()=>expect(mock.autoStart).toHaveBeenCalledWith(expect.objectContaining({
+    mode:'Q65',operatorId:'op1',q65Submode:'Q65-120D',
+    q65TxFirst:true,audioHz:1500,
+  })));
+});
+
+it('stops automatic native transmit only for the current operator',async()=>{
+  mock.autoStatus.mockResolvedValueOnce({
+    enabled:true,running:true,mode:'Q65',operatorId:'op1',pending:true,
+    lastScheduledStartMs:null,lastPhysicalTxConfirmed:null,lastError:null,
+  });
+  render(<MfskLiveReceiverPanel surface="operator"/>);
+  await waitFor(()=>expect(screen.getByText('STOP AUTO')).toBeTruthy());
+  fireEvent.click(screen.getByText('STOP AUTO'));
+  await waitFor(()=>expect(mock.autoStop).toHaveBeenCalledWith('op1'));
 });

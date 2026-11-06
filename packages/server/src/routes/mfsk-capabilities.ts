@@ -3,25 +3,50 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { FastifyInstance } from 'fastify';
 import {
-  DIGITAL_CODEC_PROFILES,
   DigitalCodecRuntimeCapabilitySchema,
   MfskCodecProbeResponseSchema,
+  MfskCodecSimulationRequestSchema,
+  MfskCodecSimulationResponseSchema,
+  MfskPhysicalTxRequestSchema,
+  MfskManualQsoSchema,
+  WsprSpotsResponseSchema,
+  Q65SubmodeSchema,
+  MfskLiveRxStartSchema,
+  MfskLiveRxStatusSchema,
+  MfskLiveRxEventsSchema,
+  MfskLiveRxApContextUpdateSchema,
   type DigitalCodecMode,
   type MfskCodecProbeResponse,
 } from '@tx5dr/contracts';
-import { requireAbility } from '../auth/authPlugin.js';
+import { requireAbility, requireOperatorAbility } from '../auth/authPlugin.js';
 import { MFSK_NATIVE_MODULE_PATH } from '../decode/MfskNativeAdapter.js';
-import { MfskCodecSimulationRequestSchema, MfskCodecSimulationResponseSchema } from '@tx5dr/contracts';
 import { fileURLToPath } from 'node:url';
 import { isMfskPhysicalTxConfirmed } from '../decode/MfskNativeTxService.js';
 import { DigitalRadioEngine } from '../DigitalRadioEngine.js';
-import { requireOperatorAbility } from '../auth/authPlugin.js';
-import { MfskPhysicalTxRequestSchema, MfskManualQsoSchema, WsprSpotsResponseSchema } from '@tx5dr/contracts';
 import { randomUUID } from 'node:crypto';
-import {
-  MfskLiveRxStartSchema, MfskLiveRxStatusSchema, MfskLiveRxEventsSchema,
-  MfskLiveRxApContextUpdateSchema,
-} from '@tx5dr/contracts';
+import { z } from 'zod';
+
+const NativeAutomaticTxStartSchema = z.object({
+  mode: z.enum(['Q65', 'MSK144', 'WSPR']),
+  operatorId: z.string().trim().min(1).max(128),
+  text: z.string().trim().max(64).optional(),
+  audioHz: z.number().finite().min(100).max(5500),
+  q65Submode: Q65SubmodeSchema.optional(),
+  q65TxFirst: z.boolean().optional(),
+  mskPeriodSeconds: z.union([z.literal(5), z.literal(10), z.literal(15), z.literal(30)]).optional(),
+  mskTxFirst: z.boolean().optional(),
+}).superRefine((value, ctx) => {
+  if (value.mode === 'WSPR' && !value.text?.trim()) {
+    ctx.addIssue({code:z.ZodIssueCode.custom,path:['text'],
+      message:'WSPR requires a configured callsign, grid and power'});
+  }
+  if (value.mode !== 'Q65' && (value.q65Submode || value.q65TxFirst !== undefined)) {
+    ctx.addIssue({code:z.ZodIssueCode.custom,path:['q65Submode'],message:'Q65-only settings'});
+  }
+  if (value.mode !== 'MSK144' && (value.mskPeriodSeconds || value.mskTxFirst !== undefined)) {
+    ctx.addIssue({code:z.ZodIssueCode.custom,path:['mskPeriodSeconds'],message:'MSK144-only settings'});
+  }
+});
 
 const execAsync = promisify(execFile);
 const MODES: DigitalCodecMode[] = ['FT8','FT4','Q65','WSPR','MSK144','JTTY'];
@@ -146,6 +171,54 @@ export async function mfskCapabilityRoutes(fastify:FastifyInstance):Promise<void
       }));
     });
 
+  fastify.get('/tx/auto/status',{preHandler:[requireAbility('read','all')]},
+    async (_request,reply)=>reply.send(
+      DigitalRadioEngine.getInstance().getNativeAutoTxScheduler().status(),
+    ));
+
+  fastify.post('/tx/auto/start',{
+    preHandler:[
+      requireAbility('execute','RadioControl'),
+      requireOperatorAbility(req=>(req.body as {operatorId?:string})?.operatorId??''),
+    ],
+  },async(request,reply)=>{
+    const config=NativeAutomaticTxStartSchema.parse(request.body);
+    const controller=DigitalRadioEngine.getInstance().getNativeAutoTxScheduler();
+    try{
+      return reply.send(controller.enable({
+        mode:config.mode,operatorId:config.operatorId,
+        audioHz:config.audioHz,
+        ...(config.mode==='WSPR'?{beaconText:config.text}:{}),
+        ...(config.mode==='Q65'?{
+          q65Submode:config.q65Submode,q65TxFirst:config.q65TxFirst,
+        }:{}),
+        ...(config.mode==='MSK144'?{
+          mskPeriodSeconds:config.mskPeriodSeconds,mskTxFirst:config.mskTxFirst,
+        }:{}),
+      }));
+    }catch(error){
+      return reply.code(409).send({success:false,
+        error:error instanceof Error?error.message:String(error)});
+    }
+  });
+
+  fastify.post('/tx/auto/stop',{
+    preHandler:[
+      requireAbility('execute','RadioControl'),
+      requireOperatorAbility(req=>(req.body as {operatorId?:string})?.operatorId??''),
+    ],
+  },async(request,reply)=>{
+    const { operatorId }=z.object({operatorId:z.string().min(1).max(128)}).parse(request.body);
+    const engine=DigitalRadioEngine.getInstance();
+    const scheduler=engine.getNativeAutoTxScheduler();
+    const owner=scheduler.status().operatorId;
+    if(owner && owner!==operatorId){
+      return reply.code(409).send({success:false,error:'Native automatic TX belongs to a different operator'});
+    }
+    if(owner===operatorId)await engine.disarmMfskNativeRfTx();
+    return reply.send(scheduler.status());
+  });
+
   // Dedicated, user-triggered TX. Existing audio/PTT coordinator owns the
   // normal key-on, waveform playback, and key-off sequence.
   fastify.get('/tx/status',{preHandler:[requireAbility('read','all')]},
@@ -167,11 +240,18 @@ export async function mfskCapabilityRoutes(fastify:FastifyInstance):Promise<void
       requireOperatorAbility(req=>(req.body as {operatorId?:string})?.operatorId??''),
     ],
   },async(_request,reply)=>reply.send({success:true,rfEnabled:true,remainingMs:0}));
-  fastify.post('/tx/disarm',{preHandler:[requireAbility('execute','RadioControl')]},
-    async(_request,reply)=>{
-      await DigitalRadioEngine.getInstance().disarmMfskNativeRfTx();
-      return reply.send({success:true,rfEnabled:false,remainingMs:0});
-    });
+  fastify.post('/tx/disarm',{preHandler:[
+    requireAbility('execute','RadioControl'),
+    async(request,reply)=>{
+      // The legacy STOP endpoint is still used by manual TX. During an
+      // automatic session, only its owning operator may terminate the lease.
+      const owner=DigitalRadioEngine.getInstance().getNativeAutoTxScheduler().status().operatorId;
+      if(owner)await requireOperatorAbility(()=>owner)(request,reply);
+    },
+  ]},async(_request,reply)=>{
+    await DigitalRadioEngine.getInstance().disarmMfskNativeRfTx();
+    return reply.send({success:true,rfEnabled:false,remainingMs:0});
+  });
   fastify.post('/tx/send',{
     preHandler:[
       requireAbility('execute','RadioControl'),
@@ -180,6 +260,12 @@ export async function mfskCapabilityRoutes(fastify:FastifyInstance):Promise<void
   },async(request,reply)=>{
     const payload=MfskPhysicalTxRequestSchema.parse(request.body);
     const engine=DigitalRadioEngine.getInstance();
+    // Manual RF requests must not race an operator-owned automatic UTC slot.
+    if(engine.getNativeAutoTxScheduler().status().enabled){
+      return reply.code(409).send({
+        success:false,error:'Disable native automatic TX before sending manually',
+      });
+    }
     const service=engine.getMfskNativeTxService();
     const result=await service.send(payload);
     if(!isMfskPhysicalTxConfirmed(result)){

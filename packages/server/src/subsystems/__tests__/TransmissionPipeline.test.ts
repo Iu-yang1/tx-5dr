@@ -721,6 +721,34 @@ describe('TransmissionPipeline lifecycle integration', () => {
     expect(harness.setPTT.mock.calls.map(([active]) => active)).toEqual([true, false]);
   });
 
+  it('releases native Q65 PTT when an operator stops an unframed TX lease', async () => {
+    const harness = createHarness();
+    const sending = harness.deps.physicalTxCoordinator.transmitAudio({
+      source: 'digital',
+      operatorIds: ['operator-a'],
+      reason: 'native Q65 manual transmission',
+      audioData: new Float32Array(12_000),
+      sampleRate: 12_000,
+      playbackKind: 'digital',
+      assertPtt: true,
+    });
+    await vi.waitFor(() => expect(harness.playAudio).toHaveBeenCalledTimes(1));
+    expect(harness.deps.physicalTxCoordinator.getSnapshot()).toMatchObject({
+      source: 'digital',
+      operatorIds: ['operator-a'],
+      frameId: undefined,
+      pttConfirmed: true,
+    });
+
+    await harness.pipeline.removeOperatorFromTransmission('operator-a');
+    await sending;
+    expect(harness.setPTT.mock.calls.map(([active]) => active)).toEqual([true, false]);
+    expect(harness.deps.physicalTxCoordinator.getSnapshot().phase).toBe('idle');
+    expect(harness.deps.operatorManager.requestStrategyStop).toHaveBeenCalledWith(
+      'operator-a', 'operator stopped native digital transmission',
+    );
+  });
+
   it('releases PTT when the last active frame operator is explicitly removed', async () => {
     const harness = createHarness();
     const initialHandling = (harness.pipeline as any).handleMixedAudioReady(harness.mixedAudio);

@@ -178,6 +178,13 @@ export class ClockCoordinator {
     // slotPackUpdated 错误触发（会把当前 TX 槽的 slotPack 当成上一 RX 槽喂给
     // standard-qso，污染 QSO 上下文——见 2026-04-19 BG5DRB 事故）。
     this.lm.listen(slotPackManager, 'slotPackDecodeUpdated', (slotPack: SlotPack) => {
+      const mode = getCurrentMode().name;
+      if (mode === 'Q65' || mode === 'MSK144') {
+        operatorManager.onNativeDecodedSlotPack(slotPack);
+        return;
+      }
+      // WSPR is a propagation-reporting beacon, never an automatic QSO.
+      if (mode === 'WSPR' || mode === 'JTTY') return;
       operatorManager.reDecideOnLateDecodes(slotPack);
     });
 
