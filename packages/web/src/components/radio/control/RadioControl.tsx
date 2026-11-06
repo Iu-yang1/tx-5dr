@@ -1186,12 +1186,9 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
     let requestSequence = 0;
     const loadFrequencies = async () => {
       const requestId = ++requestSequence;
-      if (!connection.state.isConnected) {
+      if (!connection.state.isConnected || !canUseAuthenticatedRest) {
         setAvailableFrequencies([]);
-        return;
-      }
-      if (!canUseAuthenticatedRest) {
-        setAvailableFrequencies([]);
+        setIsLoadingFrequencies(false);
         return;
       }
 
@@ -1789,17 +1786,15 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
       return;
     }
 
-    await executeFrequencySwitch(selectedFrequencyKey, selectedFrequency);
+    await executeFrequencySwitch(selectedFrequency);
   };
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const executeFrequencySwitch = async (selectedFrequencyKey: string, selectedFrequency: any) => {
+  const executeFrequencySwitch = async (selectedFrequency: FrequencyOption) => {
     if (!canWriteTargetFrequency(selectedFrequency.frequency)) return;
 
     try {
       // 设置频率和电台调制模式
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const params: any = {
+      const params: Parameters<typeof setRadioFrequencyWithIntent>[0] = {
         frequency: selectedFrequency.frequency,
         mode: selectedFrequency.mode,
         band: selectedFrequency.band,
@@ -2858,7 +2853,7 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
               if (sdrConfirmPending) {
                 const freq = filteredFrequencies.find(f => f.key === sdrConfirmPending.frequency);
                 if (freq) {
-                  executeFrequencySwitch(sdrConfirmPending.frequency, freq);
+                  void executeFrequencySwitch(freq);
                 }
               }
               setSdrConfirmPending(null);
