@@ -192,6 +192,7 @@
     "digitalModeRadioModeTitle": "FT8/FT4 电台模式",
     "digitalModeRadioModeDesc": "设置该 Profile 在切换 FT8/FT4 频率时，是否同时写入电台 CAT 模式。",
     "digitalModeRadioModeLabel": "数字模式电台模式",
+    "ftdx10DigitalTxAudioHint": "FT-DX10 数字发射：建议选 USB-DATA；电台 DATA MOD SOURCE=REAR、REAR SELECT=USB、RPORT GAIN>0；Windows 发射输出选择电台 USB Audio CODEC。普通 SSB 话音正常不代表 DATA 音频已接通。",
     "digitalModeRadioModeOptions": {
       "none": "不设置电台模式",
       "usb": "USB（上边带）",
