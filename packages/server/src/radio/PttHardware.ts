@@ -31,7 +31,12 @@ export class PttHardware {
 
   async set(enabled: boolean): Promise<void> {
     if (!this.port) return;
-    const signal = { [this.method]: enabled } as { dtr?: boolean; rts?: boolean };
+    // SerialPort may raise omitted modem-control lines. Always drive the
+    // unselected DTR/RTS line LOW when opening, transmitting and releasing PTT.
+    const signal = {
+      dtr: this.method === 'dtr' && enabled,
+      rts: this.method === 'rts' && enabled,
+    };
     await new Promise<void>((resolve, reject) => this.port!.set(signal, error => error ? reject(error) : resolve()));
     this.active = enabled;
   }

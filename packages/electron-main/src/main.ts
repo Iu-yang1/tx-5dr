@@ -2362,11 +2362,19 @@ function buildContextMenu(includQuit: boolean): Menu {
     { label: msgs.menu.about, click: () => { void openAboutWindow(); } },
     { type: 'separator' },
     { label: msgs.menu.openMainWindow, click: () => showMainWindow() },
-    { label: msgs.menu.openDevTools, click: () => { void openMainWindowDevTools(); } },
-    { label: msgs.menu.logViewer, click: () => openLogInTerminal() },
+  ];
+
+  // Keep developer controls out of normal releases; allow explicit support opt-in.
+  if (isDevelopmentRuntime() || isEnvFlagEnabled('TX5DR_ENABLE_DIAGNOSTICS')) {
+    template.push(
+      { label: msgs.menu.openDevTools, click: () => { void openMainWindowDevTools(); } },
+      { label: msgs.menu.logViewer, click: () => openLogInTerminal() },
+    );
+  }
+  template.push(
     { type: 'separator' },
     { label: msgs.menu.openInBrowser, click: () => openInBrowser() },
-  ];
+  );
 
   if (includQuit) {
     template.push(
@@ -4269,12 +4277,12 @@ function setupIpcHandlers() {
     await getDesktopUpdateService().openDownload(url);
   });
 
-  ipcMain.handle('updater:download', async () => {
-    return getDesktopUpdateService().download();
+  ipcMain.handle('updater:download', async (_event, request: unknown) => {
+    return getDesktopUpdateService().download(request);
   });
 
-  ipcMain.handle('updater:installAndRestart', async () => {
-    return getDesktopUpdateService().installAndRestart();
+  ipcMain.handle('updater:installAndRestart', async (_event, request: unknown) => {
+    return getDesktopUpdateService().installAndRestart(request);
   });
 
   ipcMain.handle('https:getStatus', async () => {

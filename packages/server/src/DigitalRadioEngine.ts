@@ -865,6 +865,10 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
     return this.slotPackManager;
   }
 
+  public getClockSource(): ClockSourceSystem {
+    return this.clockSource;
+  }
+
   public getIncompleteQsoService(): IncompleteQsoService | null {
     return this.incompleteQsoService;
   }
