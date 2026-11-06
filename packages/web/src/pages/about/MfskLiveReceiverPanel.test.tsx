@@ -21,6 +21,10 @@ const mock = vi.hoisted(() => ({
     events: [],
   })),
   txStatus: vi.fn(async () => ({ rfEnabled: true, busy: false, remainingMs: 90000 })),
+  autoStatus: vi.fn(async () => ({ enabled:false,running:true,mode:null,operatorId:null,
+    pending:false,lastScheduledStartMs:null,lastPhysicalTxConfirmed:null,lastError:null })),
+  autoStart: vi.fn(async () => ({ enabled:true })),
+  autoStop: vi.fn(async () => ({ enabled:false })),
   wsprSpots: vi.fn(async () => ({ spots: [] as unknown[] })),
 }));
 
@@ -44,6 +48,9 @@ vi.mock('../../store/radioStore', () => ({
 vi.mock('@tx5dr/core', () => ({ api: {
   getMfskLiveRxEvents:mock.events,
   getMfskNativeTxStatus:mock.txStatus,
+  getMfskNativeAutoTxStatus:mock.autoStatus,
+  startMfskNativeAutoTx:mock.autoStart,
+  stopMfskNativeAutoTx:mock.autoStop,
   armMfskNativeTx:mock.arm,
   disarmMfskNativeTx:mock.disarm,
   startMfskLiveRx:mock.start,
