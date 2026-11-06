@@ -372,7 +372,7 @@ function defaultTransmissionSet(text: string | null, audioFrequencyHz = 1500) {
 }
 
 describe('RadioOperatorManager native frame isolation', () => {
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => { vi.restoreAllMocks(); });
 
   it('does not mutate a legacy TX frame using zero-duration MSK144 slots', async () => {
     const { manager, encodeQueue } = createManager({
