@@ -1189,7 +1189,25 @@ export class RadioOperatorManager {
       return started;
     }
 
-    // 立即检查并触发发射（如果在发射周期内）
+    // An enabled operator is not an on-air transmission. The strategy may
+    // still be initializing its TX6 text, especially on first start after a
+    // native/FT8 mode transition. Resolve that text before the first encode.
+    if ((this._pluginManager?.getCurrentTransmissions(operatorId)?.length ?? 0) === 0
+      && this._pluginManager?.initializeOperatorTransmission) {
+      void this._pluginManager.initializeOperatorTransmission(operatorId).then((ready) => {
+        if (ready && operator.isTransmitting) {
+          this.checkAndTriggerTransmission(operatorId);
+        }
+      }).catch((error) => {
+        logger.warn('Failed to initialize transmit content when operator was enabled', {
+          operatorId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+      return started;
+    }
+
+    // Immediate encode if the current UTC cycle belongs to the operator.
     this.checkAndTriggerTransmission(operatorId);
     return started;
   }
