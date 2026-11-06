@@ -41,7 +41,7 @@ jobs:
           git worktree add --detach "$RUNNER_TEMP/aislop-main" origin/main
           (
             cd "$RUNNER_TEMP/aislop-main"
-            npx --yes aislop@0.14.0 baseline write
+            npx --yes aislop@0.20.0 baseline write
           )
           mkdir -p .aislop
           cp "$RUNNER_TEMP/aislop-main/.aislop/ci-baseline.json" .aislop/ci-baseline.json
@@ -55,4 +55,4 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npx --yes aislop@0.14.0 ci --changes --base origin/main --human
+          npx --yes aislop@0.20.0 ci --changes --base origin/main --human
