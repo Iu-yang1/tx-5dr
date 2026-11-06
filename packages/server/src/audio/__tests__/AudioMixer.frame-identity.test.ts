@@ -271,4 +271,31 @@ describe('AudioMixer frame identity', () => {
     });
     expect(mixed?.mixMetrics?.peak).toBeCloseTo(0.9, 6);
   });
+
+  it('schedules FT8/FT4 audio against the slot clock when NTP correction differs from Date.now', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(0));
+      const mixer = new AudioMixer({ mixingWindowMs: 0, now: () => Date.now() + 20_000 });
+      const frame = { frameId: 'ntp-offset-frame', frameRevision: 1, slotId: 'slot-20000' };
+      const completed: Array<{ playbackOffsetMs?: number; frameId: string }> = [];
+      mixer.on('mixedAudioReady', (mixed) => completed.push(mixed));
+      mixer.addOperatorAudio('a', new Float32Array(5_000).fill(0.5), 1_000,
+        20_000, 'a-ntp', 0, frame);
+      mixer.scheduleFrameMixing({ frameId: frame.frameId, revision: frame.frameRevision },
+        21_000, 21_000);
+
+      // The mixer prepares its callback 50 ms before the UTC slot deadline.
+      // A raw Date.now comparison would incorrectly delay this by another 20 seconds.
+      await vi.advanceTimersByTimeAsync(949);
+      expect(completed).toHaveLength(0);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(completed).toHaveLength(1);
+      expect(completed[0]).toMatchObject({
+        frameId: frame.frameId, playbackOffsetMs: 0,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
