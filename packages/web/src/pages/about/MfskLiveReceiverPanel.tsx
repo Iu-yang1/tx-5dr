@@ -531,6 +531,17 @@ export function MfskLiveReceiverPanel({
             isDisabled={(!txPending&&!txStatus.busy)||txStopPending}
             onPress={stopTransmission}>{t('codec.stopTx')}</Button>
         </div>
+        {!autoActive && (mode==='Q65'||mode==='MSK144'||mode==='WSPR') &&
+          <p className="text-xs text-warning-600" role="status">{t('codec.autoNeedsStart')}</p>}
+        {autoActive && autoStatus?.pending && <p className="text-xs text-default-500" role="status">
+          {t('codec.autoPending')}
+        </p>}
+        {autoActive && autoStatus?.lastError && <p className="text-xs text-danger" role="alert">
+          {t('codec.txFailed')}: {autoStatus.lastError}
+        </p>}
+        {autoActive && autoStatus?.lastPhysicalTxConfirmed === true && <p className="text-xs text-success" role="status">
+          {t('codec.autoConfirmed')}
+        </p>}
         {txNotice && <p className="text-xs" role="status">{txNotice}</p>}
       </div>
       {(mode==='Q65'||mode==='JTTY'||mode==='MSK144') && <section className="rounded-xl border border-default-200 bg-content1 p-3 space-y-2">
