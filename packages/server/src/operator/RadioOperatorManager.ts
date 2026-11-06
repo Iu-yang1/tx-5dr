@@ -2046,6 +2046,12 @@ export class RadioOperatorManager {
     },
   ): void {
     if (this.transmissionMaintenanceReason) return;
+    // Native Q65/MSK144/WSPR have their own encoder, TX parity and physical
+    // lease lifecycle. In particular MSK144.slotMs is 0 (a streaming mode):
+    // attempting a legacy FT8 frame mutation would divide by zero or stop an
+    // unrelated native lease. Native auto-TX polls current strategy text.
+    const currentModeName = this.getCurrentMode().name;
+    if (currentModeName !== 'FT8' && currentModeName !== 'FT4') return;
     if (this._pluginManager?.isQueueExecutionSuspended?.(operatorId)) return;
 
     if (mutation.kind === 'frequency' && this.isFakeFrequencyCommittedForCurrentSlot()) {
