@@ -449,6 +449,21 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
     });
     this.on('operatorStatusUpdate', status => {
       this.nativeAutoTxScheduler.onOperatorStateChanged(status.id);
+      if (status.isTransmitting) return;
+      // The normal operator STOP does not pass through the legacy digital
+      // frame-removal path. Cancel a native encoder/UTC wait owned by this
+      // operator and independently interrupt any already keyed native lease.
+      if (this.mfskNativeTxService.getPendingOperatorId() === status.id) {
+        this.mfskNativeTxService.cancel();
+      }
+      const physical=this.physicalTxCoordinator.getSnapshot();
+      if(physical.leaseId && physical.source==='digital'
+        && physical.reason?.startsWith('native ')
+        && physical.operatorIds.includes(status.id)){
+        void this.physicalTxCoordinator.forceInterruptLease(
+          physical.leaseId,'native operator TX switched off',
+        ).catch(error=>logger.error('Failed to release native PTT on operator STOP',error));
+      }
     });
     // A native worker crash or a receiver restart is an RF boundary, not
     // merely a decode warning. Cancel an uncommitted UTC send immediately
