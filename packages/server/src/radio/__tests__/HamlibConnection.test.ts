@@ -169,6 +169,15 @@ function createConnectedConnection(rigOverrides: Partial<MockRig> = {}): {
 }
 
 describe('HamlibConnection', () => {
+  it('refuses to claim CAT PTT success when the hardware PTT method is disabled', async () => {
+    const { connection, rig } = createConnectedConnection();
+    (connection as unknown as { pttMethod: string }).pttMethod = 'none';
+    await expect(connection.setPTT(true)).rejects.toThrow(/PTT/i);
+    expect(rig.setPtt).not.toHaveBeenCalled();
+    await expect(connection.setPTT(false)).resolves.toBeUndefined();
+    expect(rig.setPtt).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
