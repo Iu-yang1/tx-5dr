@@ -884,10 +884,13 @@ jobs:
             file="$(printf '%s\n' "$matches" | sed '/^$/d' | head -1)"
             cp "$file" "$destination"
             if [ "$require_blockmap" = "true" ]; then
-              if [ ! -f "${file}.blockmap" ] && [[ "$file" == *.AppImage ]]; then
-                echo "ℹ️ AppImage 仅内嵌 blockmap，额外生成外置 blockmap 供 latest.json/CI 校验使用"
-                APP_BUILDER_BIN=$(node -p "require('app-builder-bin').appBuilderPath")
-                "$APP_BUILDER_BIN" blockmap --input "$file" --output "${file}.blockmap"
+              # AppImage's blockmap is embedded by electron-builder. The removed
+              # app-builder-bin CLI cannot generate an external copy in v26.
+              if [[ "$file" == *.AppImage ]]; then
+                if [ -f "${file}.blockmap" ]; then
+                  cp "${file}.blockmap" "${destination}.blockmap"
+                fi
+                return
               fi
               if [ ! -f "${file}.blockmap" ]; then
                 echo "❌ 自动更新产物缺少 blockmap: ${file}.blockmap" >&2
@@ -1141,15 +1144,16 @@ jobs:
           }
           const autoAssets = manifest.assets.filter((asset) => asset.auto_update?.supported);
           for (const asset of autoAssets) {
-            if (!asset.size || !asset.sha512 || !asset.auto_update.sha512 || !asset.auto_update.installerFamily || !asset.auto_update.blockMapSize || !Array.isArray(asset.auto_update.files) || asset.auto_update.files.length === 0) {
+            const embeddedBlockmap = asset.package_type === 'AppImage';
+            if (!asset.size || !asset.sha512 || !asset.auto_update.sha512 || !asset.auto_update.installerFamily || (!embeddedBlockmap && !asset.auto_update.blockMapSize) || !Array.isArray(asset.auto_update.files) || asset.auto_update.files.length === 0) {
               throw new Error(`app manifest missing auto_update metadata for ${asset.name}`);
             }
             for (const file of asset.auto_update.files) {
-              if (!file.sha512 || !file.size || !file.blockMapSize) {
+              if (!file.sha512 || !file.size || (!embeddedBlockmap && !file.blockMapSize)) {
                 throw new Error(`app manifest missing auto_update file metadata for ${asset.name}`);
               }
             }
-            if (!fs.existsSync(`release-assets/${asset.name}.blockmap`)) {
+            if (!embeddedBlockmap && !fs.existsSync(`release-assets/${asset.name}.blockmap`)) {
               throw new Error(`app manifest missing blockmap asset for ${asset.name}`);
             }
           }
@@ -1364,15 +1368,16 @@ jobs:
           if (forbiddenMsi) throw new Error(`oss app manifest must not include MSI asset: ${forbiddenMsi.name}`);
           const autoAssets = (manifest.assets || []).filter((asset) => asset.auto_update?.supported);
           for (const asset of autoAssets) {
-            if (!asset.size || !asset.sha512 || !asset.auto_update.sha512 || !asset.auto_update.installerFamily || !asset.auto_update.blockMapSize || !Array.isArray(asset.auto_update.files) || asset.auto_update.files.length === 0) {
+            const embeddedBlockmap = asset.package_type === 'AppImage';
+            if (!asset.size || !asset.sha512 || !asset.auto_update.sha512 || !asset.auto_update.installerFamily || (!embeddedBlockmap && !asset.auto_update.blockMapSize) || !Array.isArray(asset.auto_update.files) || asset.auto_update.files.length === 0) {
               throw new Error(`oss app manifest missing auto_update metadata for ${asset.name}`);
             }
             for (const file of asset.auto_update.files) {
-              if (!file.sha512 || !file.size || !file.blockMapSize) {
+              if (!file.sha512 || !file.size || (!embeddedBlockmap && !file.blockMapSize)) {
                 throw new Error(`oss app manifest missing auto_update file metadata for ${asset.name}`);
               }
             }
-            if (!fs.existsSync(`publish-assets/${asset.name}.blockmap`)) {
+            if (!embeddedBlockmap && !fs.existsSync(`publish-assets/${asset.name}.blockmap`)) {
               throw new Error(`oss app manifest missing blockmap asset for ${asset.name}`);
             }
           }

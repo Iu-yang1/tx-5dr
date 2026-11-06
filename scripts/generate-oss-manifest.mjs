@@ -150,7 +150,9 @@ async function buildAssetEntry({
   } catch {
     blockMapSize = undefined;
   }
-  if (autoUpdateTarget && !blockMapSize) {
+  // electron-builder >=26 embeds an AppImage blockmap in the AppImage itself.
+  // A separate .AppImage.blockmap is not required for differential updates.
+  if (autoUpdateTarget && metadata.package_type !== 'AppImage' && !blockMapSize) {
     throw new Error(`Auto-update asset is missing blockmap: ${blockMapPath}`);
   }
 
