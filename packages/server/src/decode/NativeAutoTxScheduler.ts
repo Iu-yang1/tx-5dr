@@ -122,6 +122,9 @@ export class NativeAutoTxScheduler {
     }
     const op = this.deps.operator(config.operatorId);
     if (!op) throw new Error('Unknown operator');
+    if (!op.isTransmitting) {
+      throw new Error('Enable the operator TX switch before automatic native transmission');
+    }
     if (!Number.isFinite(config.audioHz) || config.audioHz < 100 || config.audioHz > 5500) {
       throw new Error('Invalid native transmit audio frequency');
     }
@@ -167,10 +170,10 @@ export class NativeAutoTxScheduler {
     }
   }
 
-  /** Also called by the operator-status listener on switch-off. */
+  /** STOP must disarm, not leave a latent task that transmits on restart. */
   onOperatorStateChanged(operatorId: string): void {
     if (this.config?.operatorId !== operatorId) return;
-    if (!this.deps.operator(operatorId)?.isTransmitting) this.cancelPending();
+    if (!this.deps.operator(operatorId)?.isTransmitting) this.disable();
   }
 
   async poll(): Promise<void> {
