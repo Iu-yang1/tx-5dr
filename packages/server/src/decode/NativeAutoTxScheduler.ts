@@ -107,6 +107,11 @@ export class NativeAutoTxScheduler {
 
   enable(config: NativeAutoTxConfiguration): NativeAutoTxStatus {
     if (!this.running) throw new Error('Native automatic TX scheduler is not running');
+    // One physical radio may only have one automatic TX owner. A second
+    // operator must not silently replace the incumbent's pending waveform.
+    if (this.config && this.config.operatorId !== config.operatorId) {
+      throw new Error('Native automatic TX is already controlled by another operator');
+    }
     if (!['Q65', 'MSK144', 'WSPR'].includes(config.mode) || this.deps.mode() !== config.mode) {
       throw new Error('Automatic transmitter mode does not match the active native radio mode');
     }
