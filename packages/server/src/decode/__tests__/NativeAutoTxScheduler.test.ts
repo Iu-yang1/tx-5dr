@@ -42,13 +42,13 @@ describe('native automatic UTC transmit scheduling',()=>{
     }
   });
 
-  it('does not send when controller is not armed or operator TX is off',async()=>{
+  it('refuses to arm an automatic transmitter while the operator TX switch is off',async()=>{
     const h=harness();h.service.start(0);
     await h.service.poll();
     expect(h.send).not.toHaveBeenCalled();
-    h.service.enable({mode:'Q65',operatorId:'op1',audioHz:1500,
-      q65Submode:'Q65-60B',q65TxFirst:true});
-    await h.service.poll();
+    expect(()=>h.service.enable({mode:'Q65',operatorId:'op1',audioHz:1500,
+      q65Submode:'Q65-60B',q65TxFirst:true})).toThrow(/operator TX switch/);
+    expect(h.service.status().enabled).toBe(false);
     expect(h.send).not.toHaveBeenCalled();
     h.service.stop();
   });
@@ -101,6 +101,11 @@ describe('native automatic UTC transmit scheduling',()=>{
     h.op.isTransmitting=false;
     h.service.onOperatorStateChanged('op1');
     expect(h.cancelNativeTx).toHaveBeenCalled();
+    expect(h.service.status().enabled).toBe(false);
+    // Re-enabling the operator alone must not resurrect a stale auto-TX.
+    h.op.isTransmitting=true;
+    await h.service.poll();
+    expect(h.send).toHaveBeenCalledTimes(1);
     h.service.stop();
   });
 
