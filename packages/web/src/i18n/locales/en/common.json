@@ -1,4 +1,18 @@
 {
+  "digitalQuick": {
+    "title": "Digital codec quick controls",
+    "description": "Select a mode and edit supported decoder and transmitter parameters directly.",
+    "mode": "Codec mode",
+    "sharedDepth": "Decode depth (shared by FT8 / FT4)",
+    "decodeWindows": "Decode window strategy",
+    "windowOffsets": "Decode offsets (ms from slot end)",
+    "loadFailed": "Unable to load decode settings. Check your connection and permissions.",
+    "saveFailed": "Save failed; existing settings were not replaced.",
+    "saved": "Saved. New parameters are in effect.",
+    "invalidWindows": "Window offsets must be whole numbers from -5000 to 1000 ms, with at least one window.",
+    "readOnly": "You do not have permission to edit decoder settings.",
+    "classicLimits": "FT8/FT4 currently share decode depth and support multi-pass windows. Independent WSJT-X multithread/AP controls are not exposed by the backend and are intentionally omitted."
+  },
   "button": {
     "save": "Save",
     "cancel": "Cancel",
@@ -755,7 +769,13 @@
       "equalizer": "Adaptive equalizer",
       "shorthand": "MSK40 shorthand search (both calls required, max 250 Hz tolerance)",
       "jttyStream": "JTTY streams continuously; slotted decoding depth and search windows do not apply.",
-      "saveNotice": "Saved immediately without transmitting or altering active reception."
+      "saveNotice": "Changes save immediately and can reconfigure active RX. TX preferences affect only a future manual transmission; they never activate PTT.",
+      "txAudioHz": "Next TX audio centre (Hz)",
+      "q65TxFirst": "Q65 TX First (even UTC periods)",
+      "mskPeriod": "MSK144 T/R period",
+      "mskTxFirst": "MSK144 TX First (even UTC periods)",
+      "mskTxFixed": "MSK144 standard-frame TX is fixed at 1500 Hz audio; shorthand search only affects RX.",
+      "wsprFixed": "WSPR encoding and two-minute slots are protocol-defined. Only supported RX and TX audio parameters are editable here."
     },
     "jttyTerminal": {
       "receiver": "JTTY continuous receive",
