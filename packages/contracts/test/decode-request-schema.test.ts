@@ -20,6 +20,17 @@ describe('DecodeRequestSchema', () => {
     expect(parsed.decodeDepth).toBeUndefined();
   });
 
+  it('validates worker IPC tuning without permitting arbitrary parameters', () => {
+    const base = {slotId:'FT8-stage',mode:'FT8',windowIdx:0,pcm:makePcm(),sampleRate:12000};
+    const decoderTuning = {threads:2,apMode:'cq-only',strategy:'sic2',syncMin:1.3,maxCandidates:300};
+    expect(DecodeRequestSchema.parse({...base,decoderTuning}).decoderTuning).toEqual(decoderTuning);
+    for (const tuning of [
+      {...decoderTuning, threads:0},
+      {...decoderTuning, syncMin:Infinity},
+      {...decoderTuning, injected:true},
+    ]) expect(DecodeRequestSchema.safeParse({...base,decoderTuning:tuning}).success).toBe(false);
+  });
+
   it('accepts a single AP decode context', () => {
     const parsed = DecodeRequestSchema.parse({
       slotId: 'FT8-1-15000',
