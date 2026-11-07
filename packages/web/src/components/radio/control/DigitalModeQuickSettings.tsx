@@ -60,9 +60,12 @@ export function buildQuickDecodeSettings(
     };
   }
   if (draft.preset === 'minimum') throw new Error('FT4 does not support the minimum window preset');
+  const { strategy, ...otherTuning } = draft.tuning;
+  if (strategy === 'early') throw new Error('FT4 does not implement FT8 early synchronization');
+  const ft4Tuning = { ...otherTuning, ...(strategy ? { strategy } : {}) };
   return {
     ...latest,
-    ft4: { ...latest.ft4, decodeDepth: draft.depth, tuning: { ...draft.tuning },
+    ft4: { ...latest.ft4, decodeDepth: draft.depth, tuning: ft4Tuning,
       preset: draft.preset, ...(customWindowTiming ? { customWindowTiming } : {}) },
   };
 }
