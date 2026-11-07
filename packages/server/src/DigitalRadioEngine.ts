@@ -3291,7 +3291,13 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
    * Update decode windows at runtime (called after settings change)
    */
   public updateDecodeWindows(): void {
+    const before = this.currentMode.windowTiming.join(',');
     this.applyDecodeWindowOverrides();
+    if (before === this.currentMode.windowTiming.join(',')) {
+      // Decode depth and advanced DSP parameters are read on the next UTC
+      // slot; avoid emitting a spurious operating-mode transition.
+      return;
+    }
     this.syncCurrentModeToRuntimeComponents('decode-window-update');
     this.emit('modeChanged', this.currentMode);
     logger.info(`Decode windows updated: ${this.currentMode.windowTiming.length} windows`);
