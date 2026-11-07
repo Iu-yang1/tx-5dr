@@ -207,9 +207,18 @@ export const MfskMsk144RxOptionsSchema = z.object({
   }
 });
 
+/** Actual Q65 sync-search controls supported by the pinned Rust native decoder. */
+export const Q65SearchOptionsSchema = z.object({
+  timeToleranceSeconds: z.number().finite().min(1).max(150).optional(),
+  scoreThreshold: z.number().finite().min(0.01).max(1).optional(),
+  maxCandidates: z.number().int().min(1).max(64).optional(),
+}).strict();
+export type Q65SearchOptions = z.infer<typeof Q65SearchOptionsSchema>;
+
 export const MfskLiveRxStartSchema = z.object({
   mode: DigitalCodecModeSchema,
   q65Submode: Q65SubmodeSchema.optional(),
+  q65Search: Q65SearchOptionsSchema.optional(),
   frequencyHz: z.number().finite().min(100).max(5500).default(1500),
   toleranceHz: z.number().finite().min(1).max(5000).default(200),
   depth: z.union([z.literal(1),z.literal(2),z.literal(3)]).default(3),
@@ -225,6 +234,9 @@ export const MfskLiveRxStartSchema = z.object({
   if(value.msk144Rx && value.mode!=='MSK144'){
     ctx.addIssue({code:z.ZodIssueCode.custom,path:['msk144Rx'],
       message:'MSK144 receive options are only valid for MSK144'});
+  }
+  if(value.q65Search && value.mode!=='Q65'){
+    ctx.addIssue({code:z.ZodIssueCode.custom,path:['q65Search'],message:'Q65 search controls only apply to Q65'});
   }
   if(value.q65Submode && value.mode!=='Q65'){
     ctx.addIssue({code:z.ZodIssueCode.custom,path:['q65Submode'],message:'Q65 submode is only for Q65'});
