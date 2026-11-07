@@ -4,7 +4,8 @@ import type { MfskNativeModule } from '../MfskNativeAdapter.js';
 
 function mockNative() {
   const counters={slotted:[] as string[],msk:0,jtty:0,emitted:0,
-    equalizer:[] as Array<[boolean,string]>,shorthand:[] as Array<[boolean,string,string]>};
+    equalizer:[] as Array<[boolean,string]>,shorthand:[] as Array<[boolean,string,string]>,
+    q65Search:[] as Array<[number|undefined,number|undefined,number|undefined]>};
   const native={
     supportedModes:()=>[
       'FT8','FT4','WSPR','Q65-15A','Q65-60B','Q65-300A','MSK144','JTTY',
@@ -12,6 +13,9 @@ function mockNative() {
     SlottedSession: class {
       constructor(mode:string){counters.slotted.push(mode)}
       setParameters(){}
+      setQ65SearchOptions(seconds?:number,score?:number,candidates?:number){
+        counters.q65Search.push([seconds,score,candidates]);
+      }
       setApContext(){}
       setEmeDelay(){}
       clear(){}
@@ -72,6 +76,20 @@ describe('multi-mode native simulation runtime',()=>{
     expect(events[0]).toMatchObject({kind:'slot-decode',mode:'Q65',text:'CQ K1ABC FN42'});
     expect(()=>runtime.decodeSlot('q',0,{slotStartMs:1800000000001,
       timestampMs:1800000001200,samples:signal,final:true})).toThrow();
+  });
+
+  it('applies Q65-specific time search and sync/candidate gates to native DSP',()=>{
+    const {native,counters}=mockNative();
+    const runtime=new MfskMultimodeRuntime(native);
+    runtime.begin({sessionId:'q-search',mode:'Q65',q65Submode:'Q65-60B',
+      q65Search:{timeToleranceSeconds:15,scoreThreshold:0.1,maxCandidates:32}});
+    expect(counters.q65Search).toEqual([[15,0.1,32]]);
+    expect(()=>runtime.begin({sessionId:'other',mode:'WSPR',
+      q65Search:{timeToleranceSeconds:15}})).toThrow(/Q65/);
+    expect(()=>runtime.begin({sessionId:'bad',mode:'Q65',
+      q65Search:{scoreThreshold:NaN}})).toThrow(/Invalid Q65/);
+    expect(()=>runtime.begin({sessionId:'bad2',mode:'Q65',
+      q65Search:{maxCandidates:65}})).toThrow(/Invalid Q65/);
   });
 
   it('WSPR is a 120s beacon protocol and not allowed to emulate a 15s FT8 period',()=>{
