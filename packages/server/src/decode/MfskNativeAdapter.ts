@@ -35,6 +35,8 @@ export interface MfskNativeModule {
   SlottedSession: new (mode: string) => {
     decode(pcmF32Le: Buffer, periodIndex?: number, earlyPrefix?: boolean): MfskNativeRow[];
     setParameters(depth: number, averaging: boolean, rxHz?: number, toleranceHz?: number): void;
+    setParallelThreads(threads: number): void;
+    setFrameOptions(apMode: string, strategy: string, syncMin?: number, maxCandidates?: number): void;
     setApContext(myCall: string, myGrid: string, dxCall: string, dxGrid: string, progress: number, enabled: boolean): void;
     setEmeDelay(enabled: boolean): void;
     clear(): void;
