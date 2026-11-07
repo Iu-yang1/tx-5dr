@@ -2,13 +2,14 @@
 //! physical TX pipeline until the P3-P9 integration gates have passed.
 //! PCM transport is a little-endian f32 Buffer at exactly 12,000 Hz.
 use mfsk_core::{
-    decoder::{AnyDecoder, AnyExtras, SlotInput, Depth},
+    decoder::{AnyDecoder, AnyExtras, SlotInput, Depth, ApMode, Ft8Strategy, Ft4Strategy},
     encoder::{encode, TxAudio},
     registry::Mode,
 };
 use napi::{bindgen_prelude::Buffer, Error, Result, Status};
 use napi_derive::napi;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock, Mutex, atomic::{AtomicU32, Ordering}};
+use std::collections::HashMap;
 
 
 
@@ -252,12 +253,34 @@ fn configure_slot_decoder(mode: &str, decoder: &mut AnyDecoder) {
     }
 }
 
+// A bounded Rayon pool is shared by sessions in the same isolated decoder
+// process. A change to worker count never touches physical TX or the radio.
+static DECODE_POOLS: OnceLock<Mutex<HashMap<u32, Arc<rayon::ThreadPool>>>> = OnceLock::new();
+
+fn decoder_pool(threads: u32) -> Result<Arc<rayon::ThreadPool>> {
+    if !(1..=4).contains(&threads) {
+        return Err(invalid("decoder thread count must be between 1 and 4"));
+    }
+    let pools = DECODE_POOLS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut cache = pools.lock().map_err(|_| invalid("thread pool cache lock poisoned"))?;
+    if let Some(pool) = cache.get(&threads) { return Ok(Arc::clone(pool)); }
+    let pool = Arc::new(rayon::ThreadPoolBuilder::new()
+        .num_threads(threads as usize)
+        .thread_name(move |i| format!("tx5dr-mfsk-{threads}-{i}"))
+        .build().map_err(|e| invalid(format!("decoder pool init failed: {e}")))?);
+    cache.insert(threads, Arc::clone(&pool));
+    Ok(pool)
+}
+
 /// Persistent per-channel, per-mode receiver. The Node worker owns these
 /// handles and must cancel/dispose the session when its generation changes.
 #[napi]
 pub struct SlottedSession {
     mode: String,
     inner: std::sync::Mutex<AnyDecoder>,
+    // 0 preserves mfsk-core's original global Rayon policy when no
+    // user override exists. Explicit 1..4 scopes the actual decode work.
+    threads: AtomicU32,
 }
 
 #[napi]
@@ -268,7 +291,7 @@ impl SlottedSession {
             .ok_or_else(|| invalid(format!("unknown slotted mode: {mode}")))?;
         let mut decoder = AnyDecoder::with_defaults(protocol);
         configure_slot_decoder(&mode, &mut decoder);
-        Ok(Self { mode, inner: std::sync::Mutex::new(decoder) })
+        Ok(Self { mode, inner: std::sync::Mutex::new(decoder), threads: AtomicU32::new(0) })
     }
 
     #[napi]
@@ -282,14 +305,99 @@ impl SlottedSession {
         let audio = from_pcm(&pcm_f32_le)?;
         let mut slot = SlotInput::f32(&audio);
         slot.period = period_index.map(i64::from);
-        let mut decoder = self.inner.lock().map_err(|_| invalid("decoder lock poisoned"))?;
-        let decoded = if prefix { decoder.decode_prefix(&slot) } else { decoder.decode(&slot) };
-        Ok(decoded.rows.into_iter().map(|r| NativeDecodeRow {
-            text: r.decoded.text,
-            frequency_hz: r.decoded.freq_hz as f64,
-            snr_db: r.decoded.snr_db as f64,
-            dt_seconds: r.decoded.dt_sec as f64,
-        }).collect())
+        let run = || -> Result<Vec<NativeDecodeRow>> {
+            let mut decoder = self.inner.lock().map_err(|_| invalid("decoder lock poisoned"))?;
+            let decoded = if prefix { decoder.decode_prefix(&slot) } else { decoder.decode(&slot) };
+            Ok(decoded.rows.into_iter().map(|r| NativeDecodeRow {
+                text: r.decoded.text,
+                frequency_hz: r.decoded.freq_hz as f64,
+                snr_db: r.decoded.snr_db as f64,
+                dt_seconds: r.decoded.dt_sec as f64,
+            }).collect())
+        };
+        let threads = self.threads.load(Ordering::Acquire);
+        if threads == 0 { run() } else { decoder_pool(threads)?.install(run) }
+    }
+
+    /// 0 keeps the pinned native library's default parallel policy.
+    /// An explicit 1..4 uses Rayon thread-pool install(), not a UI-only flag.
+    #[napi]
+    pub fn set_parallel_threads(&self, threads: u32) -> Result<()> {
+        if self.mode != "FT8" && self.mode != "FT4" {
+            return Err(invalid("parallel decoder tuning requires FT8 or FT4"));
+        }
+        if threads > 4 { return Err(invalid("decoder thread count must be 0..4")); }
+        // Build before committing the setting so an OS allocation failure
+        // leaves the old worker policy intact.
+        if threads > 0 { decoder_pool(threads)?; }
+        self.threads.store(threads, Ordering::Release);
+        Ok(())
+    }
+
+    /// Implements exposed WSJT-style AP and synchronization controls using
+    /// mfsk-core's real per-frame decoding strategy and search parameters.
+    /// Called after set_ap_context once per staged decode invocation.
+    #[napi]
+    pub fn set_frame_options(
+        &self, ap_mode: String, strategy: String,
+        sync_min: Option<f64>, max_candidates: Option<u32>,
+    ) -> Result<()> {
+        if self.mode != "FT8" && self.mode != "FT4" {
+            return Err(invalid("frame tuning requires FT8 or FT4"));
+        }
+        if !matches!(ap_mode.as_str(), "default" | "off" | "cq-only" | "full") {
+            return Err(invalid("invalid AP policy"));
+        }
+        if !matches!(strategy.as_str(), "default" | "single" | "sic2" | "sic3" | "early") ||
+            (self.mode == "FT4" && strategy == "early") {
+            return Err(invalid("invalid frame decoding strategy"));
+        }
+        if let Some(sync) = sync_min {
+            if !sync.is_finite() || !(0.5..=5.0).contains(&sync) {
+                return Err(invalid("invalid synchronization threshold"));
+            }
+        }
+        if let Some(n) = max_candidates {
+            if !(10..=1000).contains(&n) {
+                return Err(invalid("invalid max decoder candidates"));
+            }
+        }
+
+        let mut d = self.inner.lock().map_err(|_| invalid("decoder lock poisoned"))?;
+        let params = d.params_mut();
+        let station_valid = !params.station.call.is_empty();
+        let qso_valid = !params.qso.his_call.is_empty();
+        params.ap = match ap_mode.as_str() {
+            "off" => ApMode::Off,
+            "cq-only" => if station_valid { ApMode::CqOnly } else { ApMode::Off },
+            "full" => if station_valid && qso_valid { ApMode::Full } else { ApMode::Off },
+            _ => params.ap,
+        };
+        match d.extras_mut() {
+            AnyExtras::Ft8(e) => {
+                e.tuning.sync_min = sync_min.map(|v| v as f32);
+                e.tuning.max_cand = max_candidates.map(|v| v as usize);
+                e.tuning.strategy = match strategy.as_str() {
+                    "single" => Some(Ft8Strategy::SinglePass),
+                    "sic2" => Some(Ft8Strategy::SicRounds(2)),
+                    "sic3" => Some(Ft8Strategy::SicRounds(3)),
+                    "early" => Some(Ft8Strategy::SicEarly),
+                    _ => None,
+                };
+            },
+            AnyExtras::Ft4(e) => {
+                e.tuning.sync_min = sync_min.map(|v| v as f32);
+                e.tuning.max_cand = max_candidates.map(|v| v as usize);
+                e.tuning.strategy = match strategy.as_str() {
+                    "single" => Some(Ft4Strategy::SinglePass),
+                    "sic2" => Some(Ft4Strategy::SicRounds(2)),
+                    "sic3" => Some(Ft4Strategy::SicRounds(3)),
+                    _ => None,
+                };
+            },
+            _ => return Err(invalid("unsupported frame tuning mode")),
+        }
+        Ok(())
     }
 
     #[napi]
