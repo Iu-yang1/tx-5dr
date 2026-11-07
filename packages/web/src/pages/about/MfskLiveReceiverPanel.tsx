@@ -242,6 +242,17 @@ export function MfskLiveReceiverPanel({
       ? api.startMfskLiveRx({
           mode,...(mode==='Q65'?{
             q65Submode:submode,averaging,emeDelay,
+            q65Search: (() => {
+              const prefs = loadNativeDecodePreferences('Q65');
+              return {
+                ...(prefs.q65TimeToleranceSec !== null
+                  ? {timeToleranceSeconds:prefs.q65TimeToleranceSec} : {}),
+                ...(prefs.q65SyncScore !== null
+                  ? {scoreThreshold:prefs.q65SyncScore} : {}),
+                ...(prefs.q65MaxCandidates !== null
+                  ? {maxCandidates:prefs.q65MaxCandidates} : {}),
+              };
+            })(),
             ...(apMyCall.trim()&&apMyGrid.trim()&&apDxCall.trim()?{
               apContext:{
                 myCall:apMyCall.trim().toUpperCase(),myGrid:apMyGrid.trim().toUpperCase(),
