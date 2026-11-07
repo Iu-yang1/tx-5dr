@@ -1464,7 +1464,15 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
       this._operatorManager,
       () => ConfigManager.getInstance().getFT8Config().decodeWhileTransmitting ?? false,
       (slotInfo, windowIdx) => this._operatorManager.getDecodeApContext(slotInfo, windowIdx),
-      () => ConfigManager.getInstance().getDecodeWindowSettings()?.decodeDepth ?? 3,
+      (name) => {
+        const settings = ConfigManager.getInstance().getDecodeWindowSettings();
+        const specific = name === 'FT4' ? settings?.ft4 : settings?.ft8;
+        return specific?.decodeDepth ?? settings?.decodeDepth ?? 3;
+      },
+      (name) => {
+        const settings = ConfigManager.getInstance().getDecodeWindowSettings();
+        return name === 'FT4' ? settings?.ft4?.tuning : settings?.ft8?.tuning;
+      },
     );
 
     const spectrumSettings = ConfigManager.getInstance().getSpectrumSettings();
