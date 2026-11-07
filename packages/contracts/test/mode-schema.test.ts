@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MODES, FT4_WINDOW_PRESETS, FT8_WINDOW_PRESETS, DEFAULT_DECODE_WINDOW_SETTINGS } from '../src/schema/mode.schema';
+import { MODES, FT4_WINDOW_PRESETS, FT8_WINDOW_PRESETS, DEFAULT_DECODE_WINDOW_SETTINGS, DecodeWindowSettingsSchema } from '../src/schema/mode.schema';
 
 describe('MODES.FT4 timing constants', () => {
   it('aligns FT4 transmitTiming with WSJT-X standard (T+0.5s signal start)', () => {
@@ -51,5 +51,30 @@ describe('FT4_WINDOW_PRESETS', () => {
 
   it('balanced preset keeps an early pass so next-cycle encodeStart sees fresh decodes', () => {
     expect(FT4_WINDOW_PRESETS.balanced.some((o) => o < 0)).toBe(true);
+  });
+});
+
+describe('per-mode native decoder tuning contract', () => {
+  it('accepts independent FT8/FT4 depths with real DSP knobs', () => {
+    const parsed = DecodeWindowSettingsSchema.parse({
+      decodeDepth: 3,
+      ft8: { preset:'balanced', decodeDepth:1,
+        tuning:{threads:4,apMode:'cq-only',strategy:'sic3',syncMin:1.2,maxCandidates:250} },
+      ft4: { preset:'balanced', decodeDepth:2,
+        tuning:{threads:1,apMode:'off',strategy:'sic2'} },
+    });
+    expect(parsed.ft8?.decodeDepth).toBe(1);
+    expect(parsed.ft4?.decodeDepth).toBe(2);
+    expect(parsed.ft8?.tuning?.strategy).toBe('sic3');
+  });
+  it('rejects invalid thread counts, FT4 early strategy and out-of-range sync parameters', () => {
+    const cases = [
+      {ft8:{preset:'balanced',tuning:{threads:9}}},
+      {ft8:{preset:'balanced',tuning:{syncMin:0}}},
+      {ft8:{preset:'balanced',tuning:{maxCandidates:1001}}},
+      {ft8:{preset:'balanced',tuning:{apMode:'unsafe'}}},
+      {ft4:{preset:'balanced',tuning:{strategy:'early'}}},
+    ];
+    for (const input of cases) expect(DecodeWindowSettingsSchema.safeParse(input).success).toBe(false);
   });
 });
