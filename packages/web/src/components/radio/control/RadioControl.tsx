@@ -24,6 +24,7 @@ import { useVoiceTxDiagnostics } from '../../../hooks/useVoiceTxDiagnostics';
 import { useWSEvent } from '../../../hooks/useWSEvent';
 import { createLogger } from '../../../utils/logger';
 import { TxVolumeGainControl } from './TxVolumeGainControl';
+import { DigitalModeQuickSettings } from './DigitalModeQuickSettings';
 import {
   canExecuteRadioFrequency,
   canWriteRadioFrequency,
@@ -2605,37 +2606,24 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
                 </Popover>
               </ToolbarIconTooltip>
             )}
-            {/* 六种数据模式统一快捷入口，直接复用当前模式切换和系统设置。 */}
+            {/* Decoder and codec settings stay beside the antenna-tuner shortcut. */}
             {canSwitchMode && connection.state.isConnected && (
-              <ToolbarIconTooltip label={t('control.digitalModes', '数据模式与接收设置')}>
+              <ToolbarIconTooltip label={t('control.digitalModes', '数字编解码设置')}>
                 <Popover placement="bottom-end">
                   <PopoverTrigger>
                     <Button isIconOnly variant="light" size="sm"
                       className="min-w-unit-6 min-w-6 w-6 h-6 text-default-500"
-                      aria-label={t('control.digitalModes', '数据模式与接收设置')}>
-                      <FontAwesomeIcon icon={faSlidersH} className="text-xs"/>
+                      aria-label={t('control.digitalModes', '数字编解码设置')}>
+                      <FontAwesomeIcon icon={faSlidersH} className="text-xs" />
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-56 max-w-[calc(100vw-2rem)] items-stretch p-2">
-                    <div className="text-xs font-semibold text-default-500 px-2 py-1">
-                      {t('control.digitalModes', '数据模式')}
-                    </div>
-                    {(['FT8','FT4','Q65','WSPR','MSK144','JTTY'] as const).map(name => {
-                      const available = modeOptions.some(item => item.name === name);
-                      return <Button key={name} size="sm" variant="light"
-                        className="justify-start text-xs"
-                        isDisabled={!available || isLoadingModes}
-                        color={radioMode.currentMode?.name === name ? 'primary' : 'default'}
-                        onPress={() => void handleModeChange(new Set([name]))}>
-                        {name}
-                      </Button>;
-                    })}
-                    <div className="my-1 border-t border-divider"/>
-                    <Button size="sm" variant="flat" className="justify-start text-xs"
-                      onPress={() => window.dispatchEvent(new CustomEvent('openSettingsModal', { detail: { tab: 'system' } }))}>
-                      <FontAwesomeIcon icon={faCog} className="mr-1 text-xs"/>
-                      {t('control.decodeParameters', '解码窗口与接收参数')}
-                    </Button>
+                  <PopoverContent className="max-w-[calc(100vw-1rem)] p-0">
+                    <DigitalModeQuickSettings
+                      activeMode={radioMode.currentMode?.name}
+                      availableModes={modeOptions.map(item => item.name)}
+                      onSelectMode={name => handleModeChange(new Set([name]))}
+                      disabled={isLoadingModes}
+                    />
                   </PopoverContent>
                 </Popover>
               </ToolbarIconTooltip>
