@@ -17,11 +17,14 @@ function fakeRequest(opts: Partial<DecodeRequest> = {}): DecodeRequest {
 }
 
 function fakeNative(rows: MfskNativeRow[] = []) {
-  const calls = { mode: [] as string[], decoded: 0, ap: [] as unknown[] };
+  const calls = { mode: [] as string[], decoded: 0, ap: [] as unknown[],
+    threads: [] as number[], frameOptions: [] as unknown[][] };
   class Slotted {
     constructor(mode: string) { calls.mode.push(mode); }
     decode() { calls.decoded += 1; return rows; }
     setParameters() {}
+    setParallelThreads(threads: number) { calls.threads.push(threads); }
+    setFrameOptions(...args: unknown[]) { calls.frameOptions.push(args); }
     setApContext(...args: unknown[]) { calls.ap.push(args); }
     clear() {}
   }
@@ -44,6 +47,39 @@ describe('isolated mfsk-native worker', () => {
     worker.endSession('slot-1');
     await worker.decode(fakeRequest({ decodeSessionId: 'slot-2' }));
     expect(calls.mode).toEqual(['FT8', 'FT8']);
+  });
+
+  it('applies advanced Rayon/AP/SIC/synchronization settings to the native decoder', async () => {
+    const {native,calls} = fakeNative();
+    const worker = new MfskDecodeWorkerCore(native);
+    const decoderTuning = {
+      threads: 3, apMode: 'cq-only' as const, strategy: 'sic3' as const,
+      syncMin: 1.4, maxCandidates: 250,
+    };
+    await worker.decode(fakeRequest({decoderTuning}));
+    await worker.decode(fakeRequest({windowIdx:1,decodeStage:47,decoderTuning}));
+    expect(calls.threads).toEqual([3,3]);
+    expect(calls.frameOptions).toEqual([
+      ['cq-only','sic3',1.4,250], ['cq-only','sic3',1.4,250],
+    ]);
+    await expect(worker.decode(fakeRequest({
+      windowIdx:2,decodeStage:49,
+      decoderTuning:{...decoderTuning,threads:4},
+    }))).rejects.toThrow(/tuning changed/);
+    expect(calls.decoded).toBe(2);
+  });
+
+  it('fails closed if an old native addon lacks the requested DSP API', async () => {
+    const native = { SlottedSession: class {
+      decode() { return []; }
+      setParameters() {}
+      setApContext() {}
+      clear() {}
+    }} as unknown as MfskNativeModule;
+    const worker = new MfskDecodeWorkerCore(native);
+    await expect(worker.decode(fakeRequest({
+      decoderTuning:{threads:2,apMode:'off'},
+    }))).rejects.toThrow(/does not support advanced decoder tuning/);
   });
 
   it('never inherits AP context from an earlier receive request', async () => {
