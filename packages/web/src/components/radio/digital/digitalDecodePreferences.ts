@@ -13,6 +13,11 @@ export interface NativeDecodePreferences {
   mskAdaptiveEqualizer: boolean;
   mskMyCall: string;
   mskDxCall: string;
+  /** Physical TX is still user-triggered; these only configure the next send. */
+  txAudioHz: number;
+  q65TxFirst: boolean;
+  mskPeriodSeconds: 5 | 10 | 15 | 30;
+  mskTxFirst: boolean;
 }
 
 export const DECODE_PREFERENCES_CHANGED_EVENT = 'tx5dr:decode-preferences-changed';
@@ -31,6 +36,10 @@ export const DEFAULT_NATIVE_DECODE_PREFERENCES: Readonly<NativeDecodePreferences
   mskAdaptiveEqualizer: false,
   mskMyCall: '',
   mskDxCall: '',
+  txAudioHz: 1500,
+  q65TxFirst: true,
+  mskPeriodSeconds: 5,
+  mskTxFirst: true,
 };
 
 const Q65_SUBMODES = new Set(['Q65-15A', 'Q65-30A', 'Q65-60A', 'Q65-60B', 'Q65-60C',
@@ -56,6 +65,11 @@ export function normalizeNativeDecodePreferences(candidate: unknown): NativeDeco
     mskAdaptiveEqualizer: entry.mskAdaptiveEqualizer === true,
     mskMyCall: typeof entry.mskMyCall === 'string' ? entry.mskMyCall.trim().toUpperCase().slice(0, 12) : '',
     mskDxCall: typeof entry.mskDxCall === 'string' ? entry.mskDxCall.trim().toUpperCase().slice(0, 12) : '',
+    txAudioHz: Math.round(bounded(entry.txAudioHz, 100, 5500, defaults.txAudioHz)),
+    q65TxFirst: entry.q65TxFirst !== false,
+    mskPeriodSeconds: [5, 10, 15, 30].includes(entry.mskPeriodSeconds as number)
+      ? entry.mskPeriodSeconds as 5 | 10 | 15 | 30 : defaults.mskPeriodSeconds,
+    mskTxFirst: entry.mskTxFirst !== false,
   };
 }
 
