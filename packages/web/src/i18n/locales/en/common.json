@@ -774,6 +774,7 @@
       "q65TxFirst": "Q65 TX First (even UTC periods)",
       "mskPeriod": "MSK144 T/R period",
       "mskTxFirst": "MSK144 TX First (even UTC periods)",
+      "mskRequiresCalls": "Enter both your callsign and the DX callsign to enable MSK144 shorthand search or adaptive equalization.",
       "mskTxFixed": "MSK144 standard-frame TX is fixed at 1500 Hz audio; shorthand search only affects RX.",
       "wsprFixed": "WSPR encoding and two-minute slots are protocol-defined. Only supported RX and TX audio parameters are editable here."
     },
