@@ -161,6 +161,10 @@ export function DigitalDecodePreferencesPanel({ fixedMode, compact = false }: Di
         {t('system.nativeDecode.shorthand')}
       </label>
     </section>}
+    {mode === 'MSK144' && (value.mskShorthand || value.mskAdaptiveEqualizer)
+      && (!value.mskMyCall || !value.mskDxCall) && <p className="text-xs text-warning" role="status">
+      {t('system.nativeDecode.mskRequiresCalls')}
+    </p>}
     {mode === 'MSK144' && <p className="text-xs text-default-500">{t('system.nativeDecode.mskTxFixed')}</p>}
     {mode === 'WSPR' && <p className="text-xs text-default-500">{t('system.nativeDecode.wsprFixed')}</p>}
     {mode === 'JTTY' && <p className="text-xs text-default-500">
