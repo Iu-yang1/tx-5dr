@@ -19,6 +19,9 @@ export function nativeRxPreferenceFingerprint(
     ...(mode !== 'JTTY' ? { toleranceHz: prefs.toleranceHz, depth: prefs.depth } : {}),
     ...(mode === 'Q65' ? {
       q65Submode: prefs.q65Submode,
+      q65TimeToleranceSec: prefs.q65TimeToleranceSec,
+      q65SyncScore: prefs.q65SyncScore,
+      q65MaxCandidates: prefs.q65MaxCandidates,
       averaging: prefs.averaging,
       emeDelay: prefs.emeDelay,
     } : {}),
@@ -39,6 +42,9 @@ export function needsNativeRxReconfigure(prefs: NativeDecodePreferences): boolea
     || prefs.q65Submode !== defaults.q65Submode
     || prefs.averaging !== defaults.averaging
     || prefs.emeDelay !== defaults.emeDelay
+    || prefs.q65TimeToleranceSec !== defaults.q65TimeToleranceSec
+    || prefs.q65SyncScore !== defaults.q65SyncScore
+    || prefs.q65MaxCandidates !== defaults.q65MaxCandidates
     || (prefs.mskMyCall !== '' && prefs.mskDxCall !== ''
       && (prefs.mskShorthand || prefs.mskAdaptiveEqualizer));
 }
@@ -97,6 +103,17 @@ export function NativeDigitalRxPreferencesSync() {
             mode, frequencyHz:prefs.frequencyHz, toleranceHz:prefs.toleranceHz,depth:prefs.depth,
             ...(mode === 'Q65' ? {
               q65Submode:prefs.q65Submode,
+              q65Search: {
+                ...(prefs.q65TimeToleranceSec !== null ? {
+                  timeToleranceSeconds:prefs.q65TimeToleranceSec,
+                } : {}),
+                ...(prefs.q65SyncScore !== null ? {
+                  scoreThreshold:prefs.q65SyncScore,
+                } : {}),
+                ...(prefs.q65MaxCandidates !== null ? {
+                  maxCandidates:prefs.q65MaxCandidates,
+                } : {}),
+              },
               averaging:prefs.averaging,
               emeDelay:prefs.emeDelay,
             } : {}),
