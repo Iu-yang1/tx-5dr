@@ -11,6 +11,16 @@ describe('Native RX settings sync', () => {
     expect(needsNativeRxReconfigure({...DEFAULT_NATIVE_DECODE_PREFERENCES,
       mskMyCall:'BG5JSU',mskDxCall:'HB9Q',mskShorthand:true})).toBe(true);
   });
+  it('Q65 time synchronization changes only the Q65 receiver fingerprint', () => {
+    const original={...DEFAULT_NATIVE_DECODE_PREFERENCES};
+    const changed={...original,q65TimeToleranceSec:60,q65SyncScore:0.1,q65MaxCandidates:32};
+    expect(needsNativeRxReconfigure(changed)).toBe(true);
+    expect(nativeRxPreferenceFingerprint('Q65',original))
+      .not.toBe(nativeRxPreferenceFingerprint('Q65',changed));
+    expect(nativeRxPreferenceFingerprint('WSPR',original))
+      .toBe(nativeRxPreferenceFingerprint('WSPR',changed));
+  });
+
   it('changing TX parity or period must not restart native reception', () => {
     const base = { ...DEFAULT_NATIVE_DECODE_PREFERENCES };
     const txChanged = { ...base, q65TxFirst: false, mskTxFirst: false,
