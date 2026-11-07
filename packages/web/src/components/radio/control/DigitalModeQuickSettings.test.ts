@@ -22,10 +22,13 @@ describe('classic decoder quick settings', () => {
     };
     const next = buildQuickDecodeSettings('FT8', current, {
       depth: 2, preset: 'custom', windows: [-300, -3200, -1500],
+      tuning: { threads: 2, apMode: 'cq-only', strategy: 'sic3', syncMin: 1.5, maxCandidates: 250 },
     });
     expect(next).toEqual({
-      decodeDepth: 2,
-      ft8: { preset: 'custom', customWindowTiming: [-3200, -1500, -300] },
+      decodeDepth: 1,
+      ft8: { decodeDepth: 2,
+        tuning: { threads: 2, apMode: 'cq-only', strategy: 'sic3', syncMin: 1.5, maxCandidates: 250 },
+        preset: 'custom', customWindowTiming: [-3200, -1500, -300] },
       ft4: current.ft4,
     });
     expect(current.ft8).toEqual({ preset: 'lightweight' });
@@ -33,7 +36,14 @@ describe('classic decoder quick settings', () => {
 
   it('rejects the unsupported FT4 minimum setting', () => {
     expect(() => buildQuickDecodeSettings('FT4', DEFAULT_DECODE_WINDOW_SETTINGS, {
-      depth: 3, preset: 'minimum', windows: [-300],
+      depth: 3, preset: 'minimum', windows: [-300], tuning: {},
+    })).toThrow(/FT4/);
+  });
+
+  it('validates that an FT8 early strategy cannot reach FT4', () => {
+    expect(() => buildQuickDecodeSettings('FT4', DEFAULT_DECODE_WINDOW_SETTINGS, {
+      depth: 2, preset: 'balanced', windows: [-1500, 0],
+      tuning: { strategy: 'early' },
     })).toThrow(/FT4/);
   });
 
@@ -42,9 +52,9 @@ describe('classic decoder quick settings', () => {
       decodeDepth: 3,
       ft8: { preset: 'maximum' },
       ft4: { preset: 'balanced' },
-    }, { depth: 1, preset: 'lightweight', windows: [0] });
+    }, { depth: 1, preset: 'lightweight', windows: [0], tuning: { apMode: 'off' } });
     expect(next.ft8?.preset).toBe('maximum');
-    expect(next.ft4).toEqual({ preset: 'lightweight' });
-    expect(next.decodeDepth).toBe(1);
+    expect(next.ft4).toEqual({ preset: 'lightweight', decodeDepth: 1, tuning: { apMode: 'off' } });
+    expect(next.decodeDepth).toBe(3);
   });
 });
