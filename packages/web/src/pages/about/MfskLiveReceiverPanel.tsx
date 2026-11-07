@@ -6,7 +6,7 @@ import {
 } from '../../components/radio/digital/nativeDigitalSelection';
 import { Button, Card, CardBody, Input } from '@heroui/react';
 import { formatDecodedAfHz, formatDecodedSnr } from '../../components/radio/digital/decodeValueFormat';
-import { DECODE_PREFERENCES_CHANGED_EVENT, loadNativeDecodePreferences, type NativeDigitalMode } from '../../components/radio/digital/digitalDecodePreferences';
+import { DECODE_PREFERENCES_CHANGED_EVENT, loadNativeDecodePreferences, saveNativeDecodePreferences, type NativeDecodePreferences, type NativeDigitalMode } from '../../components/radio/digital/digitalDecodePreferences';
 import { useTranslation } from 'react-i18next';
 import { useCan } from '../../store/authStore';
 import { api } from '@tx5dr/core';
@@ -38,7 +38,7 @@ export function MfskLiveReceiverPanel({
   const [frequency,setFrequency] = useState(() => String(loadNativeDecodePreferences(mode as NativeDigitalMode).frequencyHz));
   const [tolerance,setTolerance] = useState(() => String(loadNativeDecodePreferences(mode as NativeDigitalMode).toleranceHz));
   const [decodeDepth,setDecodeDepth] = useState<1|2|3>(() => loadNativeDecodePreferences(mode as NativeDigitalMode).depth);
-  const [txFrequency,setTxFrequency] = useState('1500');
+  const [txFrequency,setTxFrequency] = useState(() => String(loadNativeDecodePreferences(mode as NativeDigitalMode).txAudioHz));
   const [averaging,setAveraging] = useState(() => loadNativeDecodePreferences(mode as NativeDigitalMode).averaging);
   const [emeDelay,setEmeDelay] = useState(() => loadNativeDecodePreferences(mode as NativeDigitalMode).emeDelay);
   const [apMyCall,setApMyCall] = useState('');
@@ -66,9 +66,9 @@ export function MfskLiveReceiverPanel({
   const [txStatus,setTxStatus] = useState<{rfEnabled:boolean;busy:boolean;remainingMs:number}>({rfEnabled:false,busy:false,remainingMs:0});
   // Never prefill a fictitious TX callsign into a live transmitter.
   const [text,setText] = useState('');
-  const [mskPeriod,setMskPeriod] = useState<5|10|15|30>(5);
-  const [mskTxFirst,setMskTxFirst] = useState(true);
-  const [q65TxFirst,setQ65TxFirst] = useState(true);
+  const [mskPeriod,setMskPeriod] = useState<5|10|15|30>(() => loadNativeDecodePreferences(mode as NativeDigitalMode).mskPeriodSeconds);
+  const [mskTxFirst,setMskTxFirst] = useState(() => loadNativeDecodePreferences(mode as NativeDigitalMode).mskTxFirst);
+  const [q65TxFirst,setQ65TxFirst] = useState(() => loadNativeDecodePreferences(mode as NativeDigitalMode).q65TxFirst);
   const [txPending,setTxPending] = useState(false);
   const [autoPending,setAutoPending] = useState(false);
   const [autoStatus,setAutoStatus] = useState<Awaited<ReturnType<typeof api.getMfskNativeAutoTxStatus>>|null>(null);
@@ -130,6 +130,28 @@ export function MfskLiveReceiverPanel({
     window.addEventListener(DECODE_PREFERENCES_CHANGED_EVENT, apply);
     return () => window.removeEventListener(DECODE_PREFERENCES_CHANGED_EVENT, apply);
   },[surface,mode]);
+
+  // The quick-panel TX controls and operator pane share persisted settings.
+  // Updating these fields never keys the radio or starts an automatic TX job.
+  const saveTxOption = (patch: Partial<NativeDecodePreferences>) => {
+    const selectedMode = mode as NativeDigitalMode;
+    saveNativeDecodePreferences(selectedMode, { ...loadNativeDecodePreferences(selectedMode), ...patch });
+  };
+  useEffect(() => {
+    const apply = () => {
+      const prefs = loadNativeDecodePreferences(mode as NativeDigitalMode);
+      setTxFrequency(String(prefs.txAudioHz));
+      setMskPeriod(prefs.mskPeriodSeconds);
+      setMskTxFirst(prefs.mskTxFirst);
+      setQ65TxFirst(prefs.q65TxFirst);
+    };
+    apply();
+    const onChanged = (event: Event) => {
+      if ((event as CustomEvent<{ mode: NativeDigitalMode }>).detail?.mode === mode) apply();
+    };
+    window.addEventListener(DECODE_PREFERENCES_CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(DECODE_PREFERENCES_CHANGED_EVENT, onChanged);
+  }, [mode]);
 
   // Keep the Q65 selector aligned with the receiver after a page reload,
   // unless the operator is intentionally editing the next submode.
@@ -484,7 +506,12 @@ export function MfskLiveReceiverPanel({
         </div>}
         {mode!=='MSK144' && <Input size="sm" type="number"
           label={t('codec.txAfFrequency')} value={txFrequency}
-          onValueChange={setTxFrequency} isDisabled={txPending}/>} 
+          onValueChange={setTxFrequency}
+          onBlur={() => {
+            const hz = Number(txFrequency);
+            if (Number.isInteger(hz) && hz >= 100 && hz <= 5500) saveTxOption({ txAudioHz: hz });
+          }}
+          isDisabled={txPending}/>} 
         {(mode==='Q65'||mode==='MSK144') && <div className="flex justify-end">
           <Button size="sm" variant="light" className="min-w-8 px-2"
             title={txMoreOpen?t('codec.lessSettings'):t('codec.moreSettings')}
@@ -494,21 +521,25 @@ export function MfskLiveReceiverPanel({
         {txMoreOpen && <div className="space-y-3 rounded-md bg-default-50 p-2">
         {mode==='Q65' && <label className="text-xs flex gap-2 items-center">
           <input type="checkbox" checked={q65TxFirst}
-            onChange={e=>setQ65TxFirst(e.target.checked)} disabled={txPending}/>
+            onChange={e=>{setQ65TxFirst(e.target.checked);saveTxOption({q65TxFirst:e.target.checked});}} disabled={txPending}/>
           {t('codec.q65TxFirst')}
         </label>}
         {mode==='MSK144' && <div className="flex gap-2 items-center">
           <label htmlFor="mfsk-msk-period" className="text-xs">{t('codec.mskPeriod')}</label>
           <select id="mfsk-msk-period" value={mskPeriod}
             disabled={txPending||status?.running&&txStatus.busy}
-            onChange={e=>setMskPeriod(Number(e.target.value) as 5|10|15|30)}
+            onChange={e=>{
+              const value = Number(e.target.value) as 5|10|15|30;
+              setMskPeriod(value);
+              saveTxOption({mskPeriodSeconds:value});
+            }}
             className="rounded-md border border-default-300 bg-content1 px-3 py-2 text-sm">
             {[5,10,15,30].map(seconds=><option key={seconds} value={seconds}>{seconds}s</option>)}
           </select>
         </div>}
         {mode==='MSK144' && <label className="text-xs flex gap-2 items-center">
           <input type="checkbox" checked={mskTxFirst}
-            onChange={e=>setMskTxFirst(e.target.checked)} disabled={txPending}/>
+            onChange={e=>{setMskTxFirst(e.target.checked);saveTxOption({mskTxFirst:e.target.checked});}} disabled={txPending}/>
           {t('codec.mskTxFirst')}
         </label>}
         </div>}
