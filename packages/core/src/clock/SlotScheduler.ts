@@ -9,6 +9,7 @@ interface ScheduledDecodeSession {
   startMs: number;
   mode: ModeDescriptor;
   depth: number;
+  decoderTuning?: DecodeRequest['decoderTuning'];
   cancelled: boolean;
   completed: boolean;
 }
@@ -79,7 +80,8 @@ export class SlotScheduler {
   private transmissionChecker?: ITransmissionChecker;
   private shouldDecodeWhileTransmitting?: () => boolean;
   private decodeApContextProvider?: DecodeApContextProvider;
-  private getDecodeDepth?: () => number;
+  private getDecodeDepth?: (modeName?: string) => number;
+  private getDecoderTuning?: (modeName: 'FT8' | 'FT4') => DecodeRequest['decoderTuning'];
   private readonly sessions = new Map<string, ScheduledDecodeSession>();
   private generation = 0;
   private retiredThroughMs = -Infinity;
@@ -94,7 +96,8 @@ export class SlotScheduler {
     transmissionChecker?: ITransmissionChecker,
     shouldDecodeWhileTransmitting?: () => boolean,
     decodeApContextProvider?: DecodeApContextProvider,
-    getDecodeDepth?: () => number,
+    getDecodeDepth?: (modeName?: string) => number,
+    getDecoderTuning?: (modeName: 'FT8' | 'FT4') => DecodeRequest['decoderTuning'],
   ) {
     this.slotClock = slotClock;
     this.decodeQueue = decodeQueue;
@@ -103,6 +106,7 @@ export class SlotScheduler {
     this.shouldDecodeWhileTransmitting = shouldDecodeWhileTransmitting;
     this.decodeApContextProvider = decodeApContextProvider;
     this.getDecodeDepth = getDecodeDepth;
+    this.getDecoderTuning = getDecoderTuning;
     this.boundHandleSubWindow = this.handleSubWindow.bind(this);
   }
   
@@ -160,11 +164,13 @@ export class SlotScheduler {
     const generation = this.generation;
     let session = this.sessions.get(slotInfo.id);
     if (!session) {
-      const configuredDepth = this.getDecodeDepth?.() ?? 3;
       const mode = this.slotClock.getMode();
+      const codecMode = mode.name === 'FT4' ? 'FT4' : 'FT8';
+      const configuredDepth = this.getDecodeDepth?.(codecMode) ?? 3;
       session = {
         startMs: slotInfo.startMs, mode: { ...mode, windowTiming: [...mode.windowTiming] },
         depth: Number.isInteger(configuredDepth) && configuredDepth >= 1 && configuredDepth <= 3 ? configuredDepth : 3,
+        decoderTuning: this.getDecoderTuning?.(codecMode),
         cancelled: false, completed: false,
       };
       this.sessions.set(slotInfo.id, session);
@@ -227,6 +233,7 @@ export class SlotScheduler {
         timestamp: Date.now(),
         windowOffsetMs,
         decodeDepth,
+        ...(session.decoderTuning ? { decoderTuning: session.decoderTuning } : {}),
         decodeSessionId: slotInfo.id,
         decodeFinalWindow: windowIdx >= windowCount - 1,
         decodeStage: stage,

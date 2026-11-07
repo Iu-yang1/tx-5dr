@@ -141,7 +141,11 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.tags.outputs.tags }}
           cache-from: type=gha,scope=tx5dr-docker
-          cache-to: type=gha,scope=tx5dr-docker,mode=max
+          # Pull-request checks validate all Dockerfile build stages, but do not
+          # publish images or overwrite the shared main-branch build cache.
+          # For release builds, a failed cache upload must not turn a correctly
+          # built/pushed image into a failed release (BuildKit gha exporter).
+          cache-to: ${{ github.event_name != 'pull_request' && 'type=gha,scope=tx5dr-docker,mode=max,ignore-error=true' || '' }}
           build-args: |
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
             VCS_REF=${{ github.sha }}

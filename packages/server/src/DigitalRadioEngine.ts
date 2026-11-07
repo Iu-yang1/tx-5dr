@@ -1464,7 +1464,15 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
       this._operatorManager,
       () => ConfigManager.getInstance().getFT8Config().decodeWhileTransmitting ?? false,
       (slotInfo, windowIdx) => this._operatorManager.getDecodeApContext(slotInfo, windowIdx),
-      () => ConfigManager.getInstance().getDecodeWindowSettings()?.decodeDepth ?? 3,
+      (name) => {
+        const settings = ConfigManager.getInstance().getDecodeWindowSettings();
+        const specific = name === 'FT4' ? settings?.ft4 : settings?.ft8;
+        return specific?.decodeDepth ?? settings?.decodeDepth ?? 3;
+      },
+      (name) => {
+        const settings = ConfigManager.getInstance().getDecodeWindowSettings();
+        return name === 'FT4' ? settings?.ft4?.tuning : settings?.ft8?.tuning;
+      },
     );
 
     const spectrumSettings = ConfigManager.getInstance().getSpectrumSettings();
@@ -3283,7 +3291,13 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
    * Update decode windows at runtime (called after settings change)
    */
   public updateDecodeWindows(): void {
+    const before = this.currentMode.windowTiming.join(',');
     this.applyDecodeWindowOverrides();
+    if (before === this.currentMode.windowTiming.join(',')) {
+      // Decode depth and advanced DSP parameters are read on the next UTC
+      // slot; avoid emitting a spurious operating-mode transition.
+      return;
+    }
     this.syncCurrentModeToRuntimeComponents('decode-window-update');
     this.emit('modeChanged', this.currentMode);
     logger.info(`Decode windows updated: ${this.currentMode.windowTiming.length} windows`);

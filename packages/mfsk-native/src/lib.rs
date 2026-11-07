@@ -2,13 +2,14 @@
 //! physical TX pipeline until the P3-P9 integration gates have passed.
 //! PCM transport is a little-endian f32 Buffer at exactly 12,000 Hz.
 use mfsk_core::{
-    decoder::{AnyDecoder, AnyExtras, SlotInput, Depth},
+    decoder::{AnyDecoder, AnyExtras, SlotInput, Depth, ApMode, Ft8Strategy, Ft4Strategy},
     encoder::{encode, TxAudio},
     registry::Mode,
 };
 use napi::{bindgen_prelude::Buffer, Error, Result, Status};
 use napi_derive::napi;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock, Mutex, atomic::{AtomicU32, Ordering}};
+use std::collections::HashMap;
 
 
 
@@ -252,12 +253,34 @@ fn configure_slot_decoder(mode: &str, decoder: &mut AnyDecoder) {
     }
 }
 
+// A bounded Rayon pool is shared by sessions in the same isolated decoder
+// process. A change to worker count never touches physical TX or the radio.
+static DECODE_POOLS: OnceLock<Mutex<HashMap<u32, Arc<rayon::ThreadPool>>>> = OnceLock::new();
+
+fn decoder_pool(threads: u32) -> Result<Arc<rayon::ThreadPool>> {
+    if !(1..=4).contains(&threads) {
+        return Err(invalid("decoder thread count must be between 1 and 4"));
+    }
+    let pools = DECODE_POOLS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut cache = pools.lock().map_err(|_| invalid("thread pool cache lock poisoned"))?;
+    if let Some(pool) = cache.get(&threads) { return Ok(Arc::clone(pool)); }
+    let pool = Arc::new(rayon::ThreadPoolBuilder::new()
+        .num_threads(threads as usize)
+        .thread_name(move |i| format!("tx5dr-mfsk-{threads}-{i}"))
+        .build().map_err(|e| invalid(format!("decoder pool init failed: {e}")))?);
+    cache.insert(threads, Arc::clone(&pool));
+    Ok(pool)
+}
+
 /// Persistent per-channel, per-mode receiver. The Node worker owns these
 /// handles and must cancel/dispose the session when its generation changes.
 #[napi]
 pub struct SlottedSession {
     mode: String,
     inner: std::sync::Mutex<AnyDecoder>,
+    // 0 preserves mfsk-core's original global Rayon policy when no
+    // user override exists. Explicit 1..4 scopes the actual decode work.
+    threads: AtomicU32,
 }
 
 #[napi]
@@ -268,7 +291,7 @@ impl SlottedSession {
             .ok_or_else(|| invalid(format!("unknown slotted mode: {mode}")))?;
         let mut decoder = AnyDecoder::with_defaults(protocol);
         configure_slot_decoder(&mode, &mut decoder);
-        Ok(Self { mode, inner: std::sync::Mutex::new(decoder) })
+        Ok(Self { mode, inner: std::sync::Mutex::new(decoder), threads: AtomicU32::new(0) })
     }
 
     #[napi]
@@ -282,14 +305,144 @@ impl SlottedSession {
         let audio = from_pcm(&pcm_f32_le)?;
         let mut slot = SlotInput::f32(&audio);
         slot.period = period_index.map(i64::from);
+        let run = || -> Result<Vec<NativeDecodeRow>> {
+            let mut decoder = self.inner.lock().map_err(|_| invalid("decoder lock poisoned"))?;
+            let decoded = if prefix { decoder.decode_prefix(&slot) } else { decoder.decode(&slot) };
+            Ok(decoded.rows.into_iter().map(|r| NativeDecodeRow {
+                text: r.decoded.text,
+                frequency_hz: r.decoded.freq_hz as f64,
+                snr_db: r.decoded.snr_db as f64,
+                dt_seconds: r.decoded.dt_sec as f64,
+            }).collect())
+        };
+        let threads = self.threads.load(Ordering::Acquire);
+        if threads == 0 { run() } else { decoder_pool(threads)?.install(run) }
+    }
+
+    /// 0 keeps the pinned native library's default parallel policy.
+    /// An explicit 1..4 uses Rayon thread-pool install(), not a UI-only flag.
+    #[napi]
+    pub fn set_parallel_threads(&self, threads: u32) -> Result<()> {
+        if self.mode != "FT8" && self.mode != "FT4" {
+            return Err(invalid("parallel decoder tuning requires FT8 or FT4"));
+        }
+        if threads > 4 { return Err(invalid("decoder thread count must be 0..4")); }
+        // Build before committing the setting so an OS allocation failure
+        // leaves the old worker policy intact.
+        if threads > 0 { decoder_pool(threads)?; }
+        self.threads.store(threads, Ordering::Release);
+        Ok(())
+    }
+
+    /// Implements exposed WSJT-style AP and synchronization controls using
+    /// mfsk-core's real per-frame decoding strategy and search parameters.
+    /// Called after set_ap_context once per staged decode invocation.
+    #[napi]
+    pub fn set_frame_options(
+        &self, ap_mode: String, strategy: String,
+        sync_min: Option<f64>, max_candidates: Option<u32>,
+    ) -> Result<()> {
+        if self.mode != "FT8" && self.mode != "FT4" {
+            return Err(invalid("frame tuning requires FT8 or FT4"));
+        }
+        if !matches!(ap_mode.as_str(), "default" | "off" | "cq-only" | "full") {
+            return Err(invalid("invalid AP policy"));
+        }
+        if !matches!(strategy.as_str(), "default" | "single" | "sic2" | "sic3" | "early") ||
+            (self.mode == "FT4" && strategy == "early") {
+            return Err(invalid("invalid frame decoding strategy"));
+        }
+        if let Some(sync) = sync_min {
+            if !sync.is_finite() || !(0.5..=5.0).contains(&sync) {
+                return Err(invalid("invalid synchronization threshold"));
+            }
+        }
+        if let Some(n) = max_candidates {
+            if !(10..=1000).contains(&n) {
+                return Err(invalid("invalid max decoder candidates"));
+            }
+        }
+
+        let mut d = self.inner.lock().map_err(|_| invalid("decoder lock poisoned"))?;
+        let params = d.params_mut();
+        let station_valid = !params.station.call.is_empty();
+        let qso_valid = !params.qso.his_call.is_empty();
+        params.ap = match ap_mode.as_str() {
+            "off" => ApMode::Off,
+            "cq-only" => if station_valid { ApMode::CqOnly } else { ApMode::Off },
+            "full" => if station_valid && qso_valid { ApMode::Full } else { ApMode::Off },
+            _ => params.ap,
+        };
+        match d.extras_mut() {
+            AnyExtras::Ft8(e) => {
+                e.tuning.sync_min = sync_min.map(|v| v as f32);
+                e.tuning.max_cand = max_candidates.map(|v| v as usize);
+                e.tuning.strategy = match strategy.as_str() {
+                    "single" => Some(Ft8Strategy::SinglePass),
+                    "sic2" => Some(Ft8Strategy::SicRounds(2)),
+                    "sic3" => Some(Ft8Strategy::SicRounds(3)),
+                    "early" => Some(Ft8Strategy::SicEarly),
+                    _ => None,
+                };
+            },
+            AnyExtras::Ft4(e) => {
+                e.tuning.sync_min = sync_min.map(|v| v as f32);
+                e.tuning.max_cand = max_candidates.map(|v| v as usize);
+                e.tuning.strategy = match strategy.as_str() {
+                    "single" => Some(Ft4Strategy::SinglePass),
+                    "sic2" => Some(Ft4Strategy::SicRounds(2)),
+                    "sic3" => Some(Ft4Strategy::SicRounds(3)),
+                    _ => None,
+                };
+            },
+            _ => return Err(invalid("unsupported frame tuning mode")),
+        }
+        Ok(())
+    }
+
+    /// Override only Q65's real time-domain sync search and candidate gates.
+    /// Omitted options keep the per-submode defaults (15/30/60/120/300 s).
+    #[napi]
+    pub fn set_q65_search_options(
+        &self,
+        time_tolerance_sec: Option<f64>,
+        score_threshold: Option<f64>,
+        max_candidates: Option<u32>,
+    ) -> Result<()> {
+        if !self.mode.starts_with("Q65-") {
+            return Err(invalid("Q65 search options require a Q65 submode"));
+        }
+        if let Some(seconds) = time_tolerance_sec {
+            if !seconds.is_finite() || !(1.0..=150.0).contains(&seconds) {
+                return Err(invalid("invalid Q65 synchronization time tolerance"));
+            }
+        }
+        if let Some(score) = score_threshold {
+            if !score.is_finite() || !(0.01..=1.0).contains(&score) {
+                return Err(invalid("invalid Q65 synchronization score threshold"));
+            }
+        }
+        if let Some(count) = max_candidates {
+            if !(1..=64).contains(&count) {
+                return Err(invalid("invalid Q65 maximum candidates"));
+            }
+        }
         let mut decoder = self.inner.lock().map_err(|_| invalid("decoder lock poisoned"))?;
-        let decoded = if prefix { decoder.decode_prefix(&slot) } else { decoder.decode(&slot) };
-        Ok(decoded.rows.into_iter().map(|r| NativeDecodeRow {
-            text: r.decoded.text,
-            frequency_hz: r.decoded.freq_hz as f64,
-            snr_db: r.decoded.snr_db as f64,
-            dt_seconds: r.decoded.dt_sec as f64,
-        }).collect())
+        if let AnyExtras::Q65(options) = decoder.extras_mut() {
+            if let Some(seconds) = time_tolerance_sec {
+                options.search.time_tolerance_early_sec = Some(seconds as f32);
+                options.search.time_tolerance_late_sec = Some(seconds as f32);
+            }
+            if let Some(score) = score_threshold {
+                options.search.score_threshold = Some(score as f32);
+            }
+            if let Some(count) = max_candidates {
+                options.search.max_candidates = Some(count as usize);
+            }
+            Ok(())
+        } else {
+            Err(invalid("Q65 decoder extras unavailable"))
+        }
     }
 
     #[napi]
@@ -515,6 +668,36 @@ mod tests {
         for id in ["FT8", "FT4", "WSPR", "Q65-60B", "MSK144", "JTTY"] {
             assert!(m.iter().any(|s| s == id));
         }
+    }
+
+    #[test]
+    fn ft8_parallel_ap_and_sync_controls_are_real_and_bounded() {
+        let ft8=SlottedSession::new("FT8".into()).unwrap();
+        assert!(ft8.set_parallel_threads(1).is_ok());
+        assert!(ft8.set_parallel_threads(4).is_ok());
+        assert!(ft8.set_parallel_threads(5).is_err());
+        assert!(ft8.set_ap_context("K1ABC".into(),"FN42".into(),
+          "K2ABC".into(),"FN32".into(),2,true).is_ok());
+        assert!(ft8.set_frame_options("cq-only".into(),"sic3".into(),
+          Some(1.3),Some(250)).is_ok());
+        let d=ft8.inner.lock().unwrap();
+        assert_eq!(d.params().ap,ApMode::CqOnly);
+        drop(d);
+        assert!(ft8.set_frame_options("off".into(),"invalid".into(),None,None).is_err());
+        assert!(ft8.set_frame_options("full".into(),"early".into(),Some(0.1),None).is_err());
+    }
+
+    #[test]
+    fn ft4_early_search_is_forbidden_and_q65_has_its_own_search_controls() {
+        let ft4=SlottedSession::new("FT4".into()).unwrap();
+        assert!(ft4.set_frame_options("default".into(),"early".into(),None,None).is_err());
+        assert!(ft4.set_frame_options("default".into(),"sic2".into(),None,None).is_ok());
+        let q65=SlottedSession::new("Q65-60B".into()).unwrap();
+        assert!(q65.set_q65_search_options(Some(30.0),Some(0.05),Some(32)).is_ok());
+        assert!(q65.set_q65_search_options(Some(0.0),None,None).is_err());
+        assert!(q65.set_q65_search_options(None,Some(2.0),None).is_err());
+        assert!(q65.set_q65_search_options(None,None,Some(65)).is_err());
+        assert!(q65.set_parallel_threads(2).is_err());
     }
 
     #[test]

@@ -5,6 +5,8 @@ import { loadMfskNative, type MfskNativeModule, type MfskNativeRow } from './Mfs
 export interface MfskNativeSlotHandle {
   decode(pcmF32Le: Buffer, periodIndex?: number, earlyPrefix?: boolean): MfskNativeRow[];
   setParameters(depth: number, averaging: boolean, rxHz?: number, toleranceHz?: number): void;
+  setParallelThreads?: (threads: number) => void;
+  setFrameOptions?: (apMode: string, strategy: string, syncMin?: number, maxCandidates?: number) => void;
   setApContext(myCall: string, myGrid: string, dxCall: string, dxGrid: string, progress: number, enabled: boolean): void;
   clear(): void;
 }
@@ -13,6 +15,7 @@ interface SlotSession {
   id: string;
   mode: 'FT8' | 'FT4';
   depth: number;
+  tuningFingerprint: string;
   handle: MfskNativeSlotHandle;
   seen: Set<string>;
 }
@@ -64,15 +67,17 @@ export class MfskDecodeWorkerCore {
     if (![1, 2, 3].includes(depth)) throw new Error('Invalid decode depth');
 
     // A session maps exactly to one UTC period, not to a mode globally.
+    const tuning = request.decoderTuning;
+    const tuningFingerprint = JSON.stringify(tuning ?? {});
     const id = request.decodeSessionId || request.slotId;
     if (!this.session || this.session.id !== id) {
       const create = this.native.SlottedSession as unknown as
         new (name: string) => MfskNativeSlotHandle;
-      this.session = { id, mode, depth, handle: new create(mode), seen: new Set() };
+      this.session = { id, mode, depth, tuningFingerprint, handle: new create(mode), seen: new Set() };
     }
     const session = this.session;
-    if (session.mode !== mode || session.depth !== depth) {
-      throw new Error('Decode mode/depth changed inside a native session');
+    if (session.mode !== mode || session.depth !== depth || session.tuningFingerprint !== tuningFingerprint) {
+      throw new Error('Decode mode/depth/tuning changed inside a native session');
     }
 
     const baseFrequency = request.apContext?.frequencyHz;
@@ -89,6 +94,19 @@ export class MfskDecodeWorkerCore {
       ap?.dxCall ?? '', ap?.dxGrid ?? '', progress,
       Boolean(ap?.myCall && ap.dxCall),
     );
+    if (tuning && Object.keys(tuning).length > 0) {
+      // The deployed native addon must implement the requested features.
+      // Failing closed is preferable to silently ignoring UI settings.
+      if (typeof session.handle.setFrameOptions !== 'function'
+        || (tuning.threads !== undefined && typeof session.handle.setParallelThreads !== 'function')) {
+        throw new Error('Native addon does not support advanced decoder tuning');
+      }
+      if (tuning.threads !== undefined) session.handle.setParallelThreads!(tuning.threads);
+      session.handle.setFrameOptions(
+        tuning.apMode ?? 'default', tuning.strategy ?? 'default',
+        tuning.syncMin, tuning.maxCandidates,
+      );
+    }
 
     if (!(request.pcm instanceof ArrayBuffer) || request.pcm.byteLength % 4 !== 0) {
       throw new Error('Decode PCM is not a valid Float32 ArrayBuffer');

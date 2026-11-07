@@ -142,15 +142,37 @@ export const FT4_WINDOW_PRESETS: Record<string, number[]> = {
   lightweight: [0],              // 1 轮：仅末端
 };
 
+/** Options that the pinned Rust decoder genuinely consumes (not UI-only flags). */
+export const FrameDecoderTuningSchema = z.object({
+  /** Rayon workers inside the isolated FT8/FT4 decoder process. */
+  threads: z.number().int().min(1).max(4).optional(),
+  /** AP is gated by real operator context; never infer callsigns. */
+  apMode: z.enum(['default', 'off', 'cq-only', 'full']).optional(),
+  /** FT8 uses early-prefix search by default; FT4 has no early-prefix strategy. */
+  strategy: z.enum(['default', 'single', 'sic2', 'sic3', 'early']).optional(),
+  /** Minimum synchronisation score used by the native candidate search. */
+  syncMin: z.number().finite().min(0.5).max(5).optional(),
+  /** Maximum candidates examined in one decoder pass. */
+  maxCandidates: z.number().int().min(10).max(1000).optional(),
+}).strict();
+
+export type FrameDecoderTuning = z.infer<typeof FrameDecoderTuningSchema>;
+
 /** Per-mode decode-window presets and optional custom timing windows. */
 export const DecodeWindowSettingsSchema = z.object({
   /** Global WSJT-X compatible decode depth: 1=Fast, 2=Normal, 3=Deep. */
   decodeDepth: z.number().int().min(1).max(3).optional(),
   ft8: z.object({
+    decodeDepth: z.number().int().min(1).max(3).optional(),
+    tuning: FrameDecoderTuningSchema.optional(),
     preset: z.enum(['maximum', 'balanced', 'lightweight', 'minimum', 'custom']).default('balanced'),
     customWindowTiming: z.array(z.number().int().min(-5000).max(1000)).optional(),
   }).optional(),
   ft4: z.object({
+    decodeDepth: z.number().int().min(1).max(3).optional(),
+    tuning: FrameDecoderTuningSchema.omit({strategy:true}).extend({
+      strategy: z.enum(['default','single','sic2','sic3']).optional(),
+    }).optional(),
     preset: z.enum(['maximum', 'balanced', 'lightweight', 'custom']).default('balanced'),
     customWindowTiming: z.array(z.number().int().min(-5000).max(1000)).optional(),
   }).optional(),

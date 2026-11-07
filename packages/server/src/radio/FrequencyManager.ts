@@ -133,6 +133,44 @@ export class FrequencyManager {
     { band: '2m', mode: 'FT8', radioMode: 'USB', frequency: 144460000, description: '144.460 MHz 2m' },
     { band: '70cm', mode: 'FT8', radioMode: 'USB', frequency: 432174000, description: '432.174 MHz 70cm' },
 
+    // ===== Q65: weak-signal / EME sked frequencies (USB dial, not exclusive channels) =====
+    { band: '6m', mode: 'Q65', radioMode: 'USB', frequency: 50_190_000, description: '50.190 MHz Q65 EME sked' },
+    { band: '2m', mode: 'Q65', radioMode: 'USB', frequency: 144_120_000, description: '144.120 MHz Q65 EME sked' },
+    { band: '2m', mode: 'Q65', radioMode: 'USB', frequency: 144_180_000, description: '144.180 MHz Q65 terrestrial · IARU 1', region: 'iaru1' },
+    { band: '70cm', mode: 'Q65', radioMode: 'USB', frequency: 432_080_000, description: '432.080 MHz Q65 EME sked' },
+
+    // ===== MSK144: regional meteor-scatter activity frequencies =====
+    { band: '6m', mode: 'MSK144', radioMode: 'USB', frequency: 50_260_000, description: '50.260 MHz MSK144 · IARU 2', region: 'iaru2' },
+    { band: '6m', mode: 'MSK144', radioMode: 'USB', frequency: 50_280_000, description: '50.280 MHz MSK144 · IARU 1', region: 'iaru1' },
+    { band: '2m', mode: 'MSK144', radioMode: 'USB', frequency: 144_150_000, description: '144.150 MHz MSK144 · IARU 2', region: 'iaru2' },
+    { band: '2m', mode: 'MSK144', radioMode: 'USB', frequency: 144_360_000, description: '144.360 MHz MSK144 · IARU 1', region: 'iaru1' },
+
+    // ===== JTTY: preliminary activity frequencies; not internationally assigned channels =====
+    { band: '160m', mode: 'JTTY', radioMode: 'USB', frequency: 1_838_000, description: '1.838 MHz JTTY · preliminary' },
+    { band: '80m', mode: 'JTTY', radioMode: 'USB', frequency: 3_575_000, description: '3.575 MHz JTTY · preliminary' },
+    { band: '40m', mode: 'JTTY', radioMode: 'USB', frequency: 7_090_000, description: '7.090 MHz JTTY · preliminary' },
+    { band: '30m', mode: 'JTTY', radioMode: 'USB', frequency: 10_140_000, description: '10.140 MHz JTTY · preliminary' },
+    { band: '20m', mode: 'JTTY', radioMode: 'USB', frequency: 14_090_000, description: '14.090 MHz JTTY · preliminary activity' },
+    { band: '17m', mode: 'JTTY', radioMode: 'USB', frequency: 18_100_000, description: '18.100 MHz JTTY · preliminary' },
+    { band: '15m', mode: 'JTTY', radioMode: 'USB', frequency: 21_090_000, description: '21.090 MHz JTTY · preliminary' },
+    { band: '12m', mode: 'JTTY', radioMode: 'USB', frequency: 24_920_000, description: '24.920 MHz JTTY · preliminary' },
+    { band: '10m', mode: 'JTTY', radioMode: 'USB', frequency: 28_090_000, description: '28.090 MHz JTTY · preliminary' },
+    { band: '6m', mode: 'JTTY', radioMode: 'USB', frequency: 50_160_000, description: '50.160 MHz JTTY · preliminary' },
+
+    // ===== WSPR: conventional USB dial frequencies (RF activity is ~1.5 kHz above dial) =====
+    { band: '160m', mode: 'WSPR', radioMode: 'USB', frequency: 1_836_600, description: '1.8366 MHz WSPR 160m' },
+    { band: '80m', mode: 'WSPR', radioMode: 'USB', frequency: 3_568_600, description: '3.5686 MHz WSPR 80m' },
+    { band: '40m', mode: 'WSPR', radioMode: 'USB', frequency: 7_038_600, description: '7.0386 MHz WSPR 40m' },
+    { band: '30m', mode: 'WSPR', radioMode: 'USB', frequency: 10_138_700, description: '10.1387 MHz WSPR 30m' },
+    { band: '20m', mode: 'WSPR', radioMode: 'USB', frequency: 14_095_600, description: '14.0956 MHz WSPR 20m' },
+    { band: '17m', mode: 'WSPR', radioMode: 'USB', frequency: 18_104_600, description: '18.1046 MHz WSPR 17m' },
+    { band: '15m', mode: 'WSPR', radioMode: 'USB', frequency: 21_094_600, description: '21.0946 MHz WSPR 15m' },
+    { band: '12m', mode: 'WSPR', radioMode: 'USB', frequency: 24_924_600, description: '24.9246 MHz WSPR 12m' },
+    { band: '10m', mode: 'WSPR', radioMode: 'USB', frequency: 28_124_600, description: '28.1246 MHz WSPR 10m' },
+    { band: '6m', mode: 'WSPR', radioMode: 'USB', frequency: 50_293_000, description: '50.293 MHz WSPR 6m', region: 'iaru3' },
+    { band: '2m', mode: 'WSPR', radioMode: 'USB', frequency: 144_489_000, description: '144.489 MHz WSPR 2m' },
+    { band: '70cm', mode: 'WSPR', radioMode: 'USB', frequency: 432_300_000, description: '432.300 MHz WSPR 70cm' },
+
     // ===== VOICE 语音模式 =====
     // HF SSB - LSB below 10 MHz, USB above 10 MHz (ham radio convention)
     // 80m
@@ -205,11 +243,18 @@ export class FrequencyManager {
         .filter((preset) => preset.mode === 'FAX')
         .map((preset) => preset.frequency),
     );
+    // Existing saved catalogs predate these digital modes. Add an entire newly
+    // supported mode only when the user has no presets for it; never overwrite
+    // or duplicate customized frequencies for a mode they already configured.
+    const newDigitalModes = new Set(['Q65', 'MSK144', 'JTTY', 'WSPR']);
+    const missingDigitalDefaults = FrequencyManager.DEFAULT_PRESETS.filter((preset) => (
+      newDigitalModes.has(preset.mode) && !configuredModes.has(preset.mode)
+    ));
     const missingImageDefaults = FrequencyManager.DEFAULT_PRESETS.filter((preset) => (
       (preset.mode === 'SSTV' && !configuredModes.has('SSTV'))
       || (preset.mode === 'FAX' && !configuredFaxFrequencies.has(preset.frequency))
     ));
-    this.presets = [...enrichedCustomPresets, ...missingImageDefaults];
+    this.presets = [...enrichedCustomPresets, ...missingDigitalDefaults, ...missingImageDefaults];
   }
 
   getPresets(): PresetFrequency[] {

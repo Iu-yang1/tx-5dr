@@ -7,12 +7,21 @@ export interface NativeDecodePreferences {
   toleranceHz: number;
   depth: 1 | 2 | 3;
   q65Submode: Q65Submode;
+  /** Null preserves the period-dependent native defaults. */
+  q65TimeToleranceSec: number | null;
+  q65SyncScore: number | null;
+  q65MaxCandidates: number | null;
   averaging: boolean;
   emeDelay: boolean;
   mskShorthand: boolean;
   mskAdaptiveEqualizer: boolean;
   mskMyCall: string;
   mskDxCall: string;
+  /** Physical TX is still user-triggered; these only configure the next send. */
+  txAudioHz: number;
+  q65TxFirst: boolean;
+  mskPeriodSeconds: 5 | 10 | 15 | 30;
+  mskTxFirst: boolean;
 }
 
 export const DECODE_PREFERENCES_CHANGED_EVENT = 'tx5dr:decode-preferences-changed';
@@ -25,12 +34,19 @@ export const DEFAULT_NATIVE_DECODE_PREFERENCES: Readonly<NativeDecodePreferences
   toleranceHz: 200,
   depth: 3,
   q65Submode: 'Q65-60B',
+  q65TimeToleranceSec: null,
+  q65SyncScore: null,
+  q65MaxCandidates: null,
   averaging: false,
   emeDelay: false,
   mskShorthand: false,
   mskAdaptiveEqualizer: false,
   mskMyCall: '',
   mskDxCall: '',
+  txAudioHz: 1500,
+  q65TxFirst: true,
+  mskPeriodSeconds: 5,
+  mskTxFirst: true,
 };
 
 const Q65_SUBMODES = new Set(['Q65-15A', 'Q65-30A', 'Q65-60A', 'Q65-60B', 'Q65-60C',
@@ -38,6 +54,8 @@ const Q65_SUBMODES = new Set(['Q65-15A', 'Q65-30A', 'Q65-60A', 'Q65-60B', 'Q65-6
 
 const bounded = (value: unknown, min: number, max: number, fallback: number) =>
   typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max ? value : fallback;
+const optionalBounded = (value: unknown, min: number, max: number): number | null =>
+  typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max ? value : null;
 
 export function normalizeNativeDecodePreferences(candidate: unknown): NativeDecodePreferences {
   const entry = (candidate && typeof candidate === 'object' && !Array.isArray(candidate))
@@ -50,12 +68,21 @@ export function normalizeNativeDecodePreferences(candidate: unknown): NativeDeco
     toleranceHz: bounded(entry.toleranceHz, 1, 5000, defaults.toleranceHz),
     depth: Math.round(depth) as 1 | 2 | 3,
     q65Submode: typeof q65 === 'string' && Q65_SUBMODES.has(q65) ? q65 as Q65Submode : defaults.q65Submode,
+    q65TimeToleranceSec: optionalBounded(entry.q65TimeToleranceSec,1,150),
+    q65SyncScore: optionalBounded(entry.q65SyncScore,0.01,1),
+    q65MaxCandidates: typeof entry.q65MaxCandidates === 'number' && Number.isInteger(entry.q65MaxCandidates)
+      ? optionalBounded(entry.q65MaxCandidates,1,64) : null,
     averaging: entry.averaging === true,
     emeDelay: entry.emeDelay === true,
     mskShorthand: entry.mskShorthand === true,
     mskAdaptiveEqualizer: entry.mskAdaptiveEqualizer === true,
     mskMyCall: typeof entry.mskMyCall === 'string' ? entry.mskMyCall.trim().toUpperCase().slice(0, 12) : '',
     mskDxCall: typeof entry.mskDxCall === 'string' ? entry.mskDxCall.trim().toUpperCase().slice(0, 12) : '',
+    txAudioHz: Math.round(bounded(entry.txAudioHz, 100, 5500, defaults.txAudioHz)),
+    q65TxFirst: entry.q65TxFirst !== false,
+    mskPeriodSeconds: [5, 10, 15, 30].includes(entry.mskPeriodSeconds as number)
+      ? entry.mskPeriodSeconds as 5 | 10 | 15 | 30 : defaults.mskPeriodSeconds,
+    mskTxFirst: entry.mskTxFirst !== false,
   };
 }
 

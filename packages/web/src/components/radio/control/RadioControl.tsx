@@ -24,11 +24,14 @@ import { useVoiceTxDiagnostics } from '../../../hooks/useVoiceTxDiagnostics';
 import { useWSEvent } from '../../../hooks/useWSEvent';
 import { createLogger } from '../../../utils/logger';
 import { TxVolumeGainControl } from './TxVolumeGainControl';
+import { DigitalModeQuickSettings } from './DigitalModeQuickSettings';
 import {
   canExecuteRadioFrequency,
   canWriteRadioFrequency,
   deriveMonitorActivationCtaState,
   filterDigitalFrequencyOptions,
+  getPresetFrequencyOptionKey,
+  resolveOperatingPresetMode,
   isAudioMonitorAvailableForInputSignal,
   resolveOperatingStateDisplayFrequency,
   shouldShowFakeFrequencyEntry,
@@ -1181,13 +1184,12 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
 
   // 加载预设频率列表
   React.useEffect(() => {
+    let requestSequence = 0;
     const loadFrequencies = async () => {
-      if (!connection.state.isConnected) {
+      const requestId = ++requestSequence;
+      if (!connection.state.isConnected || !canUseAuthenticatedRest) {
         setAvailableFrequencies([]);
-        return;
-      }
-      if (!canUseAuthenticatedRest) {
-        setAvailableFrequencies([]);
+        setIsLoadingFrequencies(false);
         return;
       }
 
@@ -1199,7 +1201,7 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
         if (response.success && Array.isArray(response.presets)) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const frequencyOptions: FrequencyOption[] = response.presets.map((preset: any) => ({
-            key: String(preset.frequency),
+            key: getPresetFrequencyOptionKey(preset),
             label: preset.description || `${formatBandLabel(preset.band)} ${formatFrequencyMHz(preset.frequency)} MHz`,
             frequency: preset.frequency,
             band: preset.band,
@@ -1207,18 +1209,24 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
             radioMode: preset.radioMode
           }));
 
-          setAvailableFrequencies(frequencyOptions);
+          if (requestId === requestSequence) setAvailableFrequencies(frequencyOptions);
         } else {
           logger.error('Failed to load frequencies: invalid response format', response);
         }
       } catch (error) {
         logger.error('Failed to load preset frequencies:', error);
       } finally {
-        setIsLoadingFrequencies(false);
+        if (requestId === requestSequence) setIsLoadingFrequencies(false);
       }
     };
 
-    loadFrequencies();
+    void loadFrequencies();
+    const onPresetsUpdated = () => { void loadFrequencies(); };
+    window.addEventListener('frequencyPresetsUpdated', onPresetsUpdated);
+    return () => {
+      requestSequence += 1;
+      window.removeEventListener('frequencyPresetsUpdated', onPresetsUpdated);
+    };
   }, [canUseAuthenticatedRest, connection.state.isConnected, formatBandLabel]);
 
   // 简化的监听开关控制
@@ -1661,11 +1669,14 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
     }
   };
 
+  // Use the active operating engine so voice and the new digital modes share the same selector.
+  const activePresetMode = resolveOperatingPresetMode(radioMode.engineMode, radioMode.currentMode?.name);
+
   // 根据当前模式筛选频率
   const filteredFrequencies = React.useMemo(() => {
     let filtered = filterDigitalFrequencyOptions(
       availableFrequencies,
-      radioMode.currentMode?.name,
+      activePresetMode,
       customFrequencyOption,
     );
 
@@ -1679,20 +1690,23 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
     }
 
     return filtered;
-  }, [availableFrequencies, radioMode.currentMode, customFrequencyOption, isAdmin, canSetFrequency, ability]);
+  }, [availableFrequencies, activePresetMode, customFrequencyOption, isAdmin, canSetFrequency, ability]);
 
   const selectedFrequencyOption = React.useMemo(() => {
-    const presetOption = filteredFrequencies.find(freq => freq.key === currentFrequency);
+    const currentHz = Number(currentFrequency);
+    const presetOption = filteredFrequencies.find(freq =>
+      freq.frequency === currentHz && freq.mode === activePresetMode && freq.key !== CURRENT_CUSTOM_FREQUENCY_KEY,
+    );
     if (presetOption) {
       return presetOption;
     }
 
-    if (customFrequencyOption && String(customFrequencyOption.frequency) === currentFrequency) {
+    if (customFrequencyOption && customFrequencyOption.frequency === currentHz) {
       return customFrequencyOption;
     }
 
     return null;
-  }, [filteredFrequencies, currentFrequency, customFrequencyOption]);
+  }, [filteredFrequencies, currentFrequency, activePresetMode, customFrequencyOption]);
 
   const selectedFrequencyKey = selectedFrequencyOption?.key ?? null;
 
@@ -1773,17 +1787,15 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
       return;
     }
 
-    await executeFrequencySwitch(selectedFrequencyKey, selectedFrequency);
+    await executeFrequencySwitch(selectedFrequency);
   };
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const executeFrequencySwitch = async (selectedFrequencyKey: string, selectedFrequency: any) => {
+  const executeFrequencySwitch = async (selectedFrequency: FrequencyOption) => {
     if (!canWriteTargetFrequency(selectedFrequency.frequency)) return;
 
     try {
       // 设置频率和电台调制模式
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const params: any = {
+      const params: Parameters<typeof setRadioFrequencyWithIntent>[0] = {
         frequency: selectedFrequency.frequency,
         mode: selectedFrequency.mode,
         band: selectedFrequency.band,
@@ -1796,7 +1808,7 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
       const response = await setRadioFrequencyWithIntent(params);
 
       if (response.success) {
-        setCurrentFrequency(selectedFrequencyKey);
+        setCurrentFrequency(String(selectedFrequency.frequency));
         setCustomFrequencyOption(null);
         resetOperatorsAfterOperatingStateChange();
 
@@ -1872,12 +1884,13 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
       return;
     }
 
-    const frequencyKey = String(frequency);
-    const isPreset = availableFrequencies.some(item => item.key === frequencyKey);
+    const isPreset = availableFrequencies.some(item =>
+      item.frequency === frequency && item.mode === activePresetMode,
+    );
     if (!isPreset) {
       setCustomFrequencyOption(buildCurrentCustomFrequencyOption(
         frequency,
-        snapshot?.mode || radioMode.currentMode?.name || 'FT8',
+        activePresetMode || snapshot?.mode || 'FT8',
         snapshot?.band || '',
         snapshot?.radioMode,
       ));
@@ -1885,7 +1898,7 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
     }
 
     setCustomFrequencyOption(null);
-  }, [availableFrequencies, buildCurrentCustomFrequencyOption, radioMode.currentMode?.name, radioMode.currentRadioFrequency, radioMode.operatingState]);
+  }, [activePresetMode, availableFrequencies, buildCurrentCustomFrequencyOption, radioMode.currentRadioFrequency, radioMode.operatingState]);
 
   return (
     <>
@@ -2593,37 +2606,24 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
                 </Popover>
               </ToolbarIconTooltip>
             )}
-            {/* 六种数据模式统一快捷入口，直接复用当前模式切换和系统设置。 */}
+            {/* Decoder and codec settings stay beside the antenna-tuner shortcut. */}
             {canSwitchMode && connection.state.isConnected && (
-              <ToolbarIconTooltip label={t('control.digitalModes', '数据模式与接收设置')}>
+              <ToolbarIconTooltip label={t('control.digitalModes', '数字编解码设置')}>
                 <Popover placement="bottom-end">
                   <PopoverTrigger>
                     <Button isIconOnly variant="light" size="sm"
                       className="min-w-unit-6 min-w-6 w-6 h-6 text-default-500"
-                      aria-label={t('control.digitalModes', '数据模式与接收设置')}>
-                      <FontAwesomeIcon icon={faSlidersH} className="text-xs"/>
+                      aria-label={t('control.digitalModes', '数字编解码设置')}>
+                      <FontAwesomeIcon icon={faSlidersH} className="text-xs" />
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-56 max-w-[calc(100vw-2rem)] items-stretch p-2">
-                    <div className="text-xs font-semibold text-default-500 px-2 py-1">
-                      {t('control.digitalModes', '数据模式')}
-                    </div>
-                    {(['FT8','FT4','Q65','WSPR','MSK144','JTTY'] as const).map(name => {
-                      const available = modeOptions.some(item => item.name === name);
-                      return <Button key={name} size="sm" variant="light"
-                        className="justify-start text-xs"
-                        isDisabled={!available || isLoadingModes}
-                        color={radioMode.currentMode?.name === name ? 'primary' : 'default'}
-                        onPress={() => void handleModeChange(new Set([name]))}>
-                        {name}
-                      </Button>;
-                    })}
-                    <div className="my-1 border-t border-divider"/>
-                    <Button size="sm" variant="flat" className="justify-start text-xs"
-                      onPress={() => window.dispatchEvent(new CustomEvent('openSettingsModal', { detail: { tab: 'system' } }))}>
-                      <FontAwesomeIcon icon={faCog} className="mr-1 text-xs"/>
-                      {t('control.decodeParameters', '解码窗口与接收参数')}
-                    </Button>
+                  <PopoverContent className="max-w-[calc(100vw-1rem)] p-0">
+                    <DigitalModeQuickSettings
+                      activeMode={radioMode.currentMode?.name}
+                      availableModes={modeOptions.map(item => item.name)}
+                      onSelectMode={name => handleModeChange(new Set([name]))}
+                      disabled={isLoadingModes}
+                    />
                   </PopoverContent>
                 </Popover>
               </ToolbarIconTooltip>
@@ -2841,7 +2841,7 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
               if (sdrConfirmPending) {
                 const freq = filteredFrequencies.find(f => f.key === sdrConfirmPending.frequency);
                 if (freq) {
-                  executeFrequencySwitch(sdrConfirmPending.frequency, freq);
+                  void executeFrequencySwitch(freq);
                 }
               }
               setSdrConfirmPending(null);

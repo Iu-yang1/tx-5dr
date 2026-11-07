@@ -3,6 +3,7 @@ import {
   DIGITAL_CODEC_PROFILES, DigitalCodecModeSchema, DigitalCodecModeProfileSchema,
   DigitalCodecRuntimeCapabilitySchema, DigitalRxEventSchema,
   Q65_PERIOD_MS, Q65SubmodeSchema, MfskPhysicalTxRequestSchema,
+  MfskLiveRxStartSchema,
   digitalCodecSlotStart, digitalCodecTxAllowed,
 } from '../digital-codec.schema.js';
 
@@ -55,6 +56,19 @@ describe('six-mode codec contract', () => {
     const wspr={mode:'WSPR',operatorId:'operator1',text:'K1ABC FN42 37',audioHz:1500};
     expect(MfskPhysicalTxRequestSchema.parse(wspr)).toMatchObject(wspr);
     expect(MfskPhysicalTxRequestSchema.parse({...wspr,beaconAuthorized:true})).toMatchObject(wspr);
+  });
+
+  it('accepts Q65 sync search but rejects it for other modes and unsafe values', () => {
+    const q65 = {mode:'Q65',q65Submode:'Q65-60B',
+      q65Search:{timeToleranceSeconds:30,scoreThreshold:0.05,maxCandidates:16}};
+    expect(MfskLiveRxStartSchema.parse(q65).q65Search).toEqual(q65.q65Search);
+    expect(MfskLiveRxStartSchema.safeParse({...q65,mode:'MSK144'}).success).toBe(false);
+    for (const options of [
+      {timeToleranceSeconds:0},
+      {scoreThreshold:0},
+      {maxCandidates:65},
+      {maxCandidates:1.5},
+    ]) expect(MfskLiveRxStartSchema.safeParse({...q65,q65Search:options}).success).toBe(false);
   });
 
   it('rejects a non-slotted message missing its own lifecycle identity', () => {

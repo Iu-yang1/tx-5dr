@@ -12,6 +12,32 @@ describe('native digital receiver preference validation', () => {
     expect(normalizeNativeDecodePreferences({frequencyHz:-1,toleranceHz:7000,depth:9,
       q65Submode:'Q65-999X'})).toMatchObject(DEFAULT_NATIVE_DECODE_PREFERENCES);
   });
+  it('normalizes native TX preferences without losing RX defaults', () => {
+    expect(normalizeNativeDecodePreferences({
+      txAudioHz: 1900, q65TxFirst: false, mskTxFirst: false, mskPeriodSeconds: 15,
+    })).toMatchObject({
+      txAudioHz: 1900, q65TxFirst: false, mskTxFirst: false, mskPeriodSeconds: 15,
+    });
+    expect(normalizeNativeDecodePreferences({
+      txAudioHz: 8000, mskPeriodSeconds: 20, q65TxFirst: true,
+    })).toMatchObject({
+      txAudioHz: 1500, mskPeriodSeconds: 5, q65TxFirst: true,
+    });
+  });
+
+  it('normalizes Q65 sync search overrides without altering default submode timing', () => {
+    expect(normalizeNativeDecodePreferences({
+      q65TimeToleranceSec: 60, q65SyncScore: 0.1, q65MaxCandidates: 32,
+    })).toMatchObject({
+      q65TimeToleranceSec:60,q65SyncScore:0.1,q65MaxCandidates:32,
+    });
+    expect(normalizeNativeDecodePreferences({
+      q65TimeToleranceSec:-1, q65SyncScore:Infinity, q65MaxCandidates:128,
+    })).toMatchObject({
+      q65TimeToleranceSec:null,q65SyncScore:null,q65MaxCandidates:null,
+    });
+  });
+
   it('retains MSK144 shorthand/equalizer settings', () => {
     expect(normalizeNativeDecodePreferences({mskShorthand:true,mskAdaptiveEqualizer:true,
       mskMyCall:'bg5jsu',mskDxCall:'hb9q'})).toMatchObject({

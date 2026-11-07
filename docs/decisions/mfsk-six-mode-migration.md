@@ -67,6 +67,38 @@ The existing `RadioControl` mode selector is the only primary mode entry point. 
 - Post-demodulated AF ingress has two independent backpressure boundaries: pending resample callbacks (at most eight and at most one second of normalized 12 kHz samples) and pending native worker messages. A streaming gap fails closed rather than joining non-contiguous samples. A slotted-mode gap increments dropped-chunk statistics and the incomplete UTC window is rejected.
 - Child spawn and IPC write failures must transition native RX into stopped/fault state without escaping a radio audio callback or UTC polling timer. Explicit JTTY stop still flushes accepted AF before a terminal update.
 
+## Decoder and encoder quick-setting ownership (PR #46)
+
+The toolbar popover beside the antenna tuner is a **view of existing settings
+owners**, not an alternative codec or CAT controller. It edits FT8/FT4 decode
+windows and their currently shared decode depth through the guarded
+`/settings/decode-windows` API. The server continues to own persistence and
+slot-scheduler reconfiguration; read-before-write merging avoids replacing the
+other mode's latest window strategy during ordinary edits.
+
+For Q65, WSPR, MSK144 and JTTY the existing browser-side versioned native
+preferences remain the receiver setting source. Both the system-settings panel
+and toolbar project the same entries and announce local changes through
+`tx5dr:decode-preferences-changed`; the native RX synchronizer submits valid
+mode-specific configuration to the existing receiver API. Only supported
+parameters appear: JTTY is continuous, MSK144 shorthand/equalizer need both
+callsigns, Q65 selects genuine submodes, and WSPR waveform/timing are fixed by
+the codec.
+
+Q65 TX-first parity, MSK144 TX-first parity and period, and supported TX AF
+frequency now live in that same per-mode browser preference. The operator
+pane projects these values for the **next user-triggered transmission**.
+They do not arm RF, start PTT, submit a transmission, or reconfigure RX merely
+because a TX-only field changed. The receiver fingerprint deliberately excludes
+these TX-only preferences. Server transmit admission and connection-generation
+safety checks are unchanged.
+
+This is **supported-backend control parity**, not a claim of full WSJT-X
+feature parity: native decoder worker algorithms, FT8 multithreading/AP knobs,
+and physical MSK144 shorthand transmission are not exposed by this UI.
+Cross-browser preference synchronization is not provided; mode settings remain
+scoped to the browser's established preference storage.
+
 ## Evidence and remaining release limits
 
 - [PR #23 integration branch](https://github.com/Iu-yang1/tx-5dr/pull/23) must pass *all mandatory* tests on one unchanged head SHA before `main` is updated.

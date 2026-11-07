@@ -10,6 +10,30 @@ import {
   type NativeDecodePreferences,
 } from './digitalDecodePreferences';
 
+/** TX-phase and audio preferences must not restart or reset the active receiver. */
+export function nativeRxPreferenceFingerprint(
+  mode: NativeDigitalMode, prefs: NativeDecodePreferences,
+): string {
+  return JSON.stringify({
+    frequencyHz: prefs.frequencyHz,
+    ...(mode !== 'JTTY' ? { toleranceHz: prefs.toleranceHz, depth: prefs.depth } : {}),
+    ...(mode === 'Q65' ? {
+      q65Submode: prefs.q65Submode,
+      q65TimeToleranceSec: prefs.q65TimeToleranceSec,
+      q65SyncScore: prefs.q65SyncScore,
+      q65MaxCandidates: prefs.q65MaxCandidates,
+      averaging: prefs.averaging,
+      emeDelay: prefs.emeDelay,
+    } : {}),
+    ...(mode === 'MSK144' ? {
+      mskShorthand: prefs.mskShorthand,
+      mskAdaptiveEqualizer: prefs.mskAdaptiveEqualizer,
+      mskMyCall: prefs.mskMyCall,
+      mskDxCall: prefs.mskDxCall,
+    } : {}),
+  });
+}
+
 export function needsNativeRxReconfigure(prefs: NativeDecodePreferences): boolean {
   const defaults = DEFAULT_NATIVE_DECODE_PREFERENCES;
   return prefs.frequencyHz !== defaults.frequencyHz
@@ -18,6 +42,9 @@ export function needsNativeRxReconfigure(prefs: NativeDecodePreferences): boolea
     || prefs.q65Submode !== defaults.q65Submode
     || prefs.averaging !== defaults.averaging
     || prefs.emeDelay !== defaults.emeDelay
+    || prefs.q65TimeToleranceSec !== defaults.q65TimeToleranceSec
+    || prefs.q65SyncScore !== defaults.q65SyncScore
+    || prefs.q65MaxCandidates !== defaults.q65MaxCandidates
     || (prefs.mskMyCall !== '' && prefs.mskDxCall !== ''
       && (prefs.mskShorthand || prefs.mskAdaptiveEqualizer));
 }
@@ -57,7 +84,7 @@ export function NativeDigitalRxPreferencesSync() {
     const maybeApply = () => {
       if (cancelled || busy) return;
       const prefs = loadNativeDecodePreferences(mode);
-      const fingerprint = JSON.stringify(prefs);
+      const fingerprint = nativeRxPreferenceFingerprint(mode, prefs);
       void api.getMfskLiveRxEvents(0).then(async response => {
         if (cancelled || busy || !response.status.running
           || !response.status.ready || response.status.mode !== mode) return;
@@ -76,6 +103,17 @@ export function NativeDigitalRxPreferencesSync() {
             mode, frequencyHz:prefs.frequencyHz, toleranceHz:prefs.toleranceHz,depth:prefs.depth,
             ...(mode === 'Q65' ? {
               q65Submode:prefs.q65Submode,
+              q65Search: {
+                ...(prefs.q65TimeToleranceSec !== null ? {
+                  timeToleranceSeconds:prefs.q65TimeToleranceSec,
+                } : {}),
+                ...(prefs.q65SyncScore !== null ? {
+                  scoreThreshold:prefs.q65SyncScore,
+                } : {}),
+                ...(prefs.q65MaxCandidates !== null ? {
+                  maxCandidates:prefs.q65MaxCandidates,
+                } : {}),
+              },
               averaging:prefs.averaging,
               emeDelay:prefs.emeDelay,
             } : {}),

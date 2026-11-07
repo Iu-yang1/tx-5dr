@@ -22,7 +22,7 @@ import {
 import { FALLBACK_VOICE_RADIO_MODES, normalizeVoiceRadioMode } from '../../utils/voiceRadioModeOptions';
 import { formatFrequencyMHz, parseFrequencyMHzToHz } from '../../utils/frequencyMHz';
 
-const MODE_OPTIONS = ['FT8', 'FT4', 'VOICE', 'SSTV', 'FAX'];
+const MODE_OPTIONS = ['FT8', 'FT4', 'Q65', 'MSK144', 'JTTY', 'WSPR', 'VOICE', 'SSTV', 'FAX'];
 const REPEATER_SHIFT_OPTIONS = ['none', 'minus', 'plus'] as const;
 const TONE_SQUELCH_OPTIONS = ['none', 'ctcss', 'dcs'] as const;
 const CUSTOM_BAND = 'custom';

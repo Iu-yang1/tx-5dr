@@ -15,6 +15,7 @@ import {
 export interface NativeSlotDecoder {
   decode(pcmF32Le: Buffer, periodIndex?: number, earlyPrefix?: boolean): MfskNativeRow[];
   setParameters(depth: number, averaging: boolean, rxHz?: number, toleranceHz?: number): void;
+  setQ65SearchOptions?: (seconds?: number, score?: number, maxCandidates?: number) => void;
   setApContext(myCall: string, myGrid: string, dxCall: string, dxGrid: string, progress: number, enabled: boolean): void;
   setEmeDelay(enabled: boolean): void;
   clear(): void;
@@ -41,6 +42,7 @@ export interface MfskSessionConfig {
   sessionId: string;
   mode: DigitalCodecMode;
   q65Submode?: Q65Submode;
+  q65Search?: { timeToleranceSeconds?: number; scoreThreshold?: number; maxCandidates?: number };
   audioFrequencyHz?: number;
   toleranceHz?: number;
   depth?: 1 | 2 | 3;
@@ -122,6 +124,18 @@ export class MfskMultimodeRuntime {
     if (cfg.depth !== undefined && ![1, 2, 3].includes(cfg.depth)) throw new Error('Invalid depth');
     if (cfg.averaging && cfg.mode !== 'Q65') throw new Error('Averaging is only enabled for Q65 in this bridge');
     if (cfg.emeDelay && cfg.mode !== 'Q65') throw new Error('EME delay is only supported here for Q65');
+    if (cfg.q65Search) {
+      if (cfg.mode !== 'Q65') throw new Error('Q65 sync options require Q65 mode');
+      const opts=cfg.q65Search;
+      if ((opts.timeToleranceSeconds !== undefined &&
+          (!Number.isFinite(opts.timeToleranceSeconds) || opts.timeToleranceSeconds<1 || opts.timeToleranceSeconds>150))
+        || (opts.scoreThreshold !== undefined &&
+          (!Number.isFinite(opts.scoreThreshold) || opts.scoreThreshold<0.01 || opts.scoreThreshold>1))
+        || (opts.maxCandidates !== undefined &&
+          (!Number.isInteger(opts.maxCandidates) || opts.maxCandidates<1 || opts.maxCandidates>64))) {
+        throw new Error('Invalid Q65 sync settings');
+      }
+    }
     if (cfg.msk144Rx) {
       if(cfg.mode!=='MSK144') throw new Error('MSK144 RX options require MSK144 mode');
       const call=/^[A-Z0-9/]{3,12}$/;
@@ -152,6 +166,15 @@ export class MfskMultimodeRuntime {
     else {
       source = new raw.SlottedSession(cfg.mode === 'Q65' ? d.submode! : cfg.mode);
       source.setParameters(cfg.depth ?? 3, cfg.averaging ?? false, f, tolerance);
+      if (cfg.q65Search && Object.keys(cfg.q65Search).length > 0) {
+        if (typeof source.setQ65SearchOptions !== 'function')
+          throw new Error('Native addon lacks Q65 search-options support');
+        source.setQ65SearchOptions(
+          cfg.q65Search.timeToleranceSeconds,
+          cfg.q65Search.scoreThreshold,
+          cfg.q65Search.maxCandidates,
+        );
+      }
       source.setEmeDelay(cfg.emeDelay ?? false);
     }
     const sequence = d.scheduling === 'utc-slot' ? undefined : new AudioStreamSequence();
