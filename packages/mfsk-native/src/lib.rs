@@ -671,6 +671,36 @@ mod tests {
     }
 
     #[test]
+    fn ft8_parallel_ap_and_sync_controls_are_real_and_bounded() {
+        let ft8=SlottedSession::new("FT8".into()).unwrap();
+        assert!(ft8.set_parallel_threads(1).is_ok());
+        assert!(ft8.set_parallel_threads(4).is_ok());
+        assert!(ft8.set_parallel_threads(5).is_err());
+        assert!(ft8.set_ap_context("K1ABC".into(),"FN42".into(),
+          "K2ABC".into(),"FN32".into(),2,true).is_ok());
+        assert!(ft8.set_frame_options("cq-only".into(),"sic3".into(),
+          Some(1.3),Some(250)).is_ok());
+        let d=ft8.inner.lock().unwrap();
+        assert_eq!(d.params().ap,ApMode::CqOnly);
+        drop(d);
+        assert!(ft8.set_frame_options("off".into(),"invalid".into(),None,None).is_err());
+        assert!(ft8.set_frame_options("full".into(),"early".into(),Some(0.1),None).is_err());
+    }
+
+    #[test]
+    fn ft4_early_search_is_forbidden_and_q65_has_its_own_search_controls() {
+        let ft4=SlottedSession::new("FT4".into()).unwrap();
+        assert!(ft4.set_frame_options("default".into(),"early".into(),None,None).is_err());
+        assert!(ft4.set_frame_options("default".into(),"sic2".into(),None,None).is_ok());
+        let q65=SlottedSession::new("Q65-60B".into()).unwrap();
+        assert!(q65.set_q65_search_options(Some(30.0),Some(0.05),Some(32)).is_ok());
+        assert!(q65.set_q65_search_options(Some(0.0),None,None).is_err());
+        assert!(q65.set_q65_search_options(None,Some(2.0),None).is_err());
+        assert!(q65.set_q65_search_options(None,None,Some(65)).is_err());
+        assert!(q65.set_parallel_threads(2).is_err());
+    }
+
+    #[test]
     fn buffers_are_rejected_when_non_finite() {
         assert!(from_pcm(&Buffer::from(f32::NAN.to_le_bytes().to_vec())).is_err());
     }
