@@ -110,6 +110,42 @@ export function DigitalDecodePreferencesPanel({ fixedMode, compact = false }: Di
         </select>
       </label>}
     </div>
+    {mode === 'Q65' && <section className="space-y-2 rounded-lg border border-default-200 p-2">
+      <h5 className="text-xs font-semibold">{t('system.nativeDecode.q65SyncTitle')}</h5>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <label className={labelClass}>{t('system.nativeDecode.q65TimeSearch')}
+          <select className={inputClass} value={value.q65TimeToleranceSec ?? 'native'}
+            onChange={e => update({
+              q65TimeToleranceSec: e.target.value === 'native' ? null : Number(e.target.value),
+            })}>
+            <option value="native">{t('system.nativeDecode.nativeDefault')}</option>
+            {[5,15,30,60,120,150].map(seconds =>
+              <option key={seconds} value={seconds}>{seconds} s</option>)}
+          </select>
+        </label>
+        <label className={labelClass}>{t('system.nativeDecode.q65SyncScore')}
+          <select className={inputClass} value={value.q65SyncScore ?? 'native'}
+            onChange={e => update({
+              q65SyncScore: e.target.value === 'native' ? null : Number(e.target.value),
+            })}>
+            <option value="native">{t('system.nativeDecode.nativeDefault')}</option>
+            {[0.02,0.05,0.1,0.2,0.4].map(score =>
+              <option key={score} value={score}>{score}</option>)}
+          </select>
+        </label>
+        <label className={labelClass}>{t('system.nativeDecode.q65Candidates')}
+          <select className={inputClass} value={value.q65MaxCandidates ?? 'native'}
+            onChange={e => update({
+              q65MaxCandidates: e.target.value === 'native' ? null : Number(e.target.value),
+            })}>
+            <option value="native">{t('system.nativeDecode.nativeDefault')}</option>
+            {[8,16,32,64].map(count =>
+              <option key={count} value={count}>{count}</option>)}
+          </select>
+        </label>
+      </div>
+      <p className="text-xs text-default-500">{t('system.nativeDecode.q65SyncHint')}</p>
+    </section>}
     {mode === 'Q65' && <div className="flex flex-wrap gap-5">
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={value.averaging}
