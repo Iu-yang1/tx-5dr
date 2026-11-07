@@ -400,6 +400,51 @@ impl SlottedSession {
         Ok(())
     }
 
+    /// Override only Q65's real time-domain sync search and candidate gates.
+    /// Omitted options keep the per-submode defaults (15/30/60/120/300 s).
+    #[napi]
+    pub fn set_q65_search_options(
+        &self,
+        time_tolerance_sec: Option<f64>,
+        score_threshold: Option<f64>,
+        max_candidates: Option<u32>,
+    ) -> Result<()> {
+        if !self.mode.starts_with("Q65-") {
+            return Err(invalid("Q65 search options require a Q65 submode"));
+        }
+        if let Some(seconds) = time_tolerance_sec {
+            if !seconds.is_finite() || !(1.0..=150.0).contains(&seconds) {
+                return Err(invalid("invalid Q65 synchronization time tolerance"));
+            }
+        }
+        if let Some(score) = score_threshold {
+            if !score.is_finite() || !(0.01..=1.0).contains(&score) {
+                return Err(invalid("invalid Q65 synchronization score threshold"));
+            }
+        }
+        if let Some(count) = max_candidates {
+            if !(1..=64).contains(&count) {
+                return Err(invalid("invalid Q65 maximum candidates"));
+            }
+        }
+        let mut decoder = self.inner.lock().map_err(|_| invalid("decoder lock poisoned"))?;
+        if let AnyExtras::Q65(options) = decoder.extras_mut() {
+            if let Some(seconds) = time_tolerance_sec {
+                options.search.time_tolerance_early_sec = Some(seconds as f32);
+                options.search.time_tolerance_late_sec = Some(seconds as f32);
+            }
+            if let Some(score) = score_threshold {
+                options.search.score_threshold = Some(score as f32);
+            }
+            if let Some(count) = max_candidates {
+                options.search.max_candidates = Some(count as usize);
+            }
+            Ok(())
+        } else {
+            Err(invalid("Q65 decoder extras unavailable"))
+        }
+    }
+
     #[napi]
     pub fn set_parameters(&self, depth: u32, averaging: bool, rx_hz: Option<f64>, tolerance_hz: Option<f64>) -> Result<()> {
         let depth = match depth {
