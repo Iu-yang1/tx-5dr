@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Q65SubmodeSchema } from '@tx5dr/contracts';
 import { useTranslation } from 'react-i18next';
 import {
+  DECODE_PREFERENCES_CHANGED_EVENT,
   loadNativeDecodePreferences, NATIVE_DIGITAL_MODES, saveNativeDecodePreferences,
   type NativeDecodePreferences, type NativeDigitalMode,
 } from '../radio/digital/digitalDecodePreferences';
@@ -9,15 +10,32 @@ import {
 const inputClass = 'w-full rounded-lg border border-default-300 bg-content1 px-3 py-2 text-sm';
 const labelClass = 'flex flex-col gap-1 text-xs text-default-600';
 
-export function DigitalDecodePreferencesPanel() {
+interface DigitalDecodePreferencesPanelProps {
+  fixedMode?: NativeDigitalMode;
+  compact?: boolean;
+}
+
+export function DigitalDecodePreferencesPanel({ fixedMode, compact = false }: DigitalDecodePreferencesPanelProps = {}) {
   const { t } = useTranslation('common');
-  const [mode, setMode] = useState<NativeDigitalMode>('Q65');
+  const [selectedMode, setMode] = useState<NativeDigitalMode>('Q65');
+  const mode = fixedMode ?? selectedMode;
   const [values, setValues] = useState<Record<NativeDigitalMode, NativeDecodePreferences>>(
     () => Object.fromEntries(
       NATIVE_DIGITAL_MODES.map(item => [item, loadNativeDecodePreferences(item)]),
     ) as Record<NativeDigitalMode, NativeDecodePreferences>,
   );
   const value = values[mode];
+
+  useEffect(() => {
+    const onChanged = (event: Event) => {
+      const changedMode = (event as CustomEvent<{ mode: NativeDigitalMode }>).detail?.mode;
+      if (changedMode && NATIVE_DIGITAL_MODES.includes(changedMode)) {
+        setValues(current => ({ ...current, [changedMode]: loadNativeDecodePreferences(changedMode) }));
+      }
+    };
+    window.addEventListener(DECODE_PREFERENCES_CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(DECODE_PREFERENCES_CHANGED_EVENT, onChanged);
+  }, []);
 
   const update = (partial: Partial<NativeDecodePreferences>) => {
     const next = { ...value, ...partial };
@@ -26,7 +44,7 @@ export function DigitalDecodePreferencesPanel() {
   };
 
   const numberInput = (
-    label: string, field: 'frequencyHz' | 'toleranceHz', min: number, max: number,
+    label: string, field: 'frequencyHz' | 'toleranceHz' | 'txAudioHz', min: number, max: number,
   ) => <label className={labelClass} key={field}>{label}
     <input className={inputClass} aria-label={label} type="number" min={min} max={max}
       value={value[field]} onChange={event => {
@@ -36,19 +54,19 @@ export function DigitalDecodePreferencesPanel() {
   </label>;
 
   return <section className="space-y-4" aria-label={t('system.nativeDecode.aria')}>
-    <div>
+    {!compact && <div>
       <h4 className="text-sm font-semibold">{t('system.nativeDecode.title')}</h4>
       <p className="mt-1 text-xs leading-5 text-default-500">
         {t('system.nativeDecode.description')}
       </p>
-    </div>
-    <div className="flex flex-wrap gap-2" role="group" aria-label={t('system.nativeDecode.mode')}>
+    </div>}
+    {!fixedMode && <div className="flex flex-wrap gap-2" role="group" aria-label={t('system.nativeDecode.mode')}>
       {NATIVE_DIGITAL_MODES.map(item =>
         <button key={item} type="button" aria-pressed={mode === item}
           className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${mode === item
             ? 'bg-primary text-primary-foreground' : 'border border-default-300 bg-content1 text-default-600'}`}
           onClick={() => setMode(item)}>{item}</button>)}
-    </div>
+    </div>}
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
       {numberInput(t('system.nativeDecode.rxCentreHz'), 'frequencyHz', 100, 5500)}
       {mode !== 'JTTY' && numberInput(t('system.nativeDecode.toleranceHz'),
@@ -61,6 +79,7 @@ export function DigitalDecodePreferencesPanel() {
           <option value={3}>{t('system.nativeDecode.deep')}</option>
         </select>
       </label>}
+      {mode !== 'MSK144' && numberInput(t('system.nativeDecode.txAudioHz'), 'txAudioHz', 100, 5500)}
       {mode === 'Q65' && <label className={labelClass}>{t('system.nativeDecode.submode')}
         <select className={inputClass} aria-label={t('system.nativeDecode.submode')}
           value={value.q65Submode} onChange={e => update({q65Submode:e.target.value as NativeDecodePreferences['q65Submode']})}>
@@ -80,8 +99,26 @@ export function DigitalDecodePreferencesPanel() {
         {t('system.nativeDecode.emeDelay')}
       </label>
     </div>}
+    {mode === 'Q65' && <label className="flex items-center gap-2 text-sm">
+      <input type="checkbox" checked={value.q65TxFirst}
+        onChange={e => update({ q65TxFirst: e.target.checked })} />
+      {t('system.nativeDecode.q65TxFirst')}
+    </label>}
     {mode === 'MSK144' && <section className="space-y-3 rounded-lg border border-default-200 p-3">
       <h5 className="text-sm font-medium">{t('system.nativeDecode.meteor')}</h5>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <label className={labelClass}>{t('system.nativeDecode.mskPeriod')}
+          <select className={inputClass} value={value.mskPeriodSeconds}
+            onChange={e => update({ mskPeriodSeconds: Number(e.target.value) as 5 | 10 | 15 | 30 })}>
+            {[5, 10, 15, 30].map(seconds => <option key={seconds} value={seconds}>{seconds} s</option>)}
+          </select>
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={value.mskTxFirst}
+            onChange={e => update({ mskTxFirst: e.target.checked })} />
+          {t('system.nativeDecode.mskTxFirst')}
+        </label>
+      </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {([['mskMyCall',t('system.nativeDecode.myCall')],['mskDxCall',t('system.nativeDecode.dxCall')]] as const)
           .map(([key,label])=><label key={key} className={labelClass}>{label}
@@ -101,6 +138,8 @@ export function DigitalDecodePreferencesPanel() {
         {t('system.nativeDecode.shorthand')}
       </label>
     </section>}
+    {mode === 'MSK144' && <p className="text-xs text-default-500">{t('system.nativeDecode.mskTxFixed')}</p>}
+    {mode === 'WSPR' && <p className="text-xs text-default-500">{t('system.nativeDecode.wsprFixed')}</p>}
     {mode === 'JTTY' && <p className="text-xs text-default-500">
       {t('system.nativeDecode.jttyStream')}
     </p>}
