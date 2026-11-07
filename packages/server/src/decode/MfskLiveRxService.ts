@@ -14,6 +14,7 @@ import { WsprSpotStore, type WsprDecodedSpot } from './WsprSpotStore.js';
 export interface MfskLiveConfig {
   mode: DigitalCodecMode;
   q65Submode?: Q65Submode;
+  q65Search?: { timeToleranceSeconds?: number; scoreThreshold?: number; maxCandidates?: number };
   frequencyHz?: number;
   toleranceHz?: number;
   depth?: 1|2|3;
@@ -187,6 +188,16 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
     if(config.averaging && config.mode!=='Q65')throw new Error('Averaging only supported for Q65');
     if(config.emeDelay && config.mode!=='Q65')throw new Error('EME delay only supported for Q65');
     if(config.apContext && config.mode!=='Q65')throw new Error('AP context only supported for Q65');
+    if(config.q65Search && config.mode!=='Q65')throw new Error('Q65 search options require Q65 mode');
+    const search=config.q65Search;
+    if(search && (
+      (search.timeToleranceSeconds !== undefined &&
+        (!Number.isFinite(search.timeToleranceSeconds) || search.timeToleranceSeconds < 1 || search.timeToleranceSeconds > 150))
+      || (search.scoreThreshold !== undefined &&
+        (!Number.isFinite(search.scoreThreshold) || search.scoreThreshold < 0.01 || search.scoreThreshold > 1))
+      || (search.maxCandidates !== undefined &&
+        (!Number.isInteger(search.maxCandidates) || search.maxCandidates < 1 || search.maxCandidates > 64))
+    ))throw new Error('Invalid Q65 search options');
     if(config.msk144Rx && config.mode!=='MSK144'){
       throw new Error('MSK144 receive options require MSK144 mode');
     }
@@ -233,6 +244,7 @@ export class MfskLiveRxService extends EventEmitter<MfskLiveEvents> {
         audioFrequencyHz:f,toleranceHz:config.toleranceHz??200,
         depth:config.depth??3,averaging:config.averaging??false,
         emeDelay:config.emeDelay??false,
+        q65Search:config.q65Search,
         apContext:config.apContext,
         msk144Rx:config.msk144Rx,
       }});
