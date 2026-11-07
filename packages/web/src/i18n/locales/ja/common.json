@@ -774,6 +774,7 @@
       "q65TxFirst": "Q65 TX First（UTC 偶数周期）",
       "mskPeriod": "MSK144 T/R 周期",
       "mskTxFirst": "MSK144 TX First（UTC 偶数周期）",
+      "mskRequiresCalls": "MSK144 短縮探索または適応等化を有効にするには、自局と相手局のコールサインを入力してください。",
       "mskTxFixed": "MSK144 標準フレーム TX は音声 1500 Hz に固定。短縮メッセージ探索は受信専用です。",
       "wsprFixed": "WSPR 符号化と２分間スロットはプロトコル固定です。ここでは対応する受信と送信音声設定のみ変更できます。"
     },
