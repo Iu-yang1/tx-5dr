@@ -794,7 +794,13 @@
       "mskTxFirst": "MSK144 TX First（UTC 偶数周期）",
       "mskRequiresCalls": "要让 MSK144 简写搜索或自适应均衡生效，请同时填写本台与对方呼号。",
       "mskTxFixed": "MSK144 标准帧发射音频固定为 1500 Hz；简写搜索仅作用于接收。",
-      "wsprFixed": "WSPR 编码格式与两分钟时隙由协议固定；此处只调整有效的接收与发射音频参数。"
+      "wsprFixed": "WSPR 编码格式与两分钟时隙由协议固定；此处只调整有效的接收与发射音频参数。",
+      "q65SyncTitle": "Q65 同步与候选搜索",
+      "q65TimeSearch": "时间搜索容差",
+      "q65SyncScore": "同步分数门限",
+      "q65Candidates": "最大候选数量",
+      "nativeDefault": "随子模式使用默认值",
+      "q65SyncHint": "这些参数直接作用于 Q65 原生同步搜索。时间容差随 15/30/60/120/300 s 子模式有不同默认值；过低门限和过大候选数会增加 CPU 负载及误解码风险。"
     },
     "jttyTerminal": {
       "receiver": "JTTY 连续流接收",
