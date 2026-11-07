@@ -10,6 +10,34 @@ import {
 const inputClass = 'w-full rounded-lg border border-default-300 bg-content1 px-3 py-2 text-sm';
 const labelClass = 'flex flex-col gap-1 text-xs text-default-600';
 
+interface NativeNumberInputProps {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  onCommit: (value: number) => void;
+}
+
+function NativeNumberInput({ label, value, min, max, onCommit }: NativeNumberInputProps) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => { setDraft(String(value)); }, [value]);
+  const commit = () => {
+    const number = Number(draft);
+    if (draft.trim() && Number.isInteger(number) && number >= min && number <= max) {
+      onCommit(number);
+    } else {
+      setDraft(String(value));
+    }
+  };
+  return <label className={labelClass}>{label}
+    <input className={inputClass} aria-label={label} type="number" step={1}
+      min={min} max={max} value={draft} onChange={event => setDraft(event.target.value)}
+      onBlur={commit} onKeyDown={event => {
+        if (event.key === 'Enter') event.currentTarget.blur();
+      }} />
+  </label>;
+}
+
 interface DigitalDecodePreferencesPanelProps {
   fixedMode?: NativeDigitalMode;
   compact?: boolean;
@@ -45,13 +73,8 @@ export function DigitalDecodePreferencesPanel({ fixedMode, compact = false }: Di
 
   const numberInput = (
     label: string, field: 'frequencyHz' | 'toleranceHz' | 'txAudioHz', min: number, max: number,
-  ) => <label className={labelClass} key={field}>{label}
-    <input className={inputClass} aria-label={label} type="number" min={min} max={max}
-      value={value[field]} onChange={event => {
-        const v = Number(event.target.value);
-        if (Number.isFinite(v) && v >= min && v <= max) update({ [field]: v });
-      }} />
-  </label>;
+  ) => <NativeNumberInput key={field} label={label} value={value[field]} min={min} max={max}
+    onCommit={number => { if (number !== value[field]) update({ [field]: number }); }} />;
 
   return <section className="space-y-4" aria-label={t('system.nativeDecode.aria')}>
     {!compact && <div>
