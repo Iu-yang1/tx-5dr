@@ -7,6 +7,7 @@ import {
   FT4_WINDOW_PRESETS,
   FT8_WINDOW_PRESETS,
   type DecodeWindowSettings,
+  type FrameDecoderTuning,
 } from '@tx5dr/contracts';
 import { useCan } from '../../../store/authStore';
 import {
@@ -21,7 +22,10 @@ export const DIGITAL_QUICK_MODES = ['FT8', 'FT4', 'Q65', 'WSPR', 'MSK144', 'JTTY
 export type DigitalQuickMode = typeof DIGITAL_QUICK_MODES[number];
 type ClassicMode = 'FT8' | 'FT4';
 type ClassicPreset = 'maximum' | 'balanced' | 'lightweight' | 'minimum' | 'custom';
-type ClassicDraft = { depth: 1 | 2 | 3; preset: ClassicPreset; windows: number[] };
+type ClassicDraft = {
+  depth: 1 | 2 | 3; preset: ClassicPreset; windows: number[];
+  tuning: FrameDecoderTuning;
+};
 
 const inputClass = 'w-full rounded-md border border-default-300 bg-content1 px-2 py-1.5 text-xs';
 const presetOptions: Record<ClassicMode, ReadonlyArray<ClassicPreset>> = {
@@ -36,9 +40,10 @@ export function decodeQuickDraft(mode: ClassicMode, settings: DecodeWindowSettin
   const windows = preset === 'custom' && family?.customWindowTiming?.length
     ? family.customWindowTiming : tables[preset] ?? tables.balanced;
   return {
-    depth: settings.decodeDepth ?? DEFAULT_DECODE_WINDOW_SETTINGS.decodeDepth ?? 3,
+    depth: family?.decodeDepth ?? settings.decodeDepth ?? DEFAULT_DECODE_WINDOW_SETTINGS.decodeDepth ?? 3,
     preset,
     windows: [...windows],
+    tuning: { ...family?.tuning },
   };
 }
 
@@ -49,14 +54,16 @@ export function buildQuickDecodeSettings(
     ? [...draft.windows].sort((a, b) => a - b) : undefined;
   if (mode === 'FT8') {
     return {
-      ...latest, decodeDepth: draft.depth,
-      ft8: { preset: draft.preset, ...(customWindowTiming ? { customWindowTiming } : {}) },
+      ...latest,
+      ft8: { ...latest.ft8, decodeDepth: draft.depth, tuning: { ...draft.tuning },
+        preset: draft.preset, ...(customWindowTiming ? { customWindowTiming } : {}) },
     };
   }
   if (draft.preset === 'minimum') throw new Error('FT4 does not support the minimum window preset');
   return {
-    ...latest, decodeDepth: draft.depth,
-    ft4: { preset: draft.preset, ...(customWindowTiming ? { customWindowTiming } : {}) },
+    ...latest,
+    ft4: { ...latest.ft4, decodeDepth: draft.depth, tuning: { ...draft.tuning },
+      preset: draft.preset, ...(customWindowTiming ? { customWindowTiming } : {}) },
   };
 }
 
@@ -123,6 +130,12 @@ function ClassicDecodeQuickEditor({ mode }: { mode: ClassicMode }) {
     }
   };
 
+  const updateTuning = (part: Partial<FrameDecoderTuning>) => {
+    setSaved(false);
+    setDraft(current => current && ({ ...current,
+      tuning: { ...current.tuning, ...part } }));
+  };
+
   if (!draft) return <p className="text-xs text-default-500" role="status">
     {error ?? t('status.loading')}
   </p>;
@@ -156,6 +169,69 @@ function ClassicDecodeQuickEditor({ mode }: { mode: ClassicMode }) {
         </option>)}
       </select>
     </label>
+    <div className="border-t border-divider pt-3 space-y-2">
+      <h5 className="text-xs font-semibold">{t('digitalQuick.advancedTitle')}</h5>
+      <label className="flex flex-col gap-1 text-xs text-default-600">
+        {t('digitalQuick.parallelThreads')}
+        <select className={inputClass} value={draft.tuning.threads ?? 'auto'}
+          disabled={!canEdit || pending}
+          onChange={event => updateTuning({ threads: event.target.value === 'auto'
+            ? undefined : Number(event.target.value) })}>
+          <option value="auto">{t('digitalQuick.autoThreads')}</option>
+          {[1, 2, 3, 4].map(count => <option key={count} value={count}>{count}</option>)}
+        </select>
+      </label>
+      <label className="flex flex-col gap-1 text-xs text-default-600">
+        {t('digitalQuick.apPolicy')}
+        <select className={inputClass} value={draft.tuning.apMode ?? 'default'}
+          disabled={!canEdit || pending}
+          onChange={event => updateTuning({
+            apMode: event.target.value as FrameDecoderTuning['apMode'],
+          })}>
+          {(['default', 'off', 'cq-only', 'full'] as const).map(value =>
+            <option key={value} value={value}>{t('digitalQuick.ap_' + value.replace('-', '_'))}</option>)}
+        </select>
+      </label>
+      <label className="flex flex-col gap-1 text-xs text-default-600">
+        {t('digitalQuick.searchStrategy')}
+        <select className={inputClass} value={draft.tuning.strategy ?? 'default'}
+          disabled={!canEdit || pending}
+          onChange={event => updateTuning({
+            strategy: event.target.value as FrameDecoderTuning['strategy'],
+          })}>
+          {(['default', 'single', 'sic2', 'sic3', ...(mode === 'FT8' ? ['early'] : [])] as string[])
+            .map(strategy => <option key={strategy} value={strategy}>
+              {t('digitalQuick.strategy_' + strategy)}
+            </option>)}
+        </select>
+      </label>
+      <div className="grid grid-cols-2 gap-2">
+        <label className="flex flex-col gap-1 text-xs text-default-600">
+          {t('digitalQuick.syncThreshold')}
+          <input className={inputClass} type="number" step={0.1} min={0.5} max={5}
+            value={draft.tuning.syncMin ?? ''} placeholder={t('digitalQuick.default')}
+            disabled={!canEdit || pending}
+            onChange={event => {
+              if (event.target.value === '') return updateTuning({ syncMin: undefined });
+              const n = Number(event.target.value);
+              if (Number.isFinite(n) && n >= 0.5 && n <= 5) updateTuning({ syncMin: n });
+            }} />
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-default-600">
+          {t('digitalQuick.maxCandidates')}
+          <input className={inputClass} type="number" step={1} min={10} max={1000}
+            value={draft.tuning.maxCandidates ?? ''} placeholder={t('digitalQuick.default')}
+            disabled={!canEdit || pending}
+            onChange={event => {
+              if (event.target.value === '') return updateTuning({ maxCandidates: undefined });
+              const n = Number(event.target.value);
+              if (Number.isInteger(n) && n >= 10 && n <= 1000)
+                updateTuning({ maxCandidates: n });
+            }} />
+        </label>
+      </div>
+      <p className="text-xs text-default-500">{t('digitalQuick.nativeTuningHint')}</p>
+    </div>
     {draft.preset === 'custom' && <div className="space-y-1">
       <p className="text-xs text-default-500">{t('digitalQuick.windowOffsets')}</p>
       {draft.windows.map((offset, i) => <div key={i} className="flex gap-2">
