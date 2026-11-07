@@ -794,7 +794,13 @@
       "mskTxFirst": "MSK144 TX First (even UTC periods)",
       "mskRequiresCalls": "Enter both your callsign and the DX callsign to enable MSK144 shorthand search or adaptive equalization.",
       "mskTxFixed": "MSK144 standard-frame TX is fixed at 1500 Hz audio; shorthand search only affects RX.",
-      "wsprFixed": "WSPR encoding and two-minute slots are protocol-defined. Only supported RX and TX audio parameters are editable here."
+      "wsprFixed": "WSPR encoding and two-minute slots are protocol-defined. Only supported RX and TX audio parameters are editable here.",
+      "q65SyncTitle": "Q65 synchronization and candidate search",
+      "q65TimeSearch": "Time-search tolerance",
+      "q65SyncScore": "Sync score threshold",
+      "q65Candidates": "Maximum candidates",
+      "nativeDefault": "Native submode default",
+      "q65SyncHint": "These parameters control the actual native Q65 search. Time tolerance defaults depend on 15/30/60/120/300 s submode. Low thresholds or large candidate sets can increase CPU use and false decodes."
     },
     "jttyTerminal": {
       "receiver": "JTTY continuous receive",
