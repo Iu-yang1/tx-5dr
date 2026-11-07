@@ -56,6 +56,11 @@ export class WSJTXDecodeWorkerCore {
 
   private async decodeRequest(request: DecodeRequest): Promise<DecodeResult> {
     const startTime = performance.now();
+    if (request.decoderTuning && Object.keys(request.decoderTuning).length > 0) {
+      // Comparison-only legacy backend does not implement the pinned Rust
+      // strategy/candidate API. Never claim the advanced settings took effect.
+      throw new Error('Advanced decoder tuning requires the mfsk-native backend');
+    }
     const apContext = request.apContext;
     const baseFrequency = apContext ? apContext.frequencyHz : 0;
     const decodeMode = request.mode === 'FT4' ? WSJTXMode.FT4 : WSJTXMode.FT8;
