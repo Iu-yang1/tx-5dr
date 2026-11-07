@@ -953,6 +953,16 @@ export const SystemSettings = forwardRef<
     );
   };
 
+  // A saved quick-panel edit should refresh this view without discarding a
+  // different unsaved draft that the user is currently editing.
+  useEffect(() => {
+    const onChanged = () => {
+      if (!hasDecodeWindowChanges()) void loadDecodeWindowSettings();
+    };
+    window.addEventListener('tx5dr:decode-windows-updated', onChanged);
+    return () => window.removeEventListener('tx5dr:decode-windows-updated', onChanged);
+  }, [decodeWindowState, originalDecodeWindowState]);
+
   const hasNtpServerChanges = () => !areStringArraysEqual(getNtpServerValues(ntpServers), originalNtpServers);
 
   const hasValidImportedDesktopHttpsCertificate = () => (
