@@ -135,6 +135,14 @@ export const DecodeRequestSchema = z.object({
   windowOffsetMs: z.number().default(0),
   /** Global WSJT-X-compatible decoder depth captured at slot start. */
   decodeDepth: z.number().int().min(1).max(3).optional(),
+  /** Native decoder tunings captured once at slot start, not re-read each pass. */
+  decoderTuning: z.object({
+    threads: z.number().int().min(1).max(4).optional(),
+    apMode: z.enum(['default', 'off', 'cq-only', 'full']).optional(),
+    strategy: z.enum(['default', 'single', 'sic2', 'sic3', 'early']).optional(),
+    syncMin: z.number().finite().min(0.5).max(5).optional(),
+    maxCandidates: z.number().int().min(10).max(1000).optional(),
+  }).strict().optional(),
   /** Native decoder session identifier for staged FT8 calls. */
   decodeSessionId: z.string().min(1).max(63).optional(),
   decodeFinalWindow: z.boolean().optional(),
