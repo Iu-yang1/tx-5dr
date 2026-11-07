@@ -1,4 +1,18 @@
 {
+  "digitalQuick": {
+    "title": "数字模式编解码快捷设置",
+    "description": "选择模式并直接修改参数。所有更改均通过现有解码器或发射控制接口生效。",
+    "mode": "编解码模式",
+    "sharedDepth": "解码深度（FT8 / FT4 共享）",
+    "decodeWindows": "解码窗口策略",
+    "windowOffsets": "解码偏移（相对时隙末端，ms）",
+    "loadFailed": "无法读取解码参数，请检查连接和权限。",
+    "saveFailed": "保存失败，原有设置未更改。",
+    "saved": "已保存，正在使用新参数。",
+    "invalidWindows": "窗口偏移必须是 -5000 到 1000 ms 的整数，且至少保留一个窗口。",
+    "readOnly": "当前用户无权修改解码参数。",
+    "classicLimits": "FT8/FT4 当前使用共享深度与多窗口策略；WSJT-X 多线程解码、独立 AP 开关等尚未接入后端，故不提供无效选项。"
+  },
   "button": {
     "save": "保存",
     "cancel": "取消",
@@ -755,7 +769,13 @@
       "equalizer": "自适应均衡",
       "shorthand": "MSK40 简写搜索（需双方呼号，容差不超过 250 Hz）",
       "jttyStream": "JTTY 是连续流解码，不适用时隙解码深度和搜索窗口。",
-      "saveNotice": "设置即时保存，不会发射或修改当前接收任务。"
+      "saveNotice": "设置即时保存；运行中的接收器会按需重新配置。TX 参数仅用于下一次手动发射，不会触发 PTT。",
+      "txAudioHz": "下次发射音频中心 (Hz)",
+      "q65TxFirst": "Q65 TX First（UTC 偶数周期）",
+      "mskPeriod": "MSK144 T/R 周期",
+      "mskTxFirst": "MSK144 TX First（UTC 偶数周期）",
+      "mskTxFixed": "MSK144 标准帧发射音频固定为 1500 Hz；简写搜索仅作用于接收。",
+      "wsprFixed": "WSPR 编码格式与两分钟时隙由协议固定；此处只调整有效的接收与发射音频参数。"
     },
     "jttyTerminal": {
       "receiver": "JTTY 连续流接收",
