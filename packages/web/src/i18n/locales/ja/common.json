@@ -1,4 +1,18 @@
 {
+  "digitalQuick": {
+    "title": "デジタルモードの符号化・復号設定",
+    "description": "モードを選択し、対応する受信・送信パラメータを直接編集します。",
+    "mode": "モード",
+    "sharedDepth": "復号深度（FT8 / FT4 共通）",
+    "decodeWindows": "復号ウィンドウ設定",
+    "windowOffsets": "復号オフセット（スロット終端からの ms）",
+    "loadFailed": "復号設定を取得できません。接続と権限を確認してください。",
+    "saveFailed": "保存に失敗しました。以前の設定は保持されます。",
+    "saved": "保存しました。新しいパラメータが適用されます。",
+    "invalidWindows": "オフセットは -5000 ～ 1000 ms の整数で、最低１つ必要です。",
+    "readOnly": "復号設定の変更権限がありません。",
+    "classicLimits": "FT8/FT4 は復号深度を共有し、複数ウィンドウを使用します。WSJT-X の独立マルチスレッド/AP 設定はバックエンド未対応のため表示しません。"
+  },
   "button": {
     "save": "保存",
     "cancel": "キャンセル",
@@ -755,7 +769,13 @@
       "equalizer": "適応等化器",
       "shorthand": "MSK40 短縮探索（両局のコールサインが必要、許容範囲 250 Hz 以下）",
       "jttyStream": "JTTY は連続受信方式です。スロットごとの復号深度や探索ウィンドウは適用されません。",
-      "saveNotice": "設定は即時保存され、送信や受信変更は行いません。"
+      "saveNotice": "設定は即時保存され、実行中の受信は必要に応じて再設定されます。TX 設定だけでは PTT は有効になりません。",
+      "txAudioHz": "次回送信音声中心 (Hz)",
+      "q65TxFirst": "Q65 TX First（UTC 偶数周期）",
+      "mskPeriod": "MSK144 T/R 周期",
+      "mskTxFirst": "MSK144 TX First（UTC 偶数周期）",
+      "mskTxFixed": "MSK144 標準フレーム TX は音声 1500 Hz に固定。短縮メッセージ探索は受信専用です。",
+      "wsprFixed": "WSPR 符号化と２分間スロットはプロトコル固定です。ここでは対応する受信と送信音声設定のみ変更できます。"
     },
     "jttyTerminal": {
       "receiver": "JTTY 連続受信",
