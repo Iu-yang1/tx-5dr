@@ -10,6 +10,27 @@ import {
   type NativeDecodePreferences,
 } from './digitalDecodePreferences';
 
+/** TX-phase and audio preferences must not restart or reset the active receiver. */
+export function nativeRxPreferenceFingerprint(
+  mode: NativeDigitalMode, prefs: NativeDecodePreferences,
+): string {
+  return JSON.stringify({
+    frequencyHz: prefs.frequencyHz,
+    ...(mode !== 'JTTY' ? { toleranceHz: prefs.toleranceHz, depth: prefs.depth } : {}),
+    ...(mode === 'Q65' ? {
+      q65Submode: prefs.q65Submode,
+      averaging: prefs.averaging,
+      emeDelay: prefs.emeDelay,
+    } : {}),
+    ...(mode === 'MSK144' ? {
+      mskShorthand: prefs.mskShorthand,
+      mskAdaptiveEqualizer: prefs.mskAdaptiveEqualizer,
+      mskMyCall: prefs.mskMyCall,
+      mskDxCall: prefs.mskDxCall,
+    } : {}),
+  });
+}
+
 export function needsNativeRxReconfigure(prefs: NativeDecodePreferences): boolean {
   const defaults = DEFAULT_NATIVE_DECODE_PREFERENCES;
   return prefs.frequencyHz !== defaults.frequencyHz
@@ -57,7 +78,7 @@ export function NativeDigitalRxPreferencesSync() {
     const maybeApply = () => {
       if (cancelled || busy) return;
       const prefs = loadNativeDecodePreferences(mode);
-      const fingerprint = JSON.stringify(prefs);
+      const fingerprint = nativeRxPreferenceFingerprint(mode, prefs);
       void api.getMfskLiveRxEvents(0).then(async response => {
         if (cancelled || busy || !response.status.running
           || !response.status.ready || response.status.mode !== mode) return;
