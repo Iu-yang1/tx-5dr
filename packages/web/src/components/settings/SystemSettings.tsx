@@ -1164,13 +1164,21 @@ export const SystemSettings = forwardRef<
 
       // 保存解码窗口设置
       if (hasDecodeWindowChanges()) {
+        // Preserve advanced per-mode settings changed from the live control
+        // panel. The System Settings editor only owns global depth and timings.
+        const latest = await api.getDecodeWindowSettings();
+        if (!latest.success) throw new Error('Unable to reload current decode settings');
+        const current = latest.data.settings as DecodeWindowSettings;
         const dwSettings: Record<string, unknown> = {
+          ...current,
           decodeDepth: decodeWindowState.decodeDepth,
           ft8: {
+            ...current.ft8,
             preset: decodeWindowState.ft8Preset,
             ...(decodeWindowState.ft8Preset === 'custom' ? { customWindowTiming: decodeWindowState.ft8CustomWindows } : {}),
           },
           ft4: {
+            ...current.ft4,
             preset: decodeWindowState.ft4Preset,
             ...(decodeWindowState.ft4Preset === 'custom' ? { customWindowTiming: decodeWindowState.ft4CustomWindows } : {}),
           },
