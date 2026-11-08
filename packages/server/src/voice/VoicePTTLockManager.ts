@@ -6,6 +6,7 @@ const logger = createLogger('VoicePTTLockManager');
 
 export interface VoicePTTLockManagerEvents {
   lockChanged: (lock: VoicePTTLock) => void;
+  lockTimedOut: (clientId: string) => void;
 }
 
 /**
@@ -149,7 +150,10 @@ export class VoicePTTLockManager extends EventEmitter<VoicePTTLockManagerEvents>
           holder: this.lock.lockedBy,
           timeoutMs: this.lock.timeoutMs,
         });
-        this.doRelease('timeout');
+        // The physical radio lease must be released before the logical lock.
+        // VoiceSessionManager owns that asynchronous, hardware-aware operation.
+        const holder = this.lock.lockedBy;
+        if (holder) this.emit('lockTimedOut', holder);
       }
     }, this.lock.timeoutMs);
   }
