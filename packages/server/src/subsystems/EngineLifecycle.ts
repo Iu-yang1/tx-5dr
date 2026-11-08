@@ -32,7 +32,6 @@ import type { WSJTXDecodeWorkQueue } from '../decode/WSJTXDecodeWorkQueue.js';
 import type { PhysicalTxCoordinator } from '../transmission/PhysicalTxCoordinator.js';
 import type { ImageRadioService } from '../image-radio/ImageRadioService.js';
 import type { MfskLiveRxService } from '../decode/MfskLiveRxService.js';
-import { ConfigManager } from '../config/config-manager.js';
 import { nativeRxConfigFromPreferences } from '../decode/nativeRxPreferences.js';
 import type { NativeDigitalMode } from '@tx5dr/contracts';
 import type { NativeAutoTxScheduler } from '../decode/NativeAutoTxScheduler.js';
