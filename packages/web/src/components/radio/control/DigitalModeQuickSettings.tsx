@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@heroui/react';
 import { useTranslation } from 'react-i18next';
 import { api } from '@tx5dr/core';
@@ -284,7 +284,7 @@ export interface DigitalModeQuickSettingsProps {
 }
 
 export function DigitalModeQuickSettings({
-  activeMode, availableModes, onSelectMode, disabled = false,
+  activeMode,
 }: DigitalModeQuickSettingsProps) {
   const { t } = useTranslation('common');
   const initial = DIGITAL_QUICK_MODES.includes(activeMode as DigitalQuickMode)
@@ -295,7 +295,6 @@ export function DigitalModeQuickSettings({
       setEditingMode(activeMode as DigitalQuickMode);
     }
   }, [activeMode]);
-  const available = useMemo(() => new Set(availableModes), [availableModes]);
   const isClassic = editingMode === 'FT8' || editingMode === 'FT4';
   return <div className="w-[min(28rem,calc(100vw-2rem))] max-h-[min(75vh,700px)] overflow-y-auto space-y-3 p-3">
     <div>
@@ -305,11 +304,8 @@ export function DigitalModeQuickSettings({
     <div className="grid grid-cols-3 gap-1.5" role="group" aria-label={t('digitalQuick.mode')}>
       {DIGITAL_QUICK_MODES.map(name => <Button key={name} size="sm" variant="flat"
         color={editingMode === name ? 'primary' : 'default'}
-        isDisabled={disabled || !available.has(name)}
-        onPress={() => {
-          setEditingMode(name);
-          if (name !== activeMode) void onSelectMode(name);
-        }}>{name}</Button>)}
+        aria-pressed={editingMode === name}
+        onPress={() => setEditingMode(name)}>{name}</Button>)}
     </div>
     <div className="border-t border-divider pt-3">
       {isClassic

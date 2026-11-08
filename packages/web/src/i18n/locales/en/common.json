@@ -1,7 +1,7 @@
 {
   "digitalQuick": {
     "title": "Digital codec quick controls",
-    "description": "Select a mode and edit supported decoder and transmitter parameters directly.",
+    "description": "Switch tabs to view or edit decoder settings without changing the active radio mode.",
     "mode": "Codec mode",
     "sharedDepth": "Decode depth for this mode",
     "decodeWindows": "Decode window strategy",
