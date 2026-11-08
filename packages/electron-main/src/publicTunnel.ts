@@ -11,6 +11,8 @@ export interface PublicTunnelSettings {
   remoteWebPort: number;
   remoteUdpPort: number;
   localUdpPort: number;
+  webProxyName: string;
+  rtcUdpProxyName: string;
   trustedCaFile: string;
   autoStart: boolean;
 }
@@ -37,6 +39,8 @@ export const DEFAULT_PUBLIC_TUNNEL_SETTINGS: PublicTunnelSettings = {
   remoteWebPort: 18076,
   remoteUdpPort: 50110,
   localUdpPort: 50110,
+  webProxyName: 'tx5dr-web',
+  rtcUdpProxyName: 'tx5dr-rtc-udp',
   trustedCaFile: '',
   autoStart: false,
 };
@@ -55,10 +59,22 @@ function toml(value: string): string {
   return JSON.stringify(value);
 }
 
+// Keep identifiers predictable, reject TOML injection and accidental duplicate proxies.
+const proxyNamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
+function proxyName(value: string): string {
+  if (typeof value !== 'string' || !proxyNamePattern.test(value)) {
+    throw new Error('tunnel_invalid_proxy_name');
+  }
+  return value;
+}
+
 export function validatePublicTunnelSettings(settings: PublicTunnelSettings): PublicTunnelSettings {
   const next = { ...settings, serverHost: checkHost(settings.serverHost), publicHost: checkHost(settings.publicHost) };
   for (const key of ['serverPort', 'remoteWebPort', 'remoteUdpPort', 'localUdpPort'] as const) port(next[key]);
   if (next.remoteWebPort === next.remoteUdpPort) throw new Error('tunnel_web_udp_ports_conflict');
+  next.webProxyName = proxyName(next.webProxyName);
+  next.rtcUdpProxyName = proxyName(next.rtcUdpProxyName);
+  if (next.webProxyName === next.rtcUdpProxyName) throw new Error('tunnel_duplicate_proxy_names');
   if (!path.isAbsolute(next.frpcPath)) throw new Error('tunnel_frpc_absolute_path_required');
   if (next.trustedCaFile && !path.isAbsolute(next.trustedCaFile)) throw new Error('tunnel_ca_absolute_path_required');
   return next;
@@ -77,6 +93,9 @@ export function renderFrpcToml(settings: PublicTunnelSettings, token: string, lo
   const cfg = validatePublicTunnelSettings(settings);
   validateFrpAuthToken(token);
   port(localWebPort);
+  // In FRP < 0.72, omitting trustedCaFile means TLS without server identity
+  // verification. Never silently downgrade this public remote to unverified TLS.
+  if (!cfg.trustedCaFile) throw new Error('tunnel_trusted_ca_required');
   return [
     '# Managed by TX5DR. Contains a secret: do not share this file.',
     'serverAddr = ' + toml(cfg.serverHost),
@@ -84,23 +103,21 @@ export function renderFrpcToml(settings: PublicTunnelSettings, token: string, lo
     'auth.method = "token"',
     'auth.token = ' + toml(token),
     'transport.tls.enable = true',
-    cfg.trustedCaFile
-      ? 'transport.tls.trustedCaFile = ' + toml(cfg.trustedCaFile)
-      : 'transport.tls.useSystemCa = true',
+    'transport.tls.trustedCaFile = ' + toml(cfg.trustedCaFile),
     'transport.tls.serverName = ' + toml(cfg.serverHost),
     'transport.poolCount = 1',
     'log.to = "console"',
     'log.level = "warn"',
     '',
     '[[proxies]]',
-    'name = "tx5dr-web"',
+    'name = ' + toml(cfg.webProxyName),
     'type = "tcp"',
     'localIP = "127.0.0.1"',
     'localPort = ' + localWebPort,
     'remotePort = ' + cfg.remoteWebPort,
     '',
     '[[proxies]]',
-    'name = "tx5dr-rtc-udp"',
+    'name = ' + toml(cfg.rtcUdpProxyName),
     'type = "udp"',
     'localIP = "127.0.0.1"',
     'localPort = ' + cfg.localUdpPort,
@@ -189,7 +206,8 @@ export class PublicTunnelManager {
     const token = validateFrpAuthToken(await fs.readFile(this.tokenPath, 'utf-8'));
     const executable = await fs.stat(settings.frpcPath);
     if (!executable.isFile()) throw new Error('tunnel_frpc_not_a_file');
-    if (settings.trustedCaFile) await fs.access(settings.trustedCaFile);
+    if (!settings.trustedCaFile) throw new Error('tunnel_trusted_ca_required');
+    await fs.access(settings.trustedCaFile);
     await fs.mkdir(this.dir, { recursive: true, mode: 0o700 });
     await fs.writeFile(this.frpcConfigPath, renderFrpcToml(settings, token, localWebPort), { mode: 0o600 });
     await fs.chmod(this.frpcConfigPath, 0o600).catch(() => {});
