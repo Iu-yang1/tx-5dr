@@ -162,9 +162,15 @@ export class VoiceSessionManager extends EventEmitter<VoiceSessionManagerEvents>
           this.physicalLeaseId,
           'voice start rollback',
         ).catch(() => undefined);
-        this.physicalLeaseId = null;
+        if (this.deps.physicalTxCoordinator.getSnapshot().phase !== 'unknown') {
+          this.physicalLeaseId = null;
+        }
       }
-      this.pttLockManager.releaseLock(clientId);
+      if (this.deps.physicalTxCoordinator.getSnapshot().phase === 'unknown') {
+        logger.error('Voice TX hardware stop unconfirmed after startup rollback: retaining PTT lock');
+      } else {
+        this.pttLockManager.releaseLock(clientId);
+      }
       this.audioStreamManager.setVoiceTxOutputEnabled(false);
       this.audioStreamManager.clearVoicePlaybackQueue();
       this.diagnostics.endSession();
@@ -326,6 +332,9 @@ export class VoiceSessionManager extends EventEmitter<VoiceSessionManagerEvents>
 
   private async stopTransmitInternal(reason: string): Promise<boolean> {
     ++this.transmitGeneration;
+    // Immediately gate TX audio even if the hardware PTT command is slow.
+    this.audioStreamManager.setVoiceTxOutputEnabled(false);
+    this.audioStreamManager.clearVoicePlaybackQueue();
     // 1. Release only the lease owned by this voice session.
     let pttStillUncertain = false;
     if (this.physicalLeaseId) {
@@ -337,7 +346,7 @@ export class VoiceSessionManager extends EventEmitter<VoiceSessionManagerEvents>
           && this.deps.physicalTxCoordinator.getSnapshot().phase === 'unknown';
         if (!pttStillUncertain) this.physicalLeaseId = null;
       } catch (err) {
-        pttStillUncertain = this.deps.physicalTxCoordinator.getSnapshot().phase === 'unknown';
+        pttStillUncertain = this.deps.physicalTxCoordinator.getSnapshot().phase !== 'idle';
         logger.error('Failed to release voice PTT lease', err);
       }
     }
