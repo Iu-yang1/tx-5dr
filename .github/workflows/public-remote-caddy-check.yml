@@ -1,0 +1,51 @@
+name: Caddy + FRP One-click Installer Validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'deployment/public-remote/**'
+      - 'docs/deployment/public-remote-caddy-frp.md'
+      - '.github/workflows/public-remote-caddy-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  installer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse installer and FRPS helper scripts
+        run: |
+          bash -n deployment/public-remote/install-caddy-frp.sh
+          bash -n deployment/public-remote/generate-frps-tls.sh
+      - name: Validate dry-run modes and configurable ports without side effects
+        run: |
+          set -euo pipefail
+          script=deployment/public-remote/install-caddy-frp.sh
+          bash "$script" --dry-run --host radio.example.com --frp-port 17000 --web-port 18076 --udp-port 52000
+          bash "$script" --dry-run --host 1.1.1.1 --frp-port 7000 --web-port 18888 --udp-port 51111
+          ! bash "$script" --dry-run --host radio.example.com --frp-port 0
+          ! bash "$script" --dry-run --host radio.example.com --frp-port 443
+          ! bash "$script" --dry-run --host radio.example.com --frp-port 7000 --web-port 7000
+          ! bash "$script" --dry-run --host 127.0.0.1
+          ! bash "$script" --dry-run --host 'bad/host'
+      - name: Validate Caddy reverse-proxy configuration
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y caddy
+          caddy validate --config deployment/public-remote/Caddyfile.example --adapter caddyfile
+          node --test packages/client-tools/src/proxyForwarding.test.mjs
+      - name: Guard installed security assumptions
+        run: |
+          set -euo pipefail
+          script=deployment/public-remote/install-caddy-frp.sh
+          grep -F 'openssl rand -hex 32' "$script"
+          grep -F 'sha256sum -c -' "$script"
+          grep -F 'frps verify -c' "$script"
+          grep -F 'iptables -I INPUT 1' "$script"
+          grep -F 'profile shortlived' "$script"
+          grep -F 'caddy validate --config' "$script"

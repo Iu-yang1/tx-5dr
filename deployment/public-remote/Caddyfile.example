@@ -1,0 +1,14 @@
+# Domain example: Caddy manages public HTTPS certificates automatically.
+radio.example.com {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:18076 {
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Host {host}
+        header_up X-Forwarded-Proto https
+        header_up X-Real-IP {remote_host}
+        stream_close_delay 5m
+    }
+}
+
+# For direct public IPv4 HTTPS, use the installer with --host PUBLIC_IPV4:
+# Caddy >= 2.11.2, explicit ACME issuer "profile shortlived".

@@ -10,7 +10,7 @@ const base = {
   localPort: 8076,
 };
 
-test('verified Nginx/FRP edge retains HTTPS origin and real visitor IP', () => {
+test('verified Caddy/FRP edge retains HTTPS origin and real visitor IP', () => {
   const result = buildSafeForwardedHeaders({
     ...base, trustLoopback: true,
     headers: {

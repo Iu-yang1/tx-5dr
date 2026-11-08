@@ -149,7 +149,9 @@ fi
 TOKEN="$(tr -d '\r\n' < /etc/tx5dr-frps/frp.token)"
 [[ -n "$TOKEN" ]] || fail 'Token empty'
 chmod 600 /etc/tx5dr-frps/frp.token
-if [[ ! -f /etc/tx5dr-frps/frps-ca.crt || ! -f /etc/tx5dr-frps/server.key || FORCE -eq 1 ]]; then
+# Port/token-only reconfiguration preserves the FRPS private CA and server certificate.
+# Only a changed endpoint identity needs a new SAN and CA.
+if [[ ! -f /etc/tx5dr-frps/frps-ca.crt || ! -f /etc/tx5dr-frps/server.key || "$HOST" != "$OLDHOST" ]]; then
   openssl req -x509 -newkey rsa:3072 -nodes -sha256 -days 3650 \
     -subj '/CN=TX5DR FRPS CA' -keyout /etc/tx5dr-frps/frps-ca.key \
     -out /etc/tx5dr-frps/frps-ca.crt >/dev/null 2>&1
