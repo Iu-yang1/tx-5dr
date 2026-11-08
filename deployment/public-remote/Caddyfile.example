@@ -1,0 +1,7 @@
+# VPS edge. Change DNS before enabling ACME.
+radio.example.com {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:18076 {
+        stream_close_delay 5m
+    }
+}
