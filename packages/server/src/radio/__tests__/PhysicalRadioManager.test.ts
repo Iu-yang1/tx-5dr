@@ -1794,7 +1794,7 @@ describe('PhysicalRadioManager', () => {
     it('keeps the logical RX dial visible without polling the shifted TX dial', async () => {
       const getFrequency = vi.fn().mockResolvedValue(7_074_436);
       const setFrequency = vi.fn().mockResolvedValue(undefined);
-      asTestManager(manager).connection = { getFrequency, setFrequency };
+      asTestManager(manager).connection = { getFrequency, setFrequency, setKnownFrequency: vi.fn() };
       asTestManager(manager).lastKnownFrequency = 7_074_000;
       const observed: number[] = [];
       manager.on('radioFrequencyChanged', (frequency) => observed.push(frequency));
@@ -1813,6 +1813,7 @@ describe('PhysicalRadioManager', () => {
       asTestManager(manager).connection = {
         getFrequency,
         setFrequency: vi.fn().mockResolvedValue(undefined),
+        setKnownFrequency: vi.fn(),
       };
       asTestManager(manager).lastKnownFrequency = 7_074_000;
       const observed: number[] = [];
@@ -1834,6 +1835,7 @@ describe('PhysicalRadioManager', () => {
         getType: vi.fn().mockReturnValue(RadioConnectionType.HAMLIB),
         getFrequency: vi.fn().mockReturnValue(read.promise),
         setFrequency: vi.fn().mockResolvedValue(undefined),
+        setKnownFrequency: vi.fn(),
         isCriticalOperationActive: vi.fn().mockReturnValue(false),
       };
       asTestManager(manager).lastKnownFrequency = 7_074_000;
@@ -1856,7 +1858,7 @@ describe('PhysicalRadioManager', () => {
       const setFrequency = vi.fn()
         .mockRejectedValueOnce(new Error('CAT write timed out after sending'))
         .mockResolvedValueOnce(undefined);
-      asTestManager(manager).connection = { setFrequency };
+      asTestManager(manager).connection = { setFrequency, setKnownFrequency: vi.fn() };
       asTestManager(manager).lastKnownFrequency = 7_074_000;
 
       await expect(manager.setTxDialOffset(436)).resolves.toBe(false);
@@ -1875,6 +1877,7 @@ describe('PhysicalRadioManager', () => {
       asTestManager(manager).connection = {
         getFrequency,
         setFrequency: vi.fn().mockResolvedValue(undefined),
+        setKnownFrequency: vi.fn(),
       };
       asTestManager(manager).lastKnownFrequency = 7_074_000;
       const observed: number[] = [];
