@@ -69,6 +69,23 @@ describe('VoiceSessionManager media lifecycle', () => {
     session.destroy();
   });
 
+  it('auto-unkeys stalled browser voice media but not the independent Voice Keyer', async () => {
+    vi.useFakeTimers();
+    const { session, physicalTxCoordinator } = createSession();
+    await session.start();
+    await session.startTransmit('operator-1', 'Operator', 'rtc-send:one');
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(physicalTxCoordinator.releaseLease).toHaveBeenCalledTimes(1);
+    expect(session.getIsTransmitting()).toBe(false);
+
+    await session.startTransmit('voice-keyer:operator-1', 'Voice Keyer');
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(physicalTxCoordinator.releaseLease).toHaveBeenCalledTimes(1);
+    expect(session.getIsTransmitting()).toBe(true);
+    expect(await session.stopTransmit('voice-keyer:operator-1')).toBe(true);
+    session.destroy();
+  });
+
   it('releases the physical voice lease before clearing a timed-out PTT lock', async () => {
     vi.useFakeTimers();
     const { session, physicalTxCoordinator } = createSession();
