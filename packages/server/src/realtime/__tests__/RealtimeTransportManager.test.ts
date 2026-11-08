@@ -304,11 +304,12 @@ describe('RealtimeTransportManager', () => {
 
     manager.acceptCompatConnection(socket as never, `/api/realtime/ws-compat?token=${offer?.token}`);
     const sourceSamples = new Float32Array(960).fill(0.5);
+    const sourceTimestamp = Date.now();
     source.emit('audioFrame', {
       samples: sourceSamples,
       sampleRate: 48000,
       channels: 1,
-      timestamp: 1234,
+      timestamp: sourceTimestamp,
       sequence: 10,
       sourceKind: 'native-radio',
       nativeSourceKind: 'audio-device',
@@ -329,10 +330,40 @@ describe('RealtimeTransportManager', () => {
     expect(decoded.sampleRate).toBe(24000);
     expect(decoded.samplesPerChannel).toBe(480);
     expect(decoded.sequence).toBe(0);
-    expect(decoded.timestampMs).toBe(1234);
+    expect(decoded.timestampMs).toBe(sourceTimestamp);
     const float32 = int16ToFloat32Pcm(decoded.pcm);
     expect(float32[0]).toBeCloseTo(0.5, 3);
     expect(float32[float32.length - 1]).toBeCloseTo(0.5, 3);
+  });
+
+  it('drops stale or over-budget ws-compat monitor frames instead of queueing them', async () => {
+    const source = Object.assign(new EventEmitter(), {
+      id: 'native-radio:radio', sourcePath: 'native-radio',
+      isAvailable: () => true, getLatestStats: () => null,
+    });
+    mockResolveSource.mockReturnValue(source);
+    const manager = await createManager();
+    const session = await manager.issueSession(createIssueSessionParams({ transportOverride: 'ws-compat' }));
+    const offer = session.offers[0];
+    const socket = {
+      readyState: 1,
+      bufferedAmount: 100_000,
+      send: vi.fn(), close: vi.fn(), once: vi.fn(), on: vi.fn(),
+    };
+    manager.acceptCompatConnection(socket as never, `/api/realtime/ws-compat?token=${offer?.token}`);
+    const frame = {
+      samples: new Float32Array(960).fill(0.3), sampleRate: 48000,
+      channels: 1, sequence: 1, sourceKind: 'native-radio',
+      nativeSourceKind: 'audio-device', timestamp: Date.now(),
+    };
+    source.emit('audioFrame', frame);
+    expect(socket.send).toHaveBeenCalledTimes(1); // Ready control only.
+
+    socket.bufferedAmount = 0;
+    source.emit('audioFrame', { ...frame, timestamp: Date.now() - 1000 });
+    expect(socket.send).toHaveBeenCalledTimes(1);
+    source.emit('audioFrame', { ...frame, timestamp: Date.now() });
+    expect(socket.send).toHaveBeenCalledTimes(2);
   });
 
   it('closes an active ws-compat monitor when its source becomes unavailable', async () => {
