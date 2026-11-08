@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Q65SubmodeSchema } from '@tx5dr/contracts';
+import { api } from '@tx5dr/core';
+import { useCan } from '../../store/authStore';
 import { useTranslation } from 'react-i18next';
 import {
-  DECODE_PREFERENCES_CHANGED_EVENT,
   loadNativeDecodePreferences, NATIVE_DIGITAL_MODES, saveNativeDecodePreferences,
   type NativeDecodePreferences, type NativeDigitalMode,
 } from '../radio/digital/digitalDecodePreferences';
@@ -53,22 +54,67 @@ export function DigitalDecodePreferencesPanel({ fixedMode, compact = false }: Di
     ) as Record<NativeDigitalMode, NativeDecodePreferences>,
   );
   const value = values[mode];
+  const canEdit = useCan('execute', 'ModeSwitch');
+  const [original, setOriginal] = useState<typeof values | null>(null);
+  const [revision, setRevision] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const modified = original !== null && JSON.stringify(value) !== JSON.stringify(original[mode]);
 
-  useEffect(() => {
-    const onChanged = (event: Event) => {
-      const changedMode = (event as CustomEvent<{ mode: NativeDigitalMode }>).detail?.mode;
-      if (changedMode && NATIVE_DIGITAL_MODES.includes(changedMode)) {
-        setValues(current => ({ ...current, [changedMode]: loadNativeDecodePreferences(changedMode) }));
+  const reload = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    setSaved(false);
+    try {
+      const latest = await api.getNativeDecodePreferences();
+      const preferences = latest.preferences as Record<NativeDigitalMode, NativeDecodePreferences>;
+      setRevision(latest.revision);
+      setOriginal(preferences);
+      setValues(preferences);
+      // Compatibility cache for TX controls outside this panel. Reading cache
+      // is allowed; only the explicit server save may apply RX configuration.
+      for (const name of NATIVE_DIGITAL_MODES) {
+        saveNativeDecodePreferences(name, preferences[name]);
       }
-    };
-    window.addEventListener(DECODE_PREFERENCES_CHANGED_EVENT, onChanged);
-    return () => window.removeEventListener(DECODE_PREFERENCES_CHANGED_EVENT, onChanged);
-  }, []);
+    } catch {
+      setRevision(null);
+      setError(t('digitalQuick.loadFailed'));
+    } finally {
+      setLoading(false);
+    }
+  }, [t]);
+
+  useEffect(() => { void reload(); }, [reload]);
 
   const update = (partial: Partial<NativeDecodePreferences>) => {
-    const next = { ...value, ...partial };
-    saveNativeDecodePreferences(mode, next);
-    setValues(current => ({ ...current, [mode]: loadNativeDecodePreferences(mode) }));
+    setSaved(false);
+    setValues(current => ({ ...current, [mode]: { ...current[mode], ...partial } }));
+  };
+
+  const save = async () => {
+    if (revision === null || !canEdit || !modified || busy) return;
+    setBusy(true);
+    setError(null);
+    setSaved(false);
+    try {
+      const updated = await api.updateNativeDecodePreferences({
+        mode, expectedRevision: revision, preferences: value,
+      });
+      const current = updated.preferences as Record<NativeDigitalMode, NativeDecodePreferences>;
+      setRevision(updated.revision);
+      setOriginal(current);
+      setValues(draft => ({ ...draft, [mode]: current[mode] }));
+      saveNativeDecodePreferences(mode, current[mode]);
+      setSaved(true);
+    } catch {
+      // A concurrent writer or failed RX restart must not be shown as saved.
+      // The user explicitly reloads the server version before retrying.
+      setError(t('system.nativeDecode.saveFailed'));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const numberInput = (
@@ -90,6 +136,7 @@ export function DigitalDecodePreferencesPanel({ fixedMode, compact = false }: Di
             ? 'bg-primary text-primary-foreground' : 'border border-default-300 bg-content1 text-default-600'}`}
           onClick={() => setMode(item)}>{item}</button>)}
     </div>}
+    <fieldset disabled={loading || busy || !canEdit || revision === null} className="space-y-4">
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
       {numberInput(t('system.nativeDecode.rxCentreHz'), 'frequencyHz', 100, 5500)}
       {mode !== 'JTTY' && numberInput(t('system.nativeDecode.toleranceHz'),
@@ -206,6 +253,20 @@ export function DigitalDecodePreferencesPanel({ fixedMode, compact = false }: Di
     {mode === 'JTTY' && <p className="text-xs text-default-500">
       {t('system.nativeDecode.jttyStream')}
     </p>}
+    </fieldset>
+    <div className="flex items-center justify-end gap-2">
+      <button type="button" className="rounded-lg border border-default-300 px-3 py-1.5 text-xs"
+        disabled={busy || loading} onClick={() => void reload()}>
+        {t('action.refresh')}
+      </button>
+      <button type="button" className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-50"
+        disabled={!canEdit || busy || loading || revision === null || !modified}
+        onClick={() => void save()}>{t('button.save')}</button>
+    </div>
+    {loading && <p className="text-xs text-default-500" role="status">{t('status.loading')}</p>}
+    {!canEdit && <p className="text-xs text-warning" role="status">{t('digitalQuick.readOnly')}</p>}
+    {saved && <p className="text-xs text-success" role="status">{t('system.nativeDecode.saved')}</p>}
+    {error && <p className="text-xs text-danger" role="alert">{error}</p>}
     <p className="text-xs text-default-500">
       {t('system.nativeDecode.saveNotice')}
     </p>
