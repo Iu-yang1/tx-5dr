@@ -455,6 +455,8 @@ export class PhysicalRadioManager extends EventEmitter<PhysicalRadioManagerEvent
    */
   private txDialOffsetActive = false;
   private txDialRestoreFrequency: number | null = null;
+  // Invalidate CAT observations started before/during an ephemeral TX dial shift.
+  private txDialOffsetRevision = 0;
   // 本次发射已提交的 dial 平移量（Hz）。一旦提交即锁定，tone 期间拒绝中途改写。
   private txDialCurrentOffsetHz = 0;
 
@@ -1304,6 +1306,7 @@ export class PhysicalRadioManager extends EventEmitter<PhysicalRadioManagerEvent
     this.txDialRestoreFrequency = rxDial;
     this.txDialCurrentOffsetHz = offsetHz;
     this.txDialOffsetActive = true;
+    this.txDialOffsetRevision++;
     try {
       await this.connection.setFrequency(target);
       logger.debug('TX dial offset applied', {
@@ -1313,10 +1316,10 @@ export class PhysicalRadioManager extends EventEmitter<PhysicalRadioManagerEvent
       });
       return true;
     } catch (error) {
-      this.txDialOffsetActive = false;
-      this.txDialRestoreFrequency = null;
-      this.txDialCurrentOffsetHz = 0;
-      logger.error(`Failed to apply TX dial offset: ${(error as Error).message}`);
+      // A rejected/timed-out CAT write may already have reached the radio.
+      // Keep the guard and saved RX dial until PhysicalTxCoordinator can
+      // attempt restoration; a failed restore fences subsequent TX leases.
+      logger.error(`Failed to apply TX dial offset; RX dial recovery required: ${(error as Error).message}`);
       return false;
     }
   }
@@ -1332,10 +1335,9 @@ export class PhysicalRadioManager extends EventEmitter<PhysicalRadioManagerEvent
     }
     const restore = this.txDialRestoreFrequency;
     if (restore === null || restore <= 0) {
-      this.txDialOffsetActive = false;
-      this.txDialRestoreFrequency = null;
-      this.txDialCurrentOffsetHz = 0;
-      return;
+      // An active offset with no recovery target is an unknown hardware
+      // frequency state, not a successful restoration.
+      throw new Error('Cannot restore TX dial offset: RX dial frequency unknown');
     }
     try {
       // 保持守卫直到硬件确认恢复成功，避免频率监测或新发射进入不确定窗口。
@@ -1346,6 +1348,7 @@ export class PhysicalRadioManager extends EventEmitter<PhysicalRadioManagerEvent
         this.txDialOffsetActive = false;
         this.txDialRestoreFrequency = null;
         this.txDialCurrentOffsetHz = 0;
+        this.txDialOffsetRevision++;
         logger.debug('TX dial offset cleared, RX dial restored', { rxDialHz: restore });
       }
     } catch (error) {
@@ -1594,12 +1597,21 @@ export class PhysicalRadioManager extends EventEmitter<PhysicalRadioManagerEvent
    * 获取当前频率
    */
   async getFrequency(): Promise<number> {
+    // The physical dial is deliberately offset only during Fake It TX. All
+    // public frequency reads must continue to expose the logical RX dial.
+    if (this.txDialOffsetActive) return this.lastKnownFrequency ?? 0;
+    const observedOffsetRevision = this.txDialOffsetRevision;
     const previous = this.lastObservedFrequency;
     // Readback used by the operating-state coordinator is authoritative for
     // that mutation; do not let a concurrent public read create a second
     // observation event or move the confirmed cache while the mutation gate
     // is active.
     const frequency = await this.readFrequency({ updateKnownFrequency: !this.activeFrequencyOperation });
+    // A read launched before Fake It TX can complete after CAT has shifted the
+    // dial. Suppress its result even if the temporary shift already ended.
+    if (this.txDialOffsetActive || this.txDialOffsetRevision !== observedOffsetRevision) {
+      return this.lastKnownFrequency ?? 0;
+    }
     const pendingTarget = this.pendingFrequencyTarget;
     if (
       !this.activeFrequencyOperation
@@ -1646,13 +1658,17 @@ export class PhysicalRadioManager extends EventEmitter<PhysicalRadioManagerEvent
 
     try {
       const observedWriteEpoch = this.frequencyWriteEpoch;
+      const observedOffsetRevision = this.txDialOffsetRevision;
       const frequency = await this.connection.getFrequency();
       this.markCoreCapabilitySupported('readFrequency');
-      if (!this.activeFrequencyOperation && frequency > 0) {
+      const stableRxObservation = !this.txDialOffsetActive
+        && this.txDialOffsetRevision === observedOffsetRevision;
+      if (stableRxObservation && !this.activeFrequencyOperation && frequency > 0) {
         this.lastObservedFrequency = frequency;
       }
       if (
-        options.updateKnownFrequency
+        stableRxObservation
+        && options.updateKnownFrequency
         && frequency > 0
         && (this.pendingFrequencyTarget === null || this.isSameFrequency(frequency, this.pendingFrequencyTarget))
         && !this.shouldIgnoreFrequencyObservation(frequency, observedWriteEpoch, 'readFrequency')
@@ -3547,7 +3563,12 @@ export class PhysicalRadioManager extends EventEmitter<PhysicalRadioManagerEvent
       const previousObservedFrequency = this.lastObservedFrequency;
       const pendingTarget = this.pendingFrequencyTarget;
       const observedWriteEpoch = this.frequencyWriteEpoch;
+      const observedOffsetRevision = this.txDialOffsetRevision;
       const currentFrequency = await this.readFrequency({ updateKnownFrequency: false });
+      if (this.txDialOffsetActive || this.txDialOffsetRevision !== observedOffsetRevision) {
+        // An old poll may have observed the temporary TX dial after it started.
+        return;
+      }
 
       // 容忍连接初始化期间的 0 返回（CIV 通道可能尚未完全就绪）
       if (currentFrequency === 0) {
