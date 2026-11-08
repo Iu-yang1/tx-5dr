@@ -59,6 +59,7 @@ import {
 import { copyRendererFileBytes, sanitizeRendererSaveFileName } from './rendererFileSave.js';
 import { RendererRecoveryBudget, shouldRecoverRendererExit } from './rendererRecovery.js';
 import { classifyPhysicalMemoryPressure, MemorySnapshotHistory } from './memoryPressure.js';
+import { PublicTunnelManager, type PublicTunnelUpdate } from './publicTunnel.js';
 
 // 获取当前模块的目录(ESM中的__dirname替代方案)
 // const __filename = fileURLToPath(import.meta.url);
@@ -67,6 +68,7 @@ import { classifyPhysicalMemoryPressure, MemorySnapshotHistory } from './memoryP
 installElectronLogRedaction(log);
 const logger = createLogger('ElectronMain');
 let desktopUpdateService: DesktopUpdateService | null = null;
+let publicTunnelManager: PublicTunnelManager | null = null;
 const DEFAULT_WEB_HTTP_PORT = 8076;
 const DEFAULT_WEB_HTTPS_PORT = 8443;
 const DEFAULT_PORT_SCAN_STEPS = 50;
@@ -1056,6 +1058,20 @@ async function ensureDesktopHttpsBeforeGatewayLaunch(context: string): Promise<v
   }
 }
 
+function getPublicTunnelManager(): PublicTunnelManager {
+  publicTunnelManager ??= new PublicTunnelManager(getAppConfigDir());
+  return publicTunnelManager;
+}
+
+function getConfiguredPublicEdgeHost(): string | null {
+  try {
+    const configPath = path.join(getAppConfigDir(), 'public-tunnel', 'settings.json');
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as { publicHost?: string };
+    return typeof config.publicHost === 'string' && /^[a-zA-Z0-9.-]+$/.test(config.publicHost)
+      ? config.publicHost.toLowerCase() : null;
+  } catch { return null; }
+}
+
 function buildWebChildEnv(serverPort: number): Record<string, string> {
   const httpsConfig = getDesktopHttpsConfig();
   const remoteAccessPreset = loadElectronSettings().remoteAccessPreset ?? 'local';
@@ -1069,6 +1085,12 @@ function buildWebChildEnv(serverPort: number): Record<string, string> {
     TX5DR_NETWORK_ACCESS_FILE: getClientToolsReadyPath(),
     TX5DR_PORT_SCAN_STEPS: String(DEFAULT_PORT_SCAN_STEPS),
   };
+  // Forwarded headers are trusted only on a local FRP edge with a configured domain.
+  const edgeHost = remoteAccessPreset === 'public' ? getConfiguredPublicEdgeHost() : null;
+  if (edgeHost) {
+    env.TX5DR_TRUST_LOOPBACK_FORWARD_HEADERS = '1';
+    env.TX5DR_PUBLIC_EDGE_HOST = edgeHost;
+  }
 
   if (isDevelopmentRuntime()) {
     env.DEV_WEB_TARGET = `http://127.0.0.1:${getDevWebPort()}`;
@@ -3228,6 +3250,8 @@ async function cleanup(): Promise<ChildShutdownResult[]> {
     clearInterval(startupLogsInterval);
     startupLogsInterval = null;
   }
+  // The external tunnel has no control over audio/CAT/DSP worker lifecycles.
+  await publicTunnelManager?.stop().catch((error) => logger.warn('frpc stop failed during shutdown', error));
   const childResults = await cleanupChildProcesses(isDevelopment);
 
   selectedServerPort = null;
@@ -3671,6 +3695,13 @@ const startApp = async () => {
   logger.info('calling createWindow');
   await createWindow();
   logger.info('createWindow complete');
+  // Optional, best-effort and strictly out-of-band: no tunnel failure may block radio startup.
+  void getPublicTunnelManager().status().then((status) => {
+    if (status.settings.autoStart && loadElectronSettings().remoteAccessPreset === 'public' && selectedWebPort) {
+      return getPublicTunnelManager().start(selectedWebPort);
+    }
+    return undefined;
+  }).catch((error) => logger.warn('optional frpc autostart skipped', { message: String(error) }));
   startDevProcessMemoryLogger();
 
   if (app.isPackaged) {
@@ -4336,6 +4367,33 @@ function setupIpcHandlers() {
     const settings = loadElectronSettings();
     const nextConfig = await disableDesktopHttps(settings.desktopHttps);
     return persistDesktopHttpsConfig(nextConfig);
+  });
+
+  ipcMain.handle('publicTunnel:getStatus', () => getPublicTunnelManager().status());
+
+  ipcMain.handle('publicTunnel:save', async (_event, update: PublicTunnelUpdate) => {
+    const manager = getPublicTunnelManager();
+    const before = await manager.status();
+    const result = await manager.save(update);
+    if (before.settings.publicHost !== result.settings.publicHost && webProcess && selectedServerPort && selectedWebPort) {
+      // Only the HTTP gateway is recycled; radio backend, DSP and devices keep running.
+      await restartWebGateway();
+    }
+    return result;
+  });
+
+  ipcMain.handle('publicTunnel:start', async () => {
+    if (loadElectronSettings().remoteAccessPreset !== 'public') throw new Error('tunnel_requires_public_preset');
+    if (!selectedWebPort || !webProcess) throw new Error('tunnel_web_gateway_not_ready');
+    return getPublicTunnelManager().start(selectedWebPort);
+  });
+
+  ipcMain.handle('publicTunnel:stop', () => getPublicTunnelManager().stop());
+
+  ipcMain.handle('publicTunnel:openFolder', async () => {
+    const status = await getPublicTunnelManager().status();
+    fs.mkdirSync(status.configDir, { recursive: true });
+    return shell.openPath(status.configDir);
   });
 
   ipcMain.handle('remoteAccess:getPreset', () => {
