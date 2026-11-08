@@ -32,6 +32,8 @@ import type { WSJTXDecodeWorkQueue } from '../decode/WSJTXDecodeWorkQueue.js';
 import type { PhysicalTxCoordinator } from '../transmission/PhysicalTxCoordinator.js';
 import type { ImageRadioService } from '../image-radio/ImageRadioService.js';
 import type { MfskLiveRxService } from '../decode/MfskLiveRxService.js';
+import { nativeRxConfigFromPreferences } from '../decode/nativeRxPreferences.js';
+import type { NativeDigitalMode } from '@tx5dr/contracts';
 import type { NativeAutoTxScheduler } from '../decode/NativeAutoTxScheduler.js';
 
 const logger = createLogger('EngineLifecycle');
@@ -473,11 +475,10 @@ export class EngineLifecycle {
           if(!['Q65','WSPR','MSK144','JTTY'].includes(name)){
             throw new Error('Unrecognized native mode');
           }
-          await service.startReady({
-            mode:name as 'Q65'|'WSPR'|'MSK144'|'JTTY',
-            ...(name==='Q65'?{q65Submode:'Q65-60B' as const}:{}),
-            frequencyHz:1500,depth:3,
-          });
+          const mode = name as NativeDigitalMode;
+          const settings = ConfigManager.getInstance()
+            .getNativeDecodePreferencesState().preferences[mode];
+          await service.startReady(nativeRxConfigFromPreferences(mode, settings));
           logger.info('Native multimode receiver started',{mode:name});
         },
         stop:async()=>{await service.flushAndStop();},
