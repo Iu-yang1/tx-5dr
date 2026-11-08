@@ -60,7 +60,7 @@ import {
 } from './utils/process-shutdown.js';
 import { bootstrapCoordinator } from './services/BootstrapCoordinator.js';
 import { getNetworkAccessInfo } from './utils/network-access.js';
-import { getTrustedClientIp, isIpLiteralHostname } from './security/trusted-client.js';
+import { getTrustedClientIp, isIpLiteralHostname, isLoopbackAddress } from './security/trusted-client.js';
 
 const bootLogger = createLogger('ServerBoot');
 const logger = createLogger('Server');
@@ -426,7 +426,9 @@ export function installApiErrorHandler(fastify: FastifyInstance): void {
 export async function createServer() {
   bootLogger.info('createServer starting');
   const fastify = Fastify({
-    trustProxy: true,
+    // Only local reverse proxies may supply identity headers. Public callers
+    // must not be able to spoof IP-based limits with X-Forwarded-For.
+    trustProxy: (address: string) => isLoopbackAddress(address),
     logger: {
       level: /^(debug|info|warn|error|silent)$/.test(process.env.LOG_LEVEL?.toLowerCase() ?? '')
         ? process.env.LOG_LEVEL!.toLowerCase()

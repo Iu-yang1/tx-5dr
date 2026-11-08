@@ -162,8 +162,9 @@ export * from './schema/rigctld.schema.js';
 export * from './schema/realtime.schema.js';
 export * from './schema/android-operator-audio.schema.js';
 
-// Desktop HTTPS Schema
+// Desktop HTTPS and optional FRP public tunnel management
 export * from './schema/desktop-https.schema.js';
+export * from './schema/public-tunnel.schema.js';
 
 // Device UI Schema
 export * from './schema/device-ui.schema.js';

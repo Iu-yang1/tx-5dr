@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import { createEphemeralTurnIceServer } from './RtcTurnCredentials.js';
 import type { WebSocket } from 'ws';
 import {
   createRealtimeTimingProbe,
@@ -234,6 +235,15 @@ export class RtcDataAudioManager {
       expiresAt: Date.now() + RTC_DATA_AUDIO_TOKEN_TTL_MS,
     });
 
+    let turnIceServer = null;
+    try {
+      turnIceServer = createEphemeralTurnIceServer();
+    } catch (error) {
+      // Optional TURN must never block radio audio or its existing fallback.
+      logger.warn('Optional TURN configuration is invalid; using normal ICE candidates', {
+        reason: error instanceof Error ? error.message : 'invalid_turn_config',
+      });
+    }
     return {
       transport: 'rtc-data-audio',
       direction: params.direction,
@@ -241,6 +251,7 @@ export class RtcDataAudioManager {
       token,
       participantIdentity,
       participantName: params.label ?? null,
+      ...(turnIceServer ? { iceServerConfigs: [turnIceServer] } : {}),
     };
   }
 

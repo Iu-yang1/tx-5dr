@@ -10,6 +10,7 @@ import tls from 'node:tls';
 import fs from 'node:fs';
 import path from 'node:path';
 import url from 'node:url';
+import { buildSafeForwardedHeaders, trustedForwardedContext } from './proxyForwarding.js';
 
 const DEFAULT_HTTP_PORT = 8076;
 const DEFAULT_HTTPS_PORT = 8443;
@@ -28,6 +29,8 @@ const READY_FILE = process.env.TX5DR_CLIENT_TOOLS_READY_FILE || '';
 const LOG_FILE = process.env.TX5DR_CLIENT_TOOLS_LOG_FILE || '';
 const PORT_SCAN_STEPS = Number(process.env.TX5DR_PORT_SCAN_STEPS || DEFAULT_PORT_SCAN_STEPS);
 const NETWORK_ACCESS_FILE = process.env.TX5DR_NETWORK_ACCESS_FILE || '';
+const TRUST_LOOPBACK_FORWARD_HEADERS = process.env.TX5DR_TRUST_LOOPBACK_FORWARD_HEADERS === '1';
+const PUBLIC_EDGE_HOST = process.env.TX5DR_PUBLIC_EDGE_HOST || '';
 
 // DEFAULT to packaged path layout; allow override via STATIC_DIR
 const resourcesPath = process.env.APP_RESOURCES || process.cwd();
@@ -202,20 +205,15 @@ function isLoopbackHostname(hostname) {
 }
 
 function buildForwardedHeaders(req, entryScheme, targetBase = TARGET) {
-  const hostHeader = req.headers.host || '';
-  const parsedHost = parseHostHeader(hostHeader);
-  const forwardedPort = parsedHost.port || String(entryScheme === 'https' ? activeHttpsPort : activeHttpPort);
-  const targetUrl = new URL(targetBase);
-
-  return {
-    ...req.headers,
-    host: targetUrl.host,
-    'x-real-ip': req.socket.remoteAddress || '',
-    'x-forwarded-for': (req.socket.remoteAddress || '') + (req.headers['x-forwarded-for'] ? `, ${req.headers['x-forwarded-for']}` : ''),
-    'x-forwarded-proto': entryScheme,
-    'x-forwarded-host': hostHeader,
-    'x-forwarded-port': forwardedPort,
-  };
+  return buildSafeForwardedHeaders({
+    headers: req.headers,
+    peerAddress: req.socket.remoteAddress,
+    entryScheme,
+    targetHost: new URL(targetBase).host,
+    publicEdgeHost: PUBLIC_EDGE_HOST,
+    trustLoopback: TRUST_LOOPBACK_FORWARD_HEADERS,
+    localPort: entryScheme === 'https' ? activeHttpsPort : activeHttpPort,
+  });
 }
 
 function proxyHttp(req, res, entryScheme, targetBase = TARGET, rewritePath = null) {
@@ -276,6 +274,14 @@ function proxyHttp(req, res, entryScheme, targetBase = TARGET, rewritePath = nul
 
 function shouldRedirectToHttps(req) {
   if (!HTTPS_ENABLE || !httpsAvailable || !HTTPS_REDIRECT_EXTERNAL_HTTP) return false;
+  // External HTTPS is already terminated by Caddy; never redirect the
+  // authenticated tunnel back to the desktop's private :8443 listener.
+  if (trustedForwardedContext({
+    headers: req.headers,
+    peerAddress: req.socket.remoteAddress,
+    expectedEdgeHost: PUBLIC_EDGE_HOST,
+    trustLoopback: TRUST_LOOPBACK_FORWARD_HEADERS,
+  })) return false;
   const { hostname } = parseHostHeader(req.headers.host || '');
   return Boolean(hostname) && !isLoopbackHostname(hostname);
 }

@@ -983,7 +983,7 @@ export function useAudioMonitorPlayback(
 
     const client = new RtcDataAudioClient({
       offer,
-      iceServers: hints?.iceServers,
+      iceServers: [...(hints?.iceServers ?? []), ...(offer.iceServerConfigs ?? [])],
       onBinaryMessage: (payload) => {
         if (playbackGenerationRef.current !== generation || rtcDataAudioClientRef.current !== client) {
           return;

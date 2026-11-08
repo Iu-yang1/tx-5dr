@@ -204,6 +204,15 @@ export const RealtimeSessionRequestSchema = z.object({
 
 export type RealtimeSessionRequest = z.infer<typeof RealtimeSessionRequestSchema>;
 
+// TURN credentials are optional, returned only with the short-lived RTC offer.
+// Public connectivity hints intentionally remain credential-free.
+export const RealtimeIceServerConfigSchema = z.object({
+  urls: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]),
+  username: z.string().optional(),
+  credential: z.string().optional(),
+});
+export type RealtimeIceServerConfig = z.infer<typeof RealtimeIceServerConfigSchema>;
+
 export const RealtimeTransportOfferSchema = z.object({
   transport: RealtimeTransportKindSchema,
   direction: RealtimeSessionDirectionSchema,
@@ -211,6 +220,7 @@ export const RealtimeTransportOfferSchema = z.object({
   token: z.string(),
   participantIdentity: z.string().nullable().optional(),
   participantName: z.string().nullable().optional(),
+  iceServerConfigs: z.array(RealtimeIceServerConfigSchema).optional(),
 });
 
 export type RealtimeTransportOffer = z.infer<typeof RealtimeTransportOfferSchema>;

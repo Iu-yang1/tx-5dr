@@ -587,7 +587,7 @@ export class VoiceCapture {
     captureBackend.setFrameHandler(null);
     const client = new RtcDataAudioClient({
       offer,
-      iceServers: hints?.iceServers,
+      iceServers: [...(hints?.iceServers ?? []), ...(offer.iceServerConfigs ?? [])],
       onControlMessage: (message) => {
         this.handleClockSyncControlMessage(message);
       },

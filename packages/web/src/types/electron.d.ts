@@ -1,5 +1,6 @@
 import type { UpdateSelection } from '@tx5dr/contracts';
 import type { DesktopHttpsMode, DesktopHttpsStatus } from '@tx5dr/contracts';
+import type { PublicTunnelUpdate, PublicTunnelStatus } from '@tx5dr/contracts';
 import type { ShortcutConfig, ShortcutActionId, ShortcutToggles } from '../utils/shortcutPreferences';
 import type { VoicePttShortcutPreset } from '../utils/voicePttShortcutPreferences';
 
@@ -247,6 +248,13 @@ interface ElectronAPI {
   remoteAccess?: {
     getPreset(): Promise<'local' | 'lan' | 'public'>;
     applyPreset(preset: 'local' | 'lan' | 'public'): Promise<{ preset: 'local' | 'lan' | 'public'; https: DesktopHttpsStatus }>;
+  };
+  publicTunnel?: {
+    getStatus(): Promise<PublicTunnelStatus>;
+    save(update: PublicTunnelUpdate): Promise<PublicTunnelStatus>;
+    start(): Promise<PublicTunnelStatus>;
+    stop(): Promise<PublicTunnelStatus>;
+    openFolder(): Promise<string>;
   };
 }
 
