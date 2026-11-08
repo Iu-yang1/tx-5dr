@@ -65,7 +65,9 @@ describe('VoiceSessionManager media lifecycle', () => {
 
     physicalTxCoordinator.retryUnknownStop.mockImplementation(async () => {
       physicalTxCoordinator.getSnapshot.mockReturnValue({ phase: 'idle' });
-      return { success: true };
+      // The coordinator preserves the original TX failure in the result;
+      // successful recovery is reported by the idle physical lease phase.
+      return { success: false };
     });
     expect(await session.stopTransmit('operator-1')).toBe(true);
     expect(physicalTxCoordinator.retryUnknownStop).toHaveBeenCalledTimes(1);

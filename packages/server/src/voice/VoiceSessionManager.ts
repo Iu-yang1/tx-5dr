@@ -377,14 +377,17 @@ export class VoiceSessionManager extends EventEmitter<VoiceSessionManagerEvents>
     let pttStillUncertain = false;
     if (this.physicalLeaseId) {
       try {
-        const result = this.deps.physicalTxCoordinator.getSnapshot().phase === 'unknown'
+        const recoveringUnknown = this.deps.physicalTxCoordinator.getSnapshot().phase === 'unknown';
+        const result = recoveringUnknown
           ? await this.deps.physicalTxCoordinator.retryUnknownStop(reason)
           : await this.deps.physicalTxCoordinator.releaseLease(this.physicalLeaseId, reason);
-        // An acknowledged release is not enough if the physical coordinator
-        // has not returned to idle. Unknown/active/transitioning PTT states
-        // must keep the logical lock and block any new transmitter lease.
-        pttStillUncertain = !result?.success
-          || this.deps.physicalTxCoordinator.getSnapshot().phase !== 'idle';
+        // retryUnknownStop deliberately returns success:false to preserve the
+        // original failed transmission result even if the physical stop has
+        // now recovered. For recovery, the terminal idle phase and non-null
+        // result confirm release; normal releases additionally need success.
+        pttStillUncertain = !result
+          || this.deps.physicalTxCoordinator.getSnapshot().phase !== 'idle'
+          || (!recoveringUnknown && !result.success);
         if (!pttStillUncertain) this.physicalLeaseId = null;
       } catch (err) {
         // A failed physical command cannot be treated as a safe RX state,
