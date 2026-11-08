@@ -4424,6 +4424,7 @@ function setupIpcHandlers() {
         });
         saveElectronSettings({ ...next, desktopHttps: ensured.config });
       }
+      if (preset !== 'public') await publicTunnelManager?.stop();
       if (webProcess && selectedServerPort && selectedWebPort) await restartWebGateway();
       return { preset, https: await getDesktopHttpsStatus() };
     } catch (error) {
