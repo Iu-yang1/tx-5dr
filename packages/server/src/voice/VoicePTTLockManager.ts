@@ -35,9 +35,12 @@ export class VoicePTTLockManager extends EventEmitter<VoicePTTLockManagerEvents>
     if (this.lock.locked) {
       if (this.lock.lockedBy === clientId) {
         // Already held by this client - idempotent success, update voice audio client ID
-        if (voiceAudioClientId) {
-          this._voiceAudioClientId = voiceAudioClientId;
+        // Rebinding live PTT to a different media peer could bypass old-peer
+        // disconnect safety. Require the current lease to be stopped first.
+        if (voiceAudioClientId && this._voiceAudioClientId && this._voiceAudioClientId !== voiceAudioClientId) {
+          return { success: false, reason: 'Release PTT before switching the voice audio participant' };
         }
+        if (voiceAudioClientId) this._voiceAudioClientId = voiceAudioClientId;
         return { success: true };
       }
       return {
