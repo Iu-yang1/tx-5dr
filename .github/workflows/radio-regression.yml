@@ -26,7 +26,7 @@ jobs:
       - name: Enable Yarn
         run: |
           corepack enable
-          corepack prepare yarn@4.9.1 --activate
+          corepack prepare yarn@4.12.0 --activate
       - name: System dependencies
         run: |
           sudo apt-get update -qq
@@ -114,7 +114,7 @@ jobs:
       - name: Enable Yarn
         run: |
           corepack enable
-          corepack prepare yarn@4.9.1 --activate
+          corepack prepare yarn@4.12.0 --activate
       - name: System dependencies
         run: |
           sudo apt-get update -qq
