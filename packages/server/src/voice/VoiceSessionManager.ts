@@ -12,6 +12,8 @@ import {
 } from './VoiceTxDiagnostics.js';
 
 const logger = createLogger('VoiceSessionManager');
+const MEDIA_IDLE_TIMEOUT_MS = 3000;
+const MEDIA_WATCHDOG_INTERVAL_MS = 500;
 const LEGACY_VOICE_RADIO_MODES = new Set(['USB', 'LSB', 'FM', 'AM']);
 const EXPLICIT_SUPPORT_REQUIRED_MODES = new Set(['WFM']);
 
@@ -40,6 +42,8 @@ export class VoiceSessionManager extends EventEmitter<VoiceSessionManagerEvents>
   private diagnostics = new VoiceTxDiagnostics();
   private physicalLeaseId: string | null = null;
   private transmitGeneration = 0;
+  private mediaWatchdogTimer: NodeJS.Timeout | null = null;
+  private mediaLastFrameAtMs = 0;
 
   constructor(private readonly deps: VoiceSessionManagerDeps) {
     super();
@@ -149,6 +153,7 @@ export class VoiceSessionManager extends EventEmitter<VoiceSessionManagerEvents>
       this.physicalLeaseId = leaseId;
       this.audioStreamManager.setVoiceTxOutputEnabled(true);
       this.deps.physicalTxCoordinator.markStreamingLeaseActive(leaseId);
+      if (voiceAudioClientId) this.startMediaWatchdog(voiceAudioClientId);
 
       // 3. Broadcast PTT status (frontend handles monitor muting via gain node)
       this.emit('pttStatusChanged', { isTransmitting: true, operatorIds: [], source: this.getPttSource(clientId) });
@@ -277,6 +282,7 @@ export class VoiceSessionManager extends EventEmitter<VoiceSessionManagerEvents>
       return;
     }
 
+    this.mediaLastFrameAtMs = Date.now();
     this.diagnostics.noteIngress(meta);
     await this.audioStreamManager.playVoiceAudio(pcmData, meta.sampleRate, meta);
   }
@@ -324,6 +330,7 @@ export class VoiceSessionManager extends EventEmitter<VoiceSessionManagerEvents>
   }
 
   destroy(): void {
+    this.stopMediaWatchdog();
     this.audioStreamManager.setVoiceOutputObserver(null);
     this.pttLockManager.destroy();
     this.removeAllListeners();
@@ -331,8 +338,38 @@ export class VoiceSessionManager extends EventEmitter<VoiceSessionManagerEvents>
 
   // ---- Private helpers ----
 
+  private startMediaWatchdog(participantIdentity: string): void {
+    this.stopMediaWatchdog();
+    this.mediaLastFrameAtMs = Date.now();
+    this.mediaWatchdogTimer = setInterval(() => {
+      if (!this.pttLockManager.isLocked()
+        || this.pttLockManager.getVoiceAudioClientId() !== participantIdentity) {
+        this.stopMediaWatchdog();
+        return;
+      }
+      if (Date.now() - this.mediaLastFrameAtMs < MEDIA_IDLE_TIMEOUT_MS) return;
+      this.stopMediaWatchdog();
+      const holder = this.pttLockManager.getLockHolder();
+      logger.error('Voice TX media frames stopped; initiating hardware PTT release', {
+        participantIdentity,
+        idleMs: Date.now() - this.mediaLastFrameAtMs,
+      });
+      if (holder) {
+        void this.stopTransmit(holder).then((released) => {
+          if (!released) logger.error('Media watchdog could not confirm hardware PTT release');
+        }).catch((error: unknown) => logger.error('Media watchdog PTT release failed', error));
+      }
+    }, MEDIA_WATCHDOG_INTERVAL_MS);
+  }
+
+  private stopMediaWatchdog(): void {
+    if (this.mediaWatchdogTimer) clearInterval(this.mediaWatchdogTimer);
+    this.mediaWatchdogTimer = null;
+  }
+
   private async stopTransmitInternal(reason: string): Promise<boolean> {
     ++this.transmitGeneration;
+    this.stopMediaWatchdog();
     // Immediately gate TX audio even if the hardware PTT command is slow.
     this.audioStreamManager.setVoiceTxOutputEnabled(false);
     this.audioStreamManager.clearVoicePlaybackQueue();
