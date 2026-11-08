@@ -17,8 +17,12 @@ export const NativeDecodePreferencesSchema = z.object({
   emeDelay: z.boolean(),
   mskShorthand: z.boolean(),
   mskAdaptiveEqualizer: z.boolean(),
-  mskMyCall: z.string().trim().toUpperCase().max(12),
-  mskDxCall: z.string().trim().toUpperCase().max(12),
+  mskMyCall: z.union([
+    z.literal(''), z.string().trim().toUpperCase().regex(/^[A-Z0-9/]{3,12}$/),
+  ]),
+  mskDxCall: z.union([
+    z.literal(''), z.string().trim().toUpperCase().regex(/^[A-Z0-9/]{3,12}$/),
+  ]),
   txAudioHz: z.number().finite().min(100).max(5500),
   q65TxFirst: z.boolean(),
   mskPeriodSeconds: z.union([z.literal(5), z.literal(10), z.literal(15), z.literal(30)]),

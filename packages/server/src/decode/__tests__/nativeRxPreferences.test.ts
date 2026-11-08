@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_NATIVE_DECODE_PREFERENCES } from '@tx5dr/contracts';
+import { DEFAULT_NATIVE_DECODE_PREFERENCES, NativeDecodePreferencesSchema } from '@tx5dr/contracts';
 import { nativeRxConfigFromPreferences, nativeRxTuningFingerprint } from '../nativeRxPreferences.js';
 
 describe('native receiver canonical preferences', () => {
@@ -21,6 +21,17 @@ describe('native receiver canonical preferences', () => {
       ...p, averaging: true,
     }));
   });
+  it('rejects invalid MSK calls before they are saved for automatic RX startup', () => {
+    expect(NativeDecodePreferencesSchema.safeParse({
+      ...DEFAULT_NATIVE_DECODE_PREFERENCES,
+      mskMyCall: 'BAD!', mskDxCall: 'HB9Q',
+    }).success).toBe(false);
+    expect(NativeDecodePreferencesSchema.safeParse({
+      ...DEFAULT_NATIVE_DECODE_PREFERENCES,
+      mskMyCall: '', mskDxCall: '',
+    }).success).toBe(true);
+  });
+
   it('only enables MSK shorthand with both calls and a narrow search window', () => {
     expect(nativeRxConfigFromPreferences('MSK144', {
       ...DEFAULT_NATIVE_DECODE_PREFERENCES,
