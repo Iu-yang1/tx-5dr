@@ -14,7 +14,10 @@ export const PublicTunnelSettingsSchema = z.object({
 export type PublicTunnelSettings = z.infer<typeof PublicTunnelSettingsSchema>;
 
 export const PublicTunnelUpdateSchema = PublicTunnelSettingsSchema.partial().extend({
-  authToken: z.string().min(24).max(4096).optional(),
+  authToken: z.string().min(1).max(4096).refine(
+    (value) => Boolean(value.trim()) && !/[\r\n]/.test(value),
+    { message: 'FRP token must be non-blank and single-line' },
+  ).optional(),
 });
 export type PublicTunnelUpdate = z.infer<typeof PublicTunnelUpdateSchema>;
 

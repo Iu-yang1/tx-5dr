@@ -4,7 +4,7 @@ bindPort = 7000
 proxyBindAddr = "0.0.0.0"
 
 auth.method = "token"
-auth.token = "REPLACE_WITH_32PLUS_CHARACTERS_SHARED_WITH_FRPC"
+auth.token = "REPLACE_WITH_YOUR_EXISTING_FRPS_AUTH_TOKEN"
 transport.tls.force = true
 transport.tls.certFile = "/etc/tx5dr-frps/server.crt"
 transport.tls.keyFile = "/etc/tx5dr-frps/server.key"

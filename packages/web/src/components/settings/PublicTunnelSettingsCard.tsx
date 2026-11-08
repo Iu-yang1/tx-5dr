@@ -19,6 +19,7 @@ export function PublicTunnelSettingsCard() {
   const [status, setStatus] = useState<PublicTunnelStatus | null>(null);
   const [draft, setDraft] = useState<PublicTunnelSettings | null>(null);
   const [token, setToken] = useState('');
+  const tokenInvalid = token.length > 0 && (!token.trim() || /[\r\n]/.test(token));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const api = typeof window !== 'undefined' ? window.electronAPI?.publicTunnel : undefined;
@@ -43,7 +44,10 @@ export function PublicTunnelSettingsCard() {
       setStatus(result);
       setDraft(result.settings);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      const reasonText = reason instanceof Error ? reason.message : String(reason);
+      setError(reasonText.includes('tunnel_token_invalid')
+        ? t('system.publicTunnelTokenInvalid')
+        : reasonText);
     } finally {
       setBusy(false);
     }
@@ -68,10 +72,14 @@ export function PublicTunnelSettingsCard() {
 
   const save = () => {
     if (!draft) return;
+    if (tokenInvalid) {
+      setError(t('system.publicTunnelTokenInvalid'));
+      return;
+    }
     void invoke(async () => {
       const next = await api.save({
         ...draft,
-        ...(token.trim() ? { authToken: token.trim() } : {}),
+        ...(token.length > 0 ? { authToken: token } : {}),
       });
       setToken('');
       return next;
@@ -116,13 +124,16 @@ export function PublicTunnelSettingsCard() {
               placeholder={status?.hasToken ? t('system.publicTunnelTokenRetained') : t('system.publicTunnelTokenPlaceholder')}
               value={token}
               onValueChange={setToken}
+              isInvalid={tokenInvalid}
+              errorMessage={tokenInvalid ? t('system.publicTunnelTokenInvalid') : undefined}
+              description={t('system.publicTunnelTokenRequirement')}
               isDisabled={busy || status?.running}
             />
             <Switch size="sm" isSelected={draft.autoStart} isDisabled={busy || status?.running} onValueChange={(value) => setDraft({ ...draft, autoStart: value })}>
               {t('system.publicTunnelAutoStart')}
             </Switch>
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" color="primary" onPress={save} isDisabled={busy || status?.running}>{t('system.publicTunnelSave')}</Button>
+              <Button size="sm" color="primary" onPress={save} isDisabled={busy || status?.running || tokenInvalid}>{t('system.publicTunnelSave')}</Button>
               <Button size="sm" color="success" variant="flat" onPress={() => void invoke(() => api.start())} isDisabled={busy || !status?.hasToken || status?.running}>
                 {t('system.publicTunnelStart')}
               </Button>

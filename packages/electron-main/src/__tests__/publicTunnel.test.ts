@@ -6,6 +6,7 @@ import {
   DEFAULT_PUBLIC_TUNNEL_SETTINGS,
   PublicTunnelManager,
   renderFrpcToml,
+  validateFrpAuthToken,
   validatePublicTunnelSettings,
 } from '../publicTunnel.js';
 
@@ -43,19 +44,33 @@ describe('isolated public tunnel configuration', () => {
   it('rejects unsafe or ambiguous input', () => {
     expect(() => validatePublicTunnelSettings({ ...settings, serverHost: 'https://invalid.example' })).toThrow();
     expect(() => validatePublicTunnelSettings({ ...settings, remoteWebPort: 0 })).toThrow();
-    expect(() => renderFrpcToml(settings, 'short', 8076)).toThrow();
+    expect(() => renderFrpcToml(settings, '', 8076)).toThrow('tunnel_token_invalid');
+    expect(() => renderFrpcToml(settings, '   ', 8076)).toThrow('tunnel_token_invalid');
+    expect(() => validateFrpAuthToken('abc\n123')).toThrow('tunnel_token_invalid');
+  });
+
+  it('accepts any nonempty single-line existing frps token without requiring changes on the VPS', () => {
+    const shortToken = 'x';
+    expect(validateFrpAuthToken(shortToken)).toBe(shortToken);
+    expect(renderFrpcToml(settings, shortToken, 8076)).toContain('auth.token = "x"');
+    expect(renderFrpcToml(settings, ' existing frps secret ', 8076))
+      .toContain('auth.token = " existing frps secret "');
   });
 
   it('persists token privately and never echoes it in status', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'tx5dr-frpc-test-'));
     try {
       const manager = new PublicTunnelManager(root);
-      const token = 'secret-'.repeat(8);
+      const token = 'abc';
       const status = await manager.save({ ...settings, authToken: token });
       expect(status.hasToken).toBe(true);
+      expect(status.settings).not.toHaveProperty('authToken');
       expect(JSON.stringify(status)).not.toContain(token);
       const onDisk = await readFile(path.join(root, 'public-tunnel', 'frpc.token'), 'utf8');
       expect(onDisk).toBe(token);
+      const preserved = await manager.save({ ...settings, authToken: '' });
+      expect(preserved.hasToken).toBe(true);
+      expect(await readFile(path.join(root, 'public-tunnel', 'frpc.token'), 'utf8')).toBe(token);
       if (process.platform !== 'win32') {
         const perms = (await stat(path.join(root, 'public-tunnel', 'frpc.token'))).mode & 0o777;
         expect(perms).toBe(0o600);

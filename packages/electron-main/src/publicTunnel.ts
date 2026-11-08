@@ -64,9 +64,18 @@ export function validatePublicTunnelSettings(settings: PublicTunnelSettings): Pu
   return next;
 }
 
+// Match the existing frps auth.token exactly; FRP itself has no 24-char minimum.
+// Blank or multiline values are not valid for this managed public tunnel.
+export function validateFrpAuthToken(token: string): string {
+  if (!token.trim() || /[\r\n]/.test(token) || token.length > 4096) {
+    throw new Error('tunnel_token_invalid');
+  }
+  return token;
+}
+
 export function renderFrpcToml(settings: PublicTunnelSettings, token: string, localWebPort: number): string {
   const cfg = validatePublicTunnelSettings(settings);
-  if (token.trim().length < 24 || /[\r\n]/.test(token)) throw new Error('tunnel_token_too_short');
+  validateFrpAuthToken(token);
   port(localWebPort);
   return [
     '# Managed by TX5DR. Contains a secret: do not share this file.',
@@ -133,8 +142,9 @@ export class PublicTunnelManager {
   async status(): Promise<PublicTunnelStatus> {
     const settings = await this.loadSettings();
     let hasToken = false;
-    try { hasToken = (await fs.readFile(this.tokenPath, 'utf-8')).trim().length >= 24; }
-    catch { /* token absent */ }
+    try {
+      hasToken = Boolean(validateFrpAuthToken(await fs.readFile(this.tokenPath, 'utf-8')));
+    } catch { /* token absent or invalid */ }
     return {
       settings,
       hasToken,
@@ -157,8 +167,8 @@ export class PublicTunnelManager {
     const validated = validatePublicTunnelSettings(next);
     await fs.mkdir(this.dir, { recursive: true, mode: 0o700 });
     if (update.authToken !== undefined && update.authToken !== '') {
-      if (update.authToken.trim().length < 24 || /[\r\n]/.test(update.authToken)) throw new Error('tunnel_token_too_short');
-      await fs.writeFile(this.tokenPath, update.authToken.trim(), { mode: 0o600 });
+      const authToken = validateFrpAuthToken(update.authToken);
+      await fs.writeFile(this.tokenPath, authToken, { mode: 0o600 });
       await fs.chmod(this.tokenPath, 0o600).catch(() => {});
     }
     await fs.writeFile(this.settingsPath, JSON.stringify(validated, null, 2) + '\n', { mode: 0o600 });
@@ -176,7 +186,7 @@ export class PublicTunnelManager {
     if (this.restartTimer) { clearTimeout(this.restartTimer); this.restartTimer = null; }
     this.localWebPort = port(localWebPort);
     const settings = validatePublicTunnelSettings(await this.loadSettings());
-    const token = (await fs.readFile(this.tokenPath, 'utf-8')).trim();
+    const token = validateFrpAuthToken(await fs.readFile(this.tokenPath, 'utf-8'));
     const executable = await fs.stat(settings.frpcPath);
     if (!executable.isFile()) throw new Error('tunnel_frpc_not_a_file');
     if (settings.trustedCaFile) await fs.access(settings.trustedCaFile);

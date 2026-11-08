@@ -33,7 +33,7 @@ Nginx、frps 运行在 VPS；Windows 本机只运行 TX5DR 和独立的 frpc 子
 ## 一、在 VPS 安装 Nginx 和 frps
 
 1. 从发行版官方仓库安装 Nginx 与 Certbot，例如 Debian/Ubuntu：`sudo apt update && sudo apt install -y nginx certbot`。从 https://github.com/fatedier/frp/releases 获取匹配平台的 **frps**，校验下载源和版本，安装到 `/usr/local/bin/frps`。确认 VPS 已解析域名 `radio.example.com` 和 `tunnel.example.com`，其中 `radio.example.com` 用于 Web，`tunnel.example.com` 用于 FRP TLS 和公网 UDP ICE。DNS 为直接解析到 VPS 的模式；若使用 Cloudflare DNS，请禁用普通 HTTP 代理用于 `tunnel.example.com`。
-2. 创建 `tx5dr-frp` 系统账户及 `/etc/tx5dr-frps`、`/var/lib/tx5dr-frp` 目录。复制 `deployment/public-remote/frps.toml.example` 为 `/etc/tx5dr-frps/frps.toml`。把 `auth.token` 更换为至少 32 字符的高强度随机密码，限制配置权限 `root:tx5dr-frp`、`0640`。
+2. 创建 `tx5dr-frp` 系统账户及 `/etc/tx5dr-frps`、`/var/lib/tx5dr-frp` 目录。复制 `deployment/public-remote/frps.toml.example` 为 `/etc/tx5dr-frps/frps.toml`。直接使用现有 FRP 服务端的 `auth.token`（TX5DR 不强制最低字符数，也不需要修改其他服务器）；若新建独立 FRP 服务，建议使用随机强令牌。限制配置权限 `root:tx5dr-frp`、`0640`。
 3. 运行 `sudo bash deployment/public-remote/generate-frps-tls.sh tunnel.example.com /etc/tx5dr-frps` 生成 **FRP 专用的私有 CA 和服务端 TLS 证书**。确保 `server.key` 仅对 frps 用户/组可读，禁止把 `frps-ca.key` 或 `server.key` 复制到电台主机；只将 `frps-ca.crt` 分发给 frpc 验证服务端身份。示例 FRPS 服务器叶证书需在 365 天有效期之前轮换。
 4. 安装 `deployment/public-remote/tx5dr-frps.service` 为 systemd 服务，执行 `sudo systemctl daemon-reload && sudo systemctl enable --now tx5dr-frps`，查看 `sudo journalctl -u tx5dr-frps -f` 排查错误。
 5. 在云安全组及主机防火墙分别放通 80/443、7000/TCP 和 50110/UDP，**禁止外部访问 18076/TCP**，再核对 `ss -lntup`。未确认隔离前不要开放公网域名。
@@ -55,7 +55,7 @@ Nginx 采用两阶段部署，避免首次启动时因为尚未存在证书文�
 
 1. 取得官方 `frpc.exe`，保存到固定本机路径；与 VPS `frps` 版本保持兼容。TX5DR 不会自动下载或偷偷安装软件。
 2. 系统设置 → 访问范围选 `public`，添加允许的 Origin `https://radio.example.com` 并保存，确保启用登录鉴权，默认关闭匿名公共查看。
-3. 在 **Nginx + FRP** 设置卡片填写 frpc 路径、FRP Server=`tunnel.example.com`、端口 `7000`、公网域名 `radio.example.com`、Web TCP 端口 `18076`、公网与本地 UDP 端口 `50110`、FRP 私有 CA `frps-ca.crt` 路径及相同的 Token，然后保存并手动启动。
+3. 在 **Nginx + FRP** 设置卡片填写 frpc 路径、FRP Server=`tunnel.example.com`、端口 `7000`、公网域名 `radio.example.com`、Web TCP 端口 `18076`、公网与本地 UDP 端口 `50110`、FRP 私有 CA `frps-ca.crt` 路径及**与 VPS `frps.toml` 完全相同的原有 Token（无最低字符数限制）**，然后保存并手动启动。
 4. 在系统设置 → 实时音频配置 `RTC Public Host = tunnel.example.com`、`RTC Public UDP Port = 50110`，并保留 `auto` 传输策略；FRP UDP 不通时使用已有 `ws-compat` 备用链路。
 5. 公网浏览器访问 `https://radio.example.com`，核对无证书警告、API/HTTPS、控制 WSS、WebRTC DataChannel 与音频收发。如出站网络限制 UDP，验证 WSS 降级路径和断线重连。
 6. `frpc` 独立进程默认不自动启动，用户显式启用 `autoStart` 后才在 TX5DR 启动后运行，且仅在 TX5DR 鉴权启用时允许启动。VPS 的 Nginx、FRPS 是独立服务，不消耗台站的 FFT、MFKS/WSJT-X 解码线程预算。
