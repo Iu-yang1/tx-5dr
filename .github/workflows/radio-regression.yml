@@ -43,6 +43,40 @@ jobs:
         run: node --test packages/client-tools/src/proxyForwarding.test.mjs
       - name: Verify Electron FRP process isolation and configuration
         run: cd packages/electron-main && yarn exec vitest run src/__tests__/publicTunnel.test.ts --maxWorkers=1
+      - name: Verify generated FRPC config with official legacy v0.71.1 parser
+        run: |
+          set -euo pipefail
+          VERSION=0.71.1
+          ARCHIVE="frp_${VERSION}_linux_amd64.tar.gz"
+          TMP="$(mktemp -d)"
+          trap 'rm -rf "$TMP"' EXIT
+          BASE="https://github.com/fatedier/frp/releases/download/v${VERSION}"
+          curl -fsSL --retry 3 "${BASE}/${ARCHIVE}" -o "$TMP/${ARCHIVE}"
+          curl -fsSL --retry 3 "${BASE}/frp_sha256_checksums.txt" -o "$TMP/checksums"
+          SHA="$(awk -v filename="$ARCHIVE" '$NF == filename {print $1}' "$TMP/checksums" | head -n 1)"
+          test "${#SHA}" -eq 64
+          echo "$SHA  $TMP/$ARCHIVE" | sha256sum -c -
+          tar -xzf "$TMP/$ARCHIVE" -C "$TMP"
+          export TX5DR_FRPC_TEST_CONFIG="$TMP/frpc.toml"
+          node <<'NODE'
+          const fs = require('node:fs');
+          const { DEFAULT_PUBLIC_TUNNEL_SETTINGS, renderFrpcToml } =
+            require('./packages/electron-main/dist/publicTunnel.js');
+          const toml = renderFrpcToml({
+            ...DEFAULT_PUBLIC_TUNNEL_SETTINGS,
+            frpcPath: '/tmp/frpc',
+            serverHost: 'frps.example.com',
+            publicHost: 'radio.example.com',
+            trustedCaFile: '/etc/ssl/certs/ca-certificates.crt',
+            webProxyName: 'example-web-custom',
+            rtcUdpProxyName: 'example-rtc-custom',
+          }, 'fixture-token', 8076);
+          if (toml.includes('useSystemCa')) throw new Error('legacy unsupported TLS option');
+          if (!toml.includes('name = "example-web-custom"') ||
+              !toml.includes('name = "example-rtc-custom"')) throw new Error('custom proxy names missing');
+          fs.writeFileSync(process.env.TX5DR_FRPC_TEST_CONFIG, toml, { mode: 0o600 });
+          NODE
+          "$TMP/frp_${VERSION}_linux_amd64/frpc" verify -c "$TX5DR_FRPC_TEST_CONFIG"
       - name: Verify locale parity
         run: yarn check:i18n
       - name: Focused Web tests
