@@ -41,6 +41,10 @@ import { buildRtcDataAudioConnectivityHints, RtcDataAudioManager } from './RtcDa
 
 const logger = createLogger('RealtimeTransportManager');
 const COMPAT_TOKEN_TTL_MS = 10 * 60 * 1000;
+const MAX_PENDING_COMPAT_SESSIONS = 512;
+const COMPAT_MAX_SOURCE_FRAME_AGE_MS = 60;
+const COMPAT_PCM_BUFFER_TARGET_MS = 40;
+const COMPAT_OPUS_MAX_BUFFERED_BYTES = 8192;
 
 interface CompatSessionRecord {
   token: string;
@@ -104,6 +108,12 @@ export class RealtimeTransportManager {
   }
 
   private readonly compatSessions = new Map<string, CompatSessionRecord>();
+
+  private pruneCompatSessions(now = Date.now()): void {
+    for (const [token, session] of this.compatSessions) {
+      if (session.expiresAt <= now) this.compatSessions.delete(token);
+    }
+  }
   private readonly compatSocketContexts = new WeakMap<WebSocket, CompatSocketContext>();
   private readonly rtcDataAudioManager: RtcDataAudioManager;
 
@@ -115,6 +125,10 @@ export class RealtimeTransportManager {
   }
 
   async issueSession(params: IssueRealtimeSessionParams): Promise<RealtimeSessionResponse> {
+    this.pruneCompatSessions();
+    if (this.compatSessions.size >= MAX_PENDING_COMPAT_SESSIONS) {
+      throw new Error('Too many pending realtime compatibility sessions');
+    }
     const hints = buildRtcDataAudioConnectivityHints({
       headers: params.requestHeaders,
       requestProtocol: params.requestProtocol,
@@ -227,6 +241,7 @@ export class RealtimeTransportManager {
       return;
     }
 
+    this.pruneCompatSessions();
     const session = this.compatSessions.get(token);
     if (!session || session.expiresAt <= Date.now()) {
       this.compatSessions.delete(token);
@@ -251,6 +266,8 @@ export class RealtimeTransportManager {
       }
 
       const downlinkEncoder = new RealtimeDownlinkAudioEncoder(session.audioCodecPolicy);
+      let droppedStale = 0;
+      let droppedBackpressure = 0;
       let hasLoggedFirstCompatDownlinkFrame = false;
       let probeSequence = 0;
       const probeTimer = setInterval(() => {
@@ -259,13 +276,27 @@ export class RealtimeTransportManager {
         }
       }, REALTIME_TIMING_PROBE_INTERVAL_MS);
       const handleAudioData = (frame: RealtimeAudioFrame) => {
-        if (socket.readyState !== 1) {
+        if (socket.readyState !== 1) return;
+        if (Date.now() - frame.timestamp > COMPAT_MAX_SOURCE_FRAME_AGE_MS) {
+          droppedStale += 1;
           return;
         }
 
         try {
+          // Do not encode more audio for a slow client with an already stale queue.
+          if (socket.bufferedAmount > COMPAT_OPUS_MAX_BUFFERED_BYTES) {
+            droppedBackpressure += 1;
+            return;
+          }
           const packets = downlinkEncoder.encodeSourceFrame(frame);
           for (const packet of packets) {
+            const bufferedLimit = packet.codec === 'opus'
+              ? COMPAT_OPUS_MAX_BUFFERED_BYTES
+              : Math.max(2048, Math.ceil(packet.codecSampleRate * packet.channels * 2 * COMPAT_PCM_BUFFER_TARGET_MS / 1000));
+            if (socket.bufferedAmount > bufferedLimit) {
+              droppedBackpressure += 1;
+              break;
+            }
             socket.send(Buffer.from(packet.payload));
             if (!hasLoggedFirstCompatDownlinkFrame) {
               hasLoggedFirstCompatDownlinkFrame = true;
@@ -294,6 +325,9 @@ export class RealtimeTransportManager {
         }
         sourceCleanedUp = true;
         clearInterval(probeTimer);
+        if (droppedStale || droppedBackpressure) {
+          logger.info('Compatibility monitor frames dropped', { droppedStale, droppedBackpressure });
+        }
         source.off('audioFrame', handleAudioData);
         source.off('unavailable', handleSourceUnavailable);
       };
@@ -388,7 +422,8 @@ export class RealtimeTransportManager {
               ...(decoded.concealment ? { concealment: decoded.concealment } : {}),
               ...(session.voiceTxBufferPolicy ? { voiceTxBufferPolicy: session.voiceTxBufferPolicy } : {}),
             };
-            void this.engine.getVoiceSessionManager()?.handleParticipantAudioFrame(meta, decoded.samples);
+            void this.engine.getVoiceSessionManager()?.handleParticipantAudioFrame(meta, decoded.samples)
+              .catch((error: unknown) => logger.warn('Compatibility uplink voice output failed', error));
           }
         } catch (error) {
           logger.debug('Failed to decode compatibility uplink audio frame', error);
@@ -396,10 +431,17 @@ export class RealtimeTransportManager {
       });
     }
 
+    let socketCleanedUp = false;
     const cleanup = () => {
+      if (socketCleanedUp) return;
+      socketCleanedUp = true;
       const current = this.compatSocketContexts.get(socket);
       current?.cleanup?.();
       this.compatSocketContexts.delete(socket);
+      if (session.direction === 'send' && session.participantIdentity) {
+        void this.engine.getVoiceSessionManager()?.handleParticipantDisconnect(session.participantIdentity)
+          .catch((error: unknown) => logger.error('Failed to stop voice TX after compatibility media disconnect', error));
+      }
     };
 
     socket.once('close', cleanup);
