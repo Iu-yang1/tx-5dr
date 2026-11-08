@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Alert, Button, Card, CardBody, Input, Switch } from '@heroui/react';
 import { useTranslation } from 'react-i18next';
-import type { PublicTunnelSettings, PublicTunnelStatus } from '@tx5dr/contracts';
+import type { PublicTunnelSettings, PublicTunnelStatus, RemoteAccessPreset } from '@tx5dr/contracts';
+import { isPublicTunnelPresetReady } from './publicTunnelPrerequisites';
 
 const fields: Array<{ key: keyof PublicTunnelSettings; label: string; placeholder: string; numeric?: boolean }> = [
   { key: 'frpcPath', label: 'frpc', placeholder: 'C:\\tools\\frp\\frpc.exe' },
@@ -14,15 +15,33 @@ const fields: Array<{ key: keyof PublicTunnelSettings; label: string; placeholde
   { key: 'trustedCaFile', label: 'Private CA certificate (optional)', placeholder: 'C:\\frp\\ca.crt' },
 ];
 
-export function PublicTunnelSettingsCard() {
+interface PublicTunnelSettingsCardProps {
+  selectedRemoteAccessPreset: RemoteAccessPreset | null;
+  savedRemoteAccessPreset: RemoteAccessPreset | null;
+  remoteAccessHasUnsavedChanges: boolean;
+}
+
+export function PublicTunnelSettingsCard({
+  selectedRemoteAccessPreset,
+  savedRemoteAccessPreset,
+  remoteAccessHasUnsavedChanges,
+}: PublicTunnelSettingsCardProps) {
   const { t } = useTranslation();
   const [status, setStatus] = useState<PublicTunnelStatus | null>(null);
+  const [electronPreset, setElectronPreset] = useState<RemoteAccessPreset | null>(null);
   const [draft, setDraft] = useState<PublicTunnelSettings | null>(null);
   const [token, setToken] = useState('');
   const tokenInvalid = token.length > 0 && (!token.trim() || /[\r\n]/.test(token));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const api = typeof window !== 'undefined' ? window.electronAPI?.publicTunnel : undefined;
+  const presetApi = typeof window !== 'undefined' ? window.electronAPI?.remoteAccess : undefined;
+  const publicPresetReady = isPublicTunnelPresetReady({
+    selectedPreset: selectedRemoteAccessPreset,
+    savedPreset: savedRemoteAccessPreset,
+    electronPreset,
+    hasUnsavedChanges: remoteAccessHasUnsavedChanges,
+  });
 
   useEffect(() => {
     let active = true;
@@ -36,6 +55,18 @@ export function PublicTunnelSettingsCard() {
     return () => { active = false; };
   }, [api]);
 
+  // Read the authoritative Electron preset, not just the unsaved settings form.
+  // Recheck when the parent finishes applying a new access preset.
+  useEffect(() => {
+    let active = true;
+    void presetApi?.getPreset().then((preset) => {
+      if (active) setElectronPreset(preset);
+    }).catch((reason) => {
+      if (active) setError(String(reason));
+    });
+    return () => { active = false; };
+  }, [presetApi, savedRemoteAccessPreset]);
+
   const invoke = async (action: () => Promise<PublicTunnelStatus>) => {
     setBusy(true);
     setError(null);
@@ -47,7 +78,11 @@ export function PublicTunnelSettingsCard() {
       const reasonText = reason instanceof Error ? reason.message : String(reason);
       setError(reasonText.includes('tunnel_token_invalid')
         ? t('system.publicTunnelTokenInvalid')
-        : reasonText);
+        : reasonText.includes('tunnel_requires_public_preset')
+          ? t('system.publicTunnelPresetRequired')
+          : reasonText.includes('tunnel_public_authentication_required')
+            ? t('system.publicTunnelAuthRequired')
+            : reasonText);
     } finally {
       setBusy(false);
     }
@@ -68,6 +103,20 @@ export function PublicTunnelSettingsCard() {
       title: key === 'frpcPath' ? 'Choose frpc executable' : 'Choose trusted CA certificate',
     });
     if (chosen) updateField(key, chosen);
+  };
+
+  const start = () => {
+    if (!publicPresetReady) {
+      setError(t('system.publicTunnelPresetRequired'));
+      return;
+    }
+    void invoke(async () => {
+      // A fresh IPC read closes the race with external preset changes.
+      const preset = await presetApi?.getPreset();
+      setElectronPreset(preset ?? null);
+      if (preset !== 'public') throw new Error('tunnel_requires_public_preset');
+      return api!.start();
+    });
   };
 
   const save = () => {
@@ -94,6 +143,15 @@ export function PublicTunnelSettingsCard() {
           <p className="mt-1 text-sm text-default-600">{t('system.publicTunnelDescription')}</p>
         </div>
         <Alert color="default" variant="flat">{t('system.publicTunnelVpsReminder')}</Alert>
+        {!publicPresetReady && (
+          <Alert color="warning" variant="flat">
+            {selectedRemoteAccessPreset === 'public' && (
+              remoteAccessHasUnsavedChanges || savedRemoteAccessPreset !== 'public'
+            )
+              ? t('system.publicTunnelPresetPendingSave')
+              : t('system.publicTunnelPresetRequired')}
+          </Alert>
+        )}
         {error && <Alert color="danger" variant="flat">{error}</Alert>}
         {draft && (
           <>
@@ -134,7 +192,7 @@ export function PublicTunnelSettingsCard() {
             </Switch>
             <div className="flex flex-wrap gap-2">
               <Button size="sm" color="primary" onPress={save} isDisabled={busy || status?.running || tokenInvalid}>{t('system.publicTunnelSave')}</Button>
-              <Button size="sm" color="success" variant="flat" onPress={() => void invoke(() => api.start())} isDisabled={busy || !status?.hasToken || status?.running}>
+              <Button size="sm" color="success" variant="flat" onPress={start} isDisabled={busy || !status?.hasToken || status?.running || !publicPresetReady}>
                 {t('system.publicTunnelStart')}
               </Button>
               <Button size="sm" color="danger" variant="flat" onPress={() => void invoke(() => api.stop())} isDisabled={busy || !status?.running}>
