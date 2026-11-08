@@ -58,10 +58,10 @@ jobs:
         shell: bash
         run: |
           corepack enable
-          corepack prepare yarn@4.9.1 --activate
+          corepack prepare yarn@4.12.0 --activate
           yarn --version || {
-            echo "Corepack failed, installing Yarn 4.9.1 manually"
-            npm install -g yarn@4.9.1
+            echo "Corepack failed, installing Yarn 4.12.0 manually"
+            npm install -g yarn@4.12.0
             yarn --version
           }
 

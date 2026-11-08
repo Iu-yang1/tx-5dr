@@ -135,7 +135,7 @@ jobs:
       - name: Enable yarn
         run: |
           corepack enable
-          corepack prepare yarn@4.9.1 --activate
+          corepack prepare yarn@4.12.0 --activate
       - name: Install native build dependencies
         run: |
           sudo apt-get update -qq
