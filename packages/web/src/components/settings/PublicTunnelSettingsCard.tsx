@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import type { PublicTunnelSettings, PublicTunnelStatus, RemoteAccessPreset } from '@tx5dr/contracts';
 import { isPublicTunnelPresetReady } from './publicTunnelPrerequisites';
 
-const fields: Array<{ key: keyof PublicTunnelSettings; label: string; placeholder: string; numeric?: boolean }> = [
+const fields: Array<{ key: keyof PublicTunnelSettings; label: string; placeholder: string; numeric?: boolean; labelKey?: string }> = [
   { key: 'frpcPath', label: 'frpc', placeholder: 'C:\\tools\\frp\\frpc.exe' },
   { key: 'serverHost', label: 'FRP server / VPS', placeholder: 'tunnel.example.com' },
   { key: 'serverPort', label: 'FRP TCP port', placeholder: '7000', numeric: true },
@@ -12,7 +12,9 @@ const fields: Array<{ key: keyof PublicTunnelSettings; label: string; placeholde
   { key: 'remoteWebPort', label: 'VPS web TCP port', placeholder: '18076', numeric: true },
   { key: 'remoteUdpPort', label: 'VPS WebRTC UDP port', placeholder: '50110', numeric: true },
   { key: 'localUdpPort', label: 'TX5DR WebRTC UDP port', placeholder: '50110', numeric: true },
-  { key: 'trustedCaFile', label: 'Private CA certificate (optional)', placeholder: 'C:\\frp\\ca.crt' },
+  { key: 'webProxyName', label: 'Web TCP proxy name', labelKey: 'system.publicTunnelWebProxyName', placeholder: 'tx5dr-web' },
+  { key: 'rtcUdpProxyName', label: 'WebRTC UDP proxy name', labelKey: 'system.publicTunnelRtcProxyName', placeholder: 'tx5dr-rtc-udp' },
+  { key: 'trustedCaFile', label: 'FRPS CA certificate', labelKey: 'system.publicTunnelTrustedCaLabel', placeholder: 'C:\\frp\\frps-ca.crt' },
 ];
 
 interface PublicTunnelSettingsCardProps {
@@ -32,6 +34,12 @@ export function PublicTunnelSettingsCard({
   const [draft, setDraft] = useState<PublicTunnelSettings | null>(null);
   const [token, setToken] = useState('');
   const tokenInvalid = token.length > 0 && (!token.trim() || /[\r\n]/.test(token));
+  const proxyNamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
+  const proxyNamesInvalid = Boolean(draft && (
+    !proxyNamePattern.test(draft.webProxyName)
+    || !proxyNamePattern.test(draft.rtcUdpProxyName)
+    || draft.webProxyName === draft.rtcUdpProxyName
+  ));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const api = typeof window !== 'undefined' ? window.electronAPI?.publicTunnel : undefined;
@@ -78,6 +86,12 @@ export function PublicTunnelSettingsCard({
       const reasonText = reason instanceof Error ? reason.message : String(reason);
       setError(reasonText.includes('tunnel_token_invalid')
         ? t('system.publicTunnelTokenInvalid')
+        : reasonText.includes('tunnel_trusted_ca_required')
+          ? t('system.publicTunnelTrustedCaRequired')
+          : reasonText.includes('tunnel_invalid_proxy_name')
+            ? t('system.publicTunnelProxyNameInvalid')
+            : reasonText.includes('tunnel_duplicate_proxy_names')
+              ? t('system.publicTunnelProxyNameDuplicate')
         : reasonText.includes('tunnel_requires_public_preset')
           ? t('system.publicTunnelPresetRequired')
           : reasonText.includes('tunnel_public_authentication_required')
@@ -106,6 +120,10 @@ export function PublicTunnelSettingsCard({
   };
 
   const start = () => {
+    if (!status?.settings.trustedCaFile) {
+      setError(t('system.publicTunnelTrustedCaRequired'));
+      return;
+    }
     if (!publicPresetReady) {
       setError(t('system.publicTunnelPresetRequired'));
       return;
@@ -121,6 +139,12 @@ export function PublicTunnelSettingsCard({
 
   const save = () => {
     if (!draft) return;
+    if (proxyNamesInvalid) {
+      setError(draft.webProxyName === draft.rtcUdpProxyName
+        ? t('system.publicTunnelProxyNameDuplicate')
+        : t('system.publicTunnelProxyNameInvalid'));
+      return;
+    }
     if (tokenInvalid) {
       setError(t('system.publicTunnelTokenInvalid'));
       return;
@@ -143,6 +167,9 @@ export function PublicTunnelSettingsCard({
           <p className="mt-1 text-sm text-default-600">{t('system.publicTunnelDescription')}</p>
         </div>
         <Alert color="default" variant="flat">{t('system.publicTunnelVpsReminder')}</Alert>
+        {draft && !draft.trustedCaFile && (
+          <Alert color="warning" variant="flat">{t('system.publicTunnelTrustedCaRequired')}</Alert>
+        )}
         {!publicPresetReady && (
           <Alert color="warning" variant="flat">
             {selectedRemoteAccessPreset === 'public' && (
@@ -161,8 +188,9 @@ export function PublicTunnelSettingsCard({
                   <Input
                     size="sm"
                     type={field.numeric ? 'number' : 'text'}
-                    label={field.label}
+                    label={field.labelKey ? t(field.labelKey) : field.label}
                     placeholder={field.placeholder}
+                    isInvalid={(field.key === 'webProxyName' || field.key === 'rtcUdpProxyName') && proxyNamesInvalid}
                     value={fieldValue(field.key)}
                     onValueChange={(value) => updateField(field.key, value, field.numeric)}
                     isDisabled={busy || status?.running}
@@ -191,8 +219,8 @@ export function PublicTunnelSettingsCard({
               {t('system.publicTunnelAutoStart')}
             </Switch>
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" color="primary" onPress={save} isDisabled={busy || status?.running || tokenInvalid}>{t('system.publicTunnelSave')}</Button>
-              <Button size="sm" color="success" variant="flat" onPress={start} isDisabled={busy || !status?.hasToken || status?.running || !publicPresetReady}>
+              <Button size="sm" color="primary" onPress={save} isDisabled={busy || status?.running || tokenInvalid || proxyNamesInvalid}>{t('system.publicTunnelSave')}</Button>
+              <Button size="sm" color="success" variant="flat" onPress={start} isDisabled={busy || !status?.hasToken || status?.running || !publicPresetReady || !status?.settings.trustedCaFile}>
                 {t('system.publicTunnelStart')}
               </Button>
               <Button size="sm" color="danger" variant="flat" onPress={() => void invoke(() => api.stop())} isDisabled={busy || !status?.running}>
