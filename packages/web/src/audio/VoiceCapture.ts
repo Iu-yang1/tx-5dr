@@ -210,8 +210,8 @@ export class VoiceCapture {
           audioCodecPreference: options?.audioCodecPreference ?? loadRealtimeAudioCodecPreference(),
           audioCodecCapabilities: await getRealtimeAudioCodecCapabilities(),
           connectStage: 'connect',
-          startCompat: (offer, txBufferPolicy, audioCodecPolicy) => this.startCompatCapture(offer, txBufferPolicy, audioCodecPolicy),
-          startRtcDataAudio: (offer, hints, txBufferPolicy, audioCodecPolicy) => this.startRtcDataAudioCapture(offer, hints, txBufferPolicy, audioCodecPolicy),
+          startCompat: (offer, txBufferPolicy, audioCodecPolicy) => this.startCompatCapture(offer, txBufferPolicy, audioCodecPolicy, generation),
+          startRtcDataAudio: (offer, hints, txBufferPolicy, audioCodecPolicy) => this.startRtcDataAudioCapture(offer, hints, txBufferPolicy, audioCodecPolicy, generation),
           cleanupFailedAttempt: () => {
             this.cleanupTransportOnly({ preserveCaptureBackend: true });
           },
@@ -447,6 +447,7 @@ export class VoiceCapture {
     offer: RealtimeTransportOffer,
     txBufferPolicy?: ResolvedVoiceTxBufferPolicy,
     audioCodecPolicy?: ResolvedRealtimeAudioCodecPolicy,
+    expectedGeneration = this.lifecycleGeneration,
   ): Promise<void> {
     const {
       mediaStream,
@@ -454,6 +455,9 @@ export class VoiceCapture {
       mediaSource,
       captureBackend,
     } = await this.ensureCompatCaptureRuntime();
+    if (expectedGeneration !== this.lifecycleGeneration) {
+      throw new Error('Voice capture stopped during microphone setup');
+    }
     captureBackend.setFrameHandler(null);
 
     await new Promise<void>((resolve, reject) => {
@@ -498,6 +502,11 @@ export class VoiceCapture {
         }
       };
     });
+
+    if (expectedGeneration !== this.lifecycleGeneration) {
+      this.compatSocket?.close();
+      throw new Error('Voice capture stopped during WS connection');
+    }
 
     if (this.compatSocket) {
       const activeSocket = this.compatSocket;
@@ -605,6 +614,7 @@ export class VoiceCapture {
     hints?: RealtimeConnectivityHints,
     txBufferPolicy?: ResolvedVoiceTxBufferPolicy,
     audioCodecPolicy?: ResolvedRealtimeAudioCodecPolicy,
+    expectedGeneration = this.lifecycleGeneration,
   ): Promise<void> {
     const {
       mediaStream,
@@ -612,6 +622,9 @@ export class VoiceCapture {
       mediaSource,
       captureBackend,
     } = await this.ensureCompatCaptureRuntime();
+    if (expectedGeneration !== this.lifecycleGeneration) {
+      throw new Error('Voice capture stopped during microphone setup');
+    }
     captureBackend.setFrameHandler(null);
     const client = new RtcDataAudioClient({
       offer,
@@ -625,7 +638,8 @@ export class VoiceCapture {
     });
     this.rtcDataAudioClient = client;
     await client.connect();
-    if (!client.isOpen || this.rtcDataAudioClient !== client) {
+    if (!client.isOpen || this.rtcDataAudioClient !== client || expectedGeneration !== this.lifecycleGeneration) {
+      client.close();
       throw new Error('RTC uplink closed during connection establishment');
     }
     this.startClockSync((payload) => client.sendJson(payload as Record<string, unknown>));
