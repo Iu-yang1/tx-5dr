@@ -109,6 +109,37 @@ PCM fallback remains intentionally simple and compatible. High-rate native PCM i
   from the digital decode resampler and must not be treated as an equivalent
   anti-aliasing filter.
 
+## RTC Lifecycle and Hardware PTT Safety
+
+The RTC signaling and media paths have independent readiness and teardown semantics:
+
+- Browser signaling is serialized. Trickle ICE candidates arriving before remote SDP are
+  buffered (up to 128) and applied after the remote description is established.
+  The server likewise queues remote candidates received before the SDP answer.
+- A connection is ready only after the WebRTC DataChannel opens; the WS-compatible
+  uplink waits for the server's `ready` control packet, not just WebSocket OPEN.
+- A pending RTC connection can be cancelled immediately. Failed/closed RTC sessions
+  dispose their peer and native channel; an established receiver can move to
+  `ws-compat` using a fresh token without closing the browser audio runtime.
+  Voice TX does **not** automatically resume transmission after a reconnect.
+- Both transports limit session token issuance, expire unused tokens on later
+  session activity, and bound downlink buffering. RTC limits concurrent native
+  peers to 32; WS monitor overflow drops late frames rather than building latency.
+
+**Voice PTT is a hardware lease, not a WebSocket flag.** A 3-minute logical PTT
+lock timeout must first execute the voice session's physical lease release. If the
+physical coordinator reports an unknown stop state, the voice lock remains held,
+new voice TX is rejected, and the existing coordinator's `retryUnknownStop`
+path is used for recovery. A closed RTC/WS audio publisher also stops the PTT
+lease only when its participant identity matches the current voice owner.
+
+The server separately watchdogs browser voice audio while PTT is keyed: three
+seconds without accepted media frames triggers lease release even if a signaling
+socket appears alive. The independent Voice Keyer has no browser media identity
+and is intentionally excluded from that watchdog. This watchdog is not a
+hardware-independent safety interlock: a stalled/crashed server or failed CAT
+connection still requires station-level TX protection and physical validation.
+
 ## FRP Public UDP Candidate Flow
 
 ```mermaid
