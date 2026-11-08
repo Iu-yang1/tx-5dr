@@ -90,7 +90,8 @@ export class VoiceSessionManager extends EventEmitter<VoiceSessionManagerEvents>
     if (this.pttLockManager.isLocked()) {
       const holder = this.pttLockManager.getLockHolder();
       if (holder) {
-        await this.stopTransmitInternal('engine stopped');
+        const confirmed = await this.stopTransmitInternal('engine stopped');
+        if (confirmed) this.pttLockManager.releaseLock(holder);
       }
     }
 
