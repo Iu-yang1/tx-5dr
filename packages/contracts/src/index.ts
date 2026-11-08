@@ -178,3 +178,6 @@ export * from './schema/diagnostics.schema.js';
 
 // Multimode codec capability and lifecycle contracts (P1)
 export * from './schema/digital-codec.schema.js';
+
+// Shared station-wide native decoder preferences
+export * from './schema/native-decode-preferences.schema.js';
