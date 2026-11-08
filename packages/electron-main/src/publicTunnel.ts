@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { constants as osConstants, setPriority } from 'node:os';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
@@ -104,6 +104,8 @@ type RunningChild = ReturnType<typeof spawn>;
 export class PublicTunnelManager {
   private child: RunningChild | null = null;
   private stopping = false;
+  private starting = false;
+  private startGeneration = 0;
   private restartTimer: NodeJS.Timeout | null = null;
   private retries = 0;
   private lastError: string | null = null;
@@ -145,7 +147,7 @@ export class PublicTunnelManager {
   }
 
   async save(update: PublicTunnelUpdate): Promise<PublicTunnelStatus> {
-    if (this.child || this.restartTimer) throw new Error('tunnel_stop_before_update');
+    if (this.child || this.starting || this.restartTimer) throw new Error('tunnel_stop_before_update');
     const previous = await this.loadSettings();
     const next: PublicTunnelSettings = {
       ...previous, ...update,
@@ -167,6 +169,10 @@ export class PublicTunnelManager {
 
   async start(localWebPort: number): Promise<PublicTunnelStatus> {
     if (this.child) return this.status();
+    if (this.starting) throw new Error('tunnel_already_starting');
+    this.starting = true;
+    const generation = ++this.startGeneration;
+    try {
     if (this.restartTimer) { clearTimeout(this.restartTimer); this.restartTimer = null; }
     this.localWebPort = port(localWebPort);
     const settings = validatePublicTunnelSettings(await this.loadSettings());
@@ -177,6 +183,7 @@ export class PublicTunnelManager {
     await fs.mkdir(this.dir, { recursive: true, mode: 0o700 });
     await fs.writeFile(this.frpcConfigPath, renderFrpcToml(settings, token, localWebPort), { mode: 0o600 });
     await fs.chmod(this.frpcConfigPath, 0o600).catch(() => {});
+    if (generation !== this.startGeneration) throw new Error('tunnel_start_cancelled');
     this.stopping = false;
     this.activeSettings = settings;
     this.lastError = null;
@@ -215,9 +222,13 @@ export class PublicTunnelManager {
       }
     });
     return this.status();
+    } finally {
+      this.starting = false;
+    }
   }
 
   async stop(): Promise<PublicTunnelStatus> {
+    this.startGeneration++;
     this.stopping = true;
     this.retries = 0;
     if (this.restartTimer) clearTimeout(this.restartTimer);
