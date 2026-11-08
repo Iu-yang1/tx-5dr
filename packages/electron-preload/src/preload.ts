@@ -1,5 +1,6 @@
 import type { UpdateSelection } from '@tx5dr/contracts';
 import type { DesktopHttpsMode, DesktopHttpsStatus } from '@tx5dr/contracts';
+import type { PublicTunnelUpdate, PublicTunnelStatus } from '@tx5dr/contracts';
 
 type DesktopUpdateSource = 'oss' | 'github';
 
@@ -527,7 +528,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   remoteAccess: {
     getPreset: (): Promise<'local' | 'lan' | 'public'> => ipcRenderer.invoke('remoteAccess:getPreset'),
     applyPreset: (preset: 'local' | 'lan' | 'public') => ipcRenderer.invoke('remoteAccess:applyPreset', preset),
-  }
+  },
+  publicTunnel: {
+    getStatus: (): Promise<PublicTunnelStatus> => ipcRenderer.invoke('publicTunnel:getStatus'),
+    save: (update: PublicTunnelUpdate): Promise<PublicTunnelStatus> => ipcRenderer.invoke('publicTunnel:save', update),
+    start: (): Promise<PublicTunnelStatus> => ipcRenderer.invoke('publicTunnel:start'),
+    stop: (): Promise<PublicTunnelStatus> => ipcRenderer.invoke('publicTunnel:stop'),
+    openFolder: (): Promise<string> => ipcRenderer.invoke('publicTunnel:openFolder'),
+  },
 });
 
 // 类型声明，供 TypeScript 使用
@@ -634,6 +642,14 @@ declare global {
         getPreset(): Promise<'local' | 'lan' | 'public'>;
         applyPreset(preset: 'local' | 'lan' | 'public'): Promise<{ preset: 'local' | 'lan' | 'public'; https: DesktopHttpsStatus }>;
       };
+      publicTunnel: {
+        getStatus(): Promise<PublicTunnelStatus>;
+        save(update: PublicTunnelUpdate): Promise<PublicTunnelStatus>;
+        start(): Promise<PublicTunnelStatus>;
+        stop(): Promise<PublicTunnelStatus>;
+        openFolder(): Promise<string>;
+      };
+
     };
   }
 }
