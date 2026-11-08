@@ -10,7 +10,7 @@ import tls from 'node:tls';
 import fs from 'node:fs';
 import path from 'node:path';
 import url from 'node:url';
-import { buildSafeForwardedHeaders } from './proxyForwarding.js';
+import { buildSafeForwardedHeaders, trustedForwardedContext } from './proxyForwarding.js';
 
 const DEFAULT_HTTP_PORT = 8076;
 const DEFAULT_HTTPS_PORT = 8443;
@@ -274,6 +274,14 @@ function proxyHttp(req, res, entryScheme, targetBase = TARGET, rewritePath = nul
 
 function shouldRedirectToHttps(req) {
   if (!HTTPS_ENABLE || !httpsAvailable || !HTTPS_REDIRECT_EXTERNAL_HTTP) return false;
+  // External HTTPS is already terminated by Caddy; never redirect the
+  // authenticated tunnel back to the desktop's private :8443 listener.
+  if (trustedForwardedContext({
+    headers: req.headers,
+    peerAddress: req.socket.remoteAddress,
+    expectedEdgeHost: PUBLIC_EDGE_HOST,
+    trustLoopback: TRUST_LOOPBACK_FORWARD_HEADERS,
+  })) return false;
   const { hostname } = parseHostHeader(req.headers.host || '');
   return Boolean(hostname) && !isLoopbackHostname(hostname);
 }
