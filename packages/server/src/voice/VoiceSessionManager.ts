@@ -104,6 +104,9 @@ export class VoiceSessionManager extends EventEmitter<VoiceSessionManagerEvents>
    * @param voiceAudioClientId - Voice audio WS client ID to associate with this PTT session
    */
   async startTransmit(clientId: string, label: string, voiceAudioClientId?: string): Promise<{ success: boolean; reason?: string }> {
+    if (this.physicalLeaseId && this.deps.physicalTxCoordinator.getSnapshot().phase === 'unknown') {
+      return { success: false, reason: 'Previous voice PTT release is not confirmed' };
+    }
     if (!this.isStarted) {
       return { success: false, reason: 'Voice mode not active' };
     }
@@ -176,7 +179,8 @@ export class VoiceSessionManager extends EventEmitter<VoiceSessionManagerEvents>
     if (!this.pttLockManager.isLocked()) return true;
     if (this.pttLockManager.getLockHolder() !== clientId) return false;
 
-    await this.stopTransmitInternal('released by client');
+    const confirmed = await this.stopTransmitInternal('released by client');
+    if (!confirmed) return false;
     this.pttLockManager.releaseLock(clientId);
     return true;
   }
@@ -197,8 +201,8 @@ export class VoiceSessionManager extends EventEmitter<VoiceSessionManagerEvents>
   async handleClientDisconnect(clientId: string): Promise<void> {
     if (this.pttLockManager.isLocked() && this.pttLockManager.getLockHolder() === clientId) {
       logger.info('Client disconnected while holding PTT, auto-releasing', { clientId });
-      await this.stopTransmitInternal('client disconnected');
-      this.pttLockManager.handleClientDisconnect(clientId);
+      const confirmed = await this.stopTransmitInternal('client disconnected');
+      if (confirmed) this.pttLockManager.handleClientDisconnect(clientId);
     }
   }
 
@@ -320,14 +324,16 @@ export class VoiceSessionManager extends EventEmitter<VoiceSessionManagerEvents>
 
   // ---- Private helpers ----
 
-  private async stopTransmitInternal(reason: string): Promise<void> {
+  private async stopTransmitInternal(reason: string): Promise<boolean> {
     ++this.transmitGeneration;
     // 1. Release only the lease owned by this voice session.
     let pttStillUncertain = false;
     if (this.physicalLeaseId) {
       try {
-        const result = await this.deps.physicalTxCoordinator.releaseLease(this.physicalLeaseId, reason);
-        pttStillUncertain = !result.success
+        const result = this.deps.physicalTxCoordinator.getSnapshot().phase === 'unknown'
+          ? await this.deps.physicalTxCoordinator.retryUnknownStop(reason)
+          : await this.deps.physicalTxCoordinator.releaseLease(this.physicalLeaseId, reason);
+        pttStillUncertain = !result?.success
           && this.deps.physicalTxCoordinator.getSnapshot().phase === 'unknown';
         if (!pttStillUncertain) this.physicalLeaseId = null;
       } catch (err) {
@@ -347,7 +353,12 @@ export class VoiceSessionManager extends EventEmitter<VoiceSessionManagerEvents>
       source: this.getPttSource(this.pttLockManager.getLockHolder()),
     });
 
-    logger.info('Voice transmission stopped', { reason });
+    if (pttStillUncertain) {
+      logger.error('Voice PTT release unconfirmed: retaining lock and blocking further TX', { reason });
+    } else {
+      logger.info('Voice transmission stopped', { reason });
+    }
+    return !pttStillUncertain;
   }
 
   private getPttSource(clientId: string | null | undefined): 'manual' | 'voice-keyer' {
