@@ -468,8 +468,9 @@ export class VoiceCapture {
         if (resolved) {
           return;
         }
-        ws.close();
+        resolved = true;
         reject(new Error('Realtime compatibility uplink timed out before server ready'));
+        ws.close();
       }, COMPAT_CAPTURE_CONNECT_TIMEOUT_MS);
 
       this.compatSocket = ws;
