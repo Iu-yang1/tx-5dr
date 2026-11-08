@@ -40,6 +40,7 @@ export class RtcDataAudioClient {
   private intentionallyClosed = false;
   private ready = false;
   private connectPromise: Promise<void> | null = null;
+  private rejectPendingConnect: ((error: Error) => void) | null = null;
   private signalQueue: Promise<void> = Promise.resolve();
   private pendingCandidates: RTCIceCandidateInit[] = [];
   private disconnectTimer: number | null = null;
@@ -101,6 +102,7 @@ export class RtcDataAudioClient {
       const settleResolve = () => {
         if (settled) return;
         settled = true;
+        this.rejectPendingConnect = null;
         this.ready = true;
         window.clearTimeout(timer);
         resolve();
@@ -108,11 +110,13 @@ export class RtcDataAudioClient {
       const settleReject = (error: Error) => {
         if (settled) return;
         settled = true;
+        this.rejectPendingConnect = null;
         window.clearTimeout(timer);
         reject(error);
         this.close();
       };
 
+      this.rejectPendingConnect = settleReject;
       const handleFailure = (error: Error) => {
         if (!settled) settleReject(error);
         else this.notifyDisconnected(error);
@@ -166,8 +170,12 @@ export class RtcDataAudioClient {
   }
 
   close(): void {
+    if (this.intentionallyClosed) return;
     this.intentionallyClosed = true;
     this.ready = false;
+    const rejectPending = this.rejectPendingConnect;
+    this.rejectPendingConnect = null;
+    rejectPending?.(new Error('rtc-data-audio connection cancelled'));
     this.pendingCandidates.length = 0;
     if (this.disconnectTimer !== null) {
       window.clearTimeout(this.disconnectTimer);
