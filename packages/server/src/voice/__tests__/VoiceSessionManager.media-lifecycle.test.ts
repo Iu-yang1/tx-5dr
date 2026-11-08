@@ -52,8 +52,12 @@ describe('VoiceSessionManager media lifecycle', () => {
     await session.start();
     await session.startTransmit('operator-1', 'Operator', 'rtc-send:one');
 
-    physicalTxCoordinator.releaseLease.mockResolvedValueOnce({ success: false });
-    physicalTxCoordinator.getSnapshot.mockReturnValue({ phase: 'unknown' });
+    // The first hardware release attempt transitions the coordinator into
+    // an unknown state; setting it before the attempt would skip releaseLease.
+    physicalTxCoordinator.releaseLease.mockImplementationOnce(async () => {
+      physicalTxCoordinator.getSnapshot.mockReturnValue({ phase: 'unknown' });
+      return { success: false };
+    });
     await session.handleParticipantDisconnect('rtc-send:one');
     expect(session.getIsTransmitting()).toBe(true);
     expect(await session.startTransmit('operator-1', 'Operator', 'rtc-send:two'))

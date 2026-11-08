@@ -330,7 +330,8 @@ describe('RealtimeTransportManager', () => {
     expect(decoded.sampleRate).toBe(24000);
     expect(decoded.samplesPerChannel).toBe(480);
     expect(decoded.sequence).toBe(0);
-    expect(decoded.timestampMs).toBe(sourceTimestamp);
+    // ws-compat carries the timestamp as a uint32 millisecond counter.
+    expect(decoded.timestampMs).toBe(sourceTimestamp >>> 0);
     const float32 = int16ToFloat32Pcm(decoded.pcm);
     expect(float32[0]).toBeCloseTo(0.5, 3);
     expect(float32[float32.length - 1]).toBeCloseTo(0.5, 3);

@@ -380,11 +380,16 @@ export class VoiceSessionManager extends EventEmitter<VoiceSessionManagerEvents>
         const result = this.deps.physicalTxCoordinator.getSnapshot().phase === 'unknown'
           ? await this.deps.physicalTxCoordinator.retryUnknownStop(reason)
           : await this.deps.physicalTxCoordinator.releaseLease(this.physicalLeaseId, reason);
+        // An acknowledged release is not enough if the physical coordinator
+        // has not returned to idle. Unknown/active/transitioning PTT states
+        // must keep the logical lock and block any new transmitter lease.
         pttStillUncertain = !result?.success
-          && this.deps.physicalTxCoordinator.getSnapshot().phase === 'unknown';
+          || this.deps.physicalTxCoordinator.getSnapshot().phase !== 'idle';
         if (!pttStillUncertain) this.physicalLeaseId = null;
       } catch (err) {
-        pttStillUncertain = this.deps.physicalTxCoordinator.getSnapshot().phase !== 'idle';
+        // A failed physical command cannot be treated as a safe RX state,
+        // even if a separately sampled snapshot happened to report idle.
+        pttStillUncertain = true;
         logger.error('Failed to release voice PTT lease', err);
       }
     }
