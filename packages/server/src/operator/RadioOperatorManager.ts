@@ -2028,13 +2028,15 @@ export class RadioOperatorManager {
    * 物理上 tone 期间不可移动 dial，因此一旦提交，发射中的频率变更必须顺延到下一时隙。
    */
   private isFakeFrequencyCommittedForCurrentSlot(): boolean {
-    if (!(this.getFakeFrequencyEnabled?.() ?? false)) {
-      return false;
-    }
+    // The user may disable Fake It after this slot's waveform/dial shift is
+    // frozen. The physical TX plan must still prevent mid-slot re-encoding or
+    // frequency changes, regardless of the new preference for future slots.
+    const committed = this.currentSlotTxDialShift;
+    if (!committed || committed.shiftHz === 0) return false;
     const mode = this.getCurrentMode();
     const now = this.clockSource.now();
     const currentSlotStartMs = Math.floor(now / mode.slotMs) * mode.slotMs;
-    return this.currentSlotTxDialShift?.slotStartMs === currentSlotStartMs;
+    return committed.slotStartMs === currentSlotStartMs;
   }
 
   /**
