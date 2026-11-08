@@ -7,7 +7,7 @@ const fields: Array<{ key: keyof PublicTunnelSettings; label: string; placeholde
   { key: 'frpcPath', label: 'frpc', placeholder: 'C:\\tools\\frp\\frpc.exe' },
   { key: 'serverHost', label: 'FRP server / VPS', placeholder: 'tunnel.example.com' },
   { key: 'serverPort', label: 'FRP TCP port', placeholder: '7000', numeric: true },
-  { key: 'publicHost', label: 'Public HTTPS domain (Caddy)', placeholder: 'radio.example.com' },
+  { key: 'publicHost', label: 'Public HTTPS host (domain or IP)', placeholder: 'radio.example.com or 203.0.113.10' },
   { key: 'remoteWebPort', label: 'VPS web TCP port', placeholder: '18076', numeric: true },
   { key: 'remoteUdpPort', label: 'VPS WebRTC UDP port', placeholder: '50110', numeric: true },
   { key: 'localUdpPort', label: 'TX5DR WebRTC UDP port', placeholder: '50110', numeric: true },
