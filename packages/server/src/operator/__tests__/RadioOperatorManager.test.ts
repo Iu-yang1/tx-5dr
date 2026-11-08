@@ -4573,6 +4573,39 @@ describe('RadioOperatorManager fake frequency dial shift', () => {
     expect(manager.getOperatorById('op1')?.config.frequency).toBe(1000);
   });
 
+  it('holds the frozen TX dial shift after Fake It is toggled off mid-slot', async () => {
+    const encodeQueue = { push: vi.fn() };
+    let fakeFrequencyEnabled = true;
+    const { manager, eventEmitter } = createManager({
+      logBook: { id: 'log-1', name: 'Test Log', provider: {} },
+      callsign: 'BG4IAJ',
+      clockNow: 0,
+      encodeQueue,
+      getFakeFrequencyEnabled: () => fakeFrequencyEnabled,
+    });
+    mockConfigManager();
+    await addTxOperator(manager, 'op1', 2400);
+    manager.start();
+
+    queueAndProcess(manager, eventEmitter, ['op1'], 0);
+    expect(encodeQueue.push.mock.calls[0][0].txDialShiftHz).toBe(900);
+
+    manager.updateActiveTransmissionOperators(['op1']);
+    manager.setPluginManager({
+      getCurrentTransmission: () => 'CQ BG4IAJ OM96',
+      getCurrentTransmissions: () => defaultTransmissionSet('CQ BG4IAJ OM96', 2400),
+      getOperatorRuntimeStatus: () => undefined,
+    } as any);
+
+    fakeFrequencyEnabled = false; // User toggles the preference while TX is committed
+    const retrigger = vi.spyOn(manager as any, 'checkAndTriggerTransmission').mockImplementation(() => {});
+    await manager.updateOperatorContext('op1', { frequency: 1000 });
+
+    expect(retrigger).not.toHaveBeenCalled();
+    expect(manager.getOperatorById('op1')?.config.frequency).toBe(1000);
+    expect(encodeQueue.push).toHaveBeenCalledTimes(1);
+  });
+
   it('re-triggers immediately when fake frequency is disabled (no regression)', async () => {
     const encodeQueue = { push: vi.fn() };
     const { manager, eventEmitter } = createManager({
