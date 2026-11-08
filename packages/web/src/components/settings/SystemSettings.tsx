@@ -38,6 +38,7 @@ import { createLogger } from '../../utils/logger';
 import { useConnection } from '../../store/radioStore';
 import { useWSEvent } from '../../hooks/useWSEvent';
 import { RemoteAccessSettingsCard } from './RemoteAccessSettingsCard';
+import { PublicTunnelSettingsCard } from './PublicTunnelSettingsCard';
 import { DigitalDecodePreferencesPanel } from './DigitalDecodePreferencesPanel';
 import { applyRemoteAccessPreset, normalizeRemoteAccessOrigins, validateRemoteAccessDraft } from './remoteAccessDraft';
 
@@ -1669,6 +1670,8 @@ export const SystemSettings = forwardRef<
         isSaving={isSaving}
         onChange={setRemoteAccessSettings}
       />
+
+      {isElectron && <PublicTunnelSettingsCard />}
 
       <Card shadow="none" radius="lg" className="order-[9]" classNames={SETTINGS_CARD_CLASS_NAMES}>
         <CardBody className={SETTINGS_CARD_BODY_CLASS}>
