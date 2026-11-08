@@ -167,6 +167,9 @@
     "currentColor": "当前颜色: {{value}}"
   },
   "slotPacks": {
+      "targetRequestSent": "已发送操作员请求",
+      "targetRequestPending": "{{callsign}} → 操作员 {{operator}}，等待远端处理",
+      "targetRequestFailed": "操作员请求发送失败",
     "noMessages": "暂无解码消息",
     "connectFirst": "请先连接到TX5DR服务器",
     "startEngine": "请启动解码引擎",

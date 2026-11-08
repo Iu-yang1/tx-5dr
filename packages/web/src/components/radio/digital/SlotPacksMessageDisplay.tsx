@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { addToast } from '@heroui/toast';
 import { FramesTable, FrameGroup, FrameDisplayMessage } from './FramesTable';
 import { resolveFrameCallsign } from './frameCallsign';
 import { createSlotPackFrameProjector } from './slotPackFrameProjection';
@@ -116,18 +117,30 @@ export const SlotPacksMessageDisplay: React.FC<SlotPacksMessageDisplayProps> = R
         group: _group,
       });
       if (connection.state.radioService) {
-        submitOperatorTarget(
-          connection.state.radioService,
-          targetAction,
-          currentOperatorId,
-          callsign,
-          buildSelectedFrame(message, _group),
-        );
-        // 在移动端双击后自动切换到"呼叫"tab
-        splitLayoutActions?.switchToRight();
+        try {
+          submitOperatorTarget(
+            connection.state.radioService,
+            targetAction,
+            currentOperatorId,
+            callsign,
+            buildSelectedFrame(message, _group),
+          );
+          // A WS command has been sent; actual operator acceptance is asynchronous.
+          addToast({
+            title: t('slotPacks.targetRequestSent'),
+            description: t('slotPacks.targetRequestPending', {
+              callsign, operator: currentOperatorId,
+            }),
+            color: 'primary',
+            timeout: 2200,
+          });
+          splitLayoutActions?.switchToRight();
+        } catch {
+          addToast({ title: t('slotPacks.targetRequestFailed'), color: 'danger', timeout: 3000 });
+        }
       }
     }
-  }, [connection.state.radioService, currentOperatorId, myCallsigns, seedSelectedRx, splitLayoutActions, targetAction]);
+  }, [connection.state.radioService, currentOperatorId, myCallsigns, seedSelectedRx, splitLayoutActions, targetAction, t]);
 
   if (frameGroups.length === 0) {
     return (

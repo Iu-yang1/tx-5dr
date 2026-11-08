@@ -167,6 +167,9 @@
     "currentColor": "現在の色: {{value}}"
   },
   "slotPacks": {
+      "targetRequestSent": "操作者へ要求を送信しました",
+      "targetRequestPending": "{{callsign}} → 操作者 {{operator}}。処理待ち",
+      "targetRequestFailed": "操作者への要求を送信できませんでした",
     "noMessages": "デコードメッセージはまだありません",
     "connectFirst": "最初にTX5DRサーバーに接続してください",
     "startEngine": "デコードエンジンを開始してください",
