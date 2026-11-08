@@ -1,6 +1,6 @@
 {
   "name": "@tx5dr/builtin-plugins",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "type": "module",
   "private": true,
   "main": "dist/index.js",
