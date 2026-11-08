@@ -1,0 +1,15 @@
+# Block TCP 18076 on the public firewall; allow UDP 50110.
+bindAddr = "0.0.0.0"
+bindPort = 7000
+proxyBindAddr = "0.0.0.0"
+
+auth.method = "token"
+auth.token = "REPLACE_WITH_32PLUS_CHARACTERS_SHARED_WITH_FRPC"
+transport.tls.force = true
+transport.tls.certFile = "/etc/tx5dr-frps/server.crt"
+transport.tls.keyFile = "/etc/tx5dr-frps/server.key"
+allowPorts = [{ single = 18076 }, { single = 50110 }]
+maxPortsPerClient = 2
+log.level = "warn"
+webServer.addr = "127.0.0.1"
+webServer.port = 0
