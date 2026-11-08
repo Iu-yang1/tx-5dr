@@ -39,6 +39,10 @@ jobs:
         run: yarn install --immutable
       - name: Build
         run: yarn build
+      - name: Verify Caddy/FRP trust boundary, independently of the DSP backend
+        run: node --test packages/client-tools/src/proxyForwarding.test.mjs
+      - name: Verify Electron FRP process isolation and configuration
+        run: cd packages/electron-main && yarn exec vitest run src/__tests__/publicTunnel.test.ts --maxWorkers=1
       - name: Verify locale parity
         run: yarn check:i18n
       - name: Focused Web tests
@@ -86,6 +90,7 @@ jobs:
           set -euo pipefail
           cd packages/server
           TESTS=(
+            src/realtime/__tests__/RtcTurnCredentials.test.ts
             src/decode/__tests__/MfskLiveRxService.test.ts
             src/utils/__tests__/frequencyMHz.test.ts
             src/audio/__tests__/AudioHotplugRecovery.test.ts
