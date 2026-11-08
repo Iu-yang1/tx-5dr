@@ -6,7 +6,7 @@ import type { RealtimeIceServerConfig } from '@tx5dr/contracts';
 export function createEphemeralTurnIceServer(
   env: NodeJS.ProcessEnv = process.env,
   nowMs = Date.now(),
-  nonce = randomUUID(),
+  nonce: string = randomUUID(),
 ): RealtimeIceServerConfig | null {
   const url = env.RTC_DATA_AUDIO_TURN_URL?.trim() ?? '';
   const secret = env.RTC_DATA_AUDIO_TURN_SHARED_SECRET ?? '';
