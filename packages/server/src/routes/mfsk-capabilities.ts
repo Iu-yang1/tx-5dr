@@ -15,6 +15,8 @@ import {
   MfskLiveRxStatusSchema,
   MfskLiveRxEventsSchema,
   MfskLiveRxApContextUpdateSchema,
+  NativeDigitalModeSchema,
+  UpdateNativeDecodePreferencesSchema,
   type DigitalCodecMode,
   type MfskCodecProbeResponse,
 } from '@tx5dr/contracts';
@@ -23,6 +25,8 @@ import { MFSK_NATIVE_MODULE_PATH } from '../decode/MfskNativeAdapter.js';
 import { fileURLToPath } from 'node:url';
 import { isMfskPhysicalTxConfirmed } from '../decode/MfskNativeTxService.js';
 import { DigitalRadioEngine } from '../DigitalRadioEngine.js';
+import { ConfigManager } from '../config/config-manager.js';
+import { nativeRxConfigFromPreferences, nativeRxTuningFingerprint } from '../decode/nativeRxPreferences.js';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 
@@ -120,9 +124,12 @@ export async function mfskCapabilityRoutes(fastify:FastifyInstance):Promise<void
   // stream, but runs the native DSP exclusively in a dedicated child process.
   // Mode-switch-authorized live receiver; starting it does NOT switch the host's
   // FT8/FT4 transmit scheduler, allocate PTT, or write a logbook QSO.
+  // Legacy receiver start requests may select a mode but must never import a
+  // browser's stale localStorage preferences into the station-wide decoder.
   fastify.post('/live/start',{preHandler:[requireAbility('execute','ModeSwitch')]},
     async(request,reply)=>{
       const cfg=MfskLiveRxStartSchema.parse(request.body);
+      const mode=NativeDigitalModeSchema.safeParse(cfg.mode);
       const engine=DigitalRadioEngine.getInstance();
       try {
         assertNativeLiveModeAdmission(cfg.mode,engine.getCurrentMode().name,
@@ -131,7 +138,66 @@ export async function mfskCapabilityRoutes(fastify:FastifyInstance):Promise<void
         return reply.code(409).send({success:false,
           error:error instanceof Error?error.message:'Receiver mode admission rejected'});
       }
-      return reply.send(MfskLiveRxStatusSchema.parse(engine.getMfskLiveRxService().start(cfg)));
+      if (!mode.success) return reply.code(400).send({success:false,error:'Invalid native receiver mode'});
+      const live=engine.getMfskLiveRxService();
+      const status=live.status();
+      if(status.running && status.ready && status.mode===mode.data) return reply.send(status);
+      const state=ConfigManager.getInstance().getNativeDecodePreferencesState();
+      return reply.send(MfskLiveRxStatusSchema.parse(live.start(
+        nativeRxConfigFromPreferences(mode.data,state.preferences[mode.data]))));
+    });
+
+  fastify.get('/live/preferences',{preHandler:[requireAbility('read','all')]},
+    async(_request,reply)=>reply.send(
+      ConfigManager.getInstance().getNativeDecodePreferencesState()));
+
+  // Only an explicit authorized save may change RX settings. The expected
+  // revision prevents A/B browser overwrites, even across a pending file write.
+  let preferencesApplyBusy=false;
+  fastify.put('/live/preferences',{preHandler:[requireAbility('execute','ModeSwitch')]},
+    async(request,reply)=>{
+      const update=UpdateNativeDecodePreferencesSchema.parse(request.body);
+      if(preferencesApplyBusy) return reply.code(409).send({
+        success:false,error:'NATIVE_DECODE_PREFERENCES_APPLY_BUSY',
+      });
+      preferencesApplyBusy=true;
+      try {
+        const config=ConfigManager.getInstance();
+        const current=config.getNativeDecodePreferencesState();
+        if(current.revision!==update.expectedRevision){
+          return reply.code(409).send({
+            success:false,error:'NATIVE_DECODE_PREFERENCES_VERSION_CONFLICT',current,
+          });
+        }
+        const engine=DigitalRadioEngine.getInstance();
+        const running=engine.getStatus().isRunning &&
+          engine.getCurrentMode().name===update.mode;
+        const rxChanged=nativeRxTuningFingerprint(update.mode,current.preferences[update.mode])
+          !==nativeRxTuningFingerprint(update.mode,update.preferences);
+        if(running && rxChanged && (engine.getMfskNativeTxService().isBusy()
+          || engine.getNativeAutoTxScheduler().status().enabled)){
+          return reply.code(409).send({success:false,
+            error:'Stop native TX before changing live receiver settings'});
+        }
+        const saved=await config.updateNativeDecodePreferences(
+          update.mode,update.expectedRevision,update.preferences);
+        if(running && rxChanged){
+          try{
+            await engine.getMfskLiveRxService().startReady(
+              nativeRxConfigFromPreferences(update.mode,saved.preferences[update.mode]));
+          }catch(error){
+            return reply.code(503).send({success:false,saved:true,current:saved,
+              error:error instanceof Error?error.message:'Receiver restart failed'});
+          }
+        }
+        return reply.send(saved);
+      }catch(error){
+        const message=error instanceof Error?error.message:String(error);
+        return reply.code(message==='NATIVE_DECODE_PREFERENCES_VERSION_CONFLICT'?409:500)
+          .send({success:false,error:message});
+      }finally{
+        preferencesApplyBusy=false;
+      }
     });
   fastify.post('/live/ap-context',{preHandler:[requireAbility('execute','ModeSwitch')]},
     async(request,reply)=>{
