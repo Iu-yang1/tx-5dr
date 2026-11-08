@@ -8,6 +8,8 @@ export const PublicTunnelSettingsSchema = z.object({
   remoteWebPort: z.number().int().min(1).max(65535).default(18076),
   remoteUdpPort: z.number().int().min(1).max(65535).default(50110),
   localUdpPort: z.number().int().min(1).max(65535).default(50110),
+  webProxyName: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/).default('tx5dr-web'),
+  rtcUdpProxyName: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/).default('tx5dr-rtc-udp'),
   trustedCaFile: z.string().default(''),
   autoStart: z.boolean().default(false),
 });
