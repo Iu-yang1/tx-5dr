@@ -1058,6 +1058,38 @@ async function ensureDesktopHttpsBeforeGatewayLaunch(context: string): Promise<v
   }
 }
 
+// Never publish the control surface if local authentication is disabled.
+// This is a lightweight loopback check, not an audio/rig/decoder dependency.
+async function assertPublicTunnelAuthEnabled(): Promise<void> {
+  if (!selectedServerPort) throw new Error('tunnel_backend_unavailable');
+  const payload = await new Promise<string>((resolve, reject) => {
+    const request = http.get({
+      hostname: '127.0.0.1', port: selectedServerPort,
+      path: '/api/auth/status', timeout: 2000,
+    }, (response) => {
+      if (response.statusCode !== 200) {
+        response.resume();
+        reject(new Error('tunnel_auth_status_unavailable'));
+        return;
+      }
+      let body = '';
+      response.on('data', (chunk) => {
+        body += String(chunk);
+        if (body.length > 8192) request.destroy(new Error('tunnel_auth_response_too_large'));
+      });
+      response.on('end', () => resolve(body));
+      response.on('error', reject);
+    });
+    request.on('timeout', () => request.destroy(new Error('tunnel_auth_probe_timeout')));
+    request.on('error', reject);
+  });
+  let status: unknown;
+  try { status = JSON.parse(payload); } catch { throw new Error('tunnel_auth_status_invalid'); }
+  if (!status || typeof status !== 'object' || (status as { enabled?: unknown }).enabled !== true) {
+    throw new Error('tunnel_public_authentication_required');
+  }
+}
+
 function getPublicTunnelManager(): PublicTunnelManager {
   publicTunnelManager ??= new PublicTunnelManager(getAppConfigDir());
   return publicTunnelManager;
@@ -3698,7 +3730,7 @@ const startApp = async () => {
   // Optional, best-effort and strictly out-of-band: no tunnel failure may block radio startup.
   void getPublicTunnelManager().status().then((status) => {
     if (status.settings.autoStart && loadElectronSettings().remoteAccessPreset === 'public' && selectedWebPort) {
-      return getPublicTunnelManager().start(selectedWebPort);
+      return assertPublicTunnelAuthEnabled().then(() => getPublicTunnelManager().start(selectedWebPort!));
     }
     return undefined;
   }).catch((error) => logger.warn('optional frpc autostart skipped', { message: String(error) }));
@@ -4385,6 +4417,7 @@ function setupIpcHandlers() {
   ipcMain.handle('publicTunnel:start', async () => {
     if (loadElectronSettings().remoteAccessPreset !== 'public') throw new Error('tunnel_requires_public_preset');
     if (!selectedWebPort || !webProcess) throw new Error('tunnel_web_gateway_not_ready');
+    await assertPublicTunnelAuthEnabled();
     return getPublicTunnelManager().start(selectedWebPort);
   });
 
