@@ -51,6 +51,11 @@ export class VoiceSessionManager extends EventEmitter<VoiceSessionManagerEvents>
     this.pttLockManager.on('lockChanged', (lock) => {
       this.emit('voicePttLockChanged', lock);
     });
+    this.pttLockManager.on('lockTimedOut', (clientId) => {
+      void this.stopTransmit(clientId).catch((error) => {
+        logger.error('Failed to safely stop voice PTT after lock timeout', error);
+      });
+    });
 
     this.audioStreamManager.setVoiceOutputObserver({
       onFrameEnqueued: ({ queueDepthFrames, queuedAudioMs }) => {
@@ -179,6 +184,16 @@ export class VoiceSessionManager extends EventEmitter<VoiceSessionManagerEvents>
   /**
    * Handle client disconnect - auto-release PTT if held.
    */
+  /** Stop the physical voice TX lease when its associated media transport disappears. */
+  async handleParticipantDisconnect(participantIdentity: string): Promise<void> {
+    if (!participantIdentity || this.pttLockManager.getVoiceAudioClientId() !== participantIdentity) return;
+    const holder = this.pttLockManager.getLockHolder();
+    if (holder) {
+      logger.warn('Voice TX media transport disconnected; releasing physical PTT lease', { participantIdentity });
+      await this.stopTransmit(holder);
+    }
+  }
+
   async handleClientDisconnect(clientId: string): Promise<void> {
     if (this.pttLockManager.isLocked() && this.pttLockManager.getLockHolder() === clientId) {
       logger.info('Client disconnected while holding PTT, auto-releasing', { clientId });
