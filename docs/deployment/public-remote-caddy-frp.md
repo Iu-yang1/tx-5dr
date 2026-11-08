@@ -4,10 +4,10 @@
 
 ## 一、一键安装
 
-在 **VPS 上**使用 root 或 sudo，下载并检查脚本后执行（在 PR 合并前从本开发分支下载）：
+在 **VPS 上**使用 root 或 sudo，下载并检查脚本后执行：
 
 ```bash
-curl -fsSL 'https://raw.githubusercontent.com/Iu-yang1/tx-5dr/feat/managed-frp-caddy-public-remote/deployment/public-remote/install-caddy-frp.sh' -o /tmp/install-caddy-frp.sh
+curl -fsSL 'https://raw.githubusercontent.com/Iu-yang1/tx-5dr/main/deployment/public-remote/install-caddy-frp.sh' -o /tmp/install-caddy-frp.sh
 less /tmp/install-caddy-frp.sh
 sudo bash /tmp/install-caddy-frp.sh --host radio.example.com --frp-port 17000 --web-port 18076 --udp-port 52000
 ```
@@ -59,9 +59,18 @@ FRP 的 `proxyBindAddr` 对 TCP/UDP 共享生效，因此不能简单将其设�
 
 1. 启用用户身份认证并设置访问范围为 `public`；Allowed Origin 设为 **`https://<公网IP或域名>`**。
 2. 在 **Caddy + FRP** 设置卡填写 frpc.exe 的绝对路径、FRP Server Host 和 TLS TCP 控制端口、Public Host、FRP Remote Web TCP、Remote UDP、Local UDP（默认 50110），以及安装生成的 Token。
-3. 将 VPS `/etc/tx5dr-frps/frps-ca.crt` 复制到 Windows，在卡片 `trustedCaFile` 填其本地绝对路径。不同于公信网站证书，这是用于**校验 FRPS 服务器身份**的独立 CA。
-4. 在实时音频设置中把 `RTC Public Host` 设为 VPS IP/域名，`RTC Public UDP Port` 设为安装的公网 UDP 端口（如 52000）。本地 TX5DR UDP 继续保留默认 50110 即可。
-5. 保存、启动 FRP 穿透；使用外网 Chrome/Edge 访问 `https://<公网IP或域名>`，确认浏览器无证书警告、登录正常、控制 WSS 可用、WebRTC 音频可用，UDP 阻断时能走 `ws-compat` 回退。
+3. 将 VPS `/etc/tx5dr-frps/frps-ca.crt` 复制到 Windows，在卡片 `FRPS CA 证书路径`（`trustedCaFile`）填其本地绝对路径，**此项必填**。不同于公信网站证书，这是用于**校验 FRPS 服务器身份**的独立 CA，绝对不能使用 `server.key` 或私钥代替。建议核对从 VPS 读取的 CA 证书 SHA256，确认下载文件确实来自你的 VPS。
+4. `Web TCP 代理名称`（`webProxyName`）和 `WebRTC UDP 代理名称`（`rtcUdpProxyName`）可分别修改。默认名称仍为 `tx5dr-web` 和 `tx5dr-rtc-udp`；两者必须不同，并且在同一台 FRPS 上不能与其他客户端已有代理冲突。名称不影响独立配置的公网 TCP/UDP 端口。
+5. 在实时音频设置中把 `RTC Public Host` 设为 VPS IP/域名，`RTC Public UDP Port` 设为安装的公网 UDP 端口（如 52000）。本地 TX5DR UDP 继续保留默认 50110 即可。
+6. 保存、启动 FRP 穿透；使用外网 Chrome/Edge 访问 `https://<公网IP或域名>`，确认浏览器无证书警告、登录正常、控制 WSS 可用、WebRTC 音频可用，UDP 阻断时能走 `ws-compat` 回退。
+
+### FRPC 旧版本兼容性与配置校验
+
+- `transport.tls.useSystemCa` 从 **FRP v0.72.0** 才开始支持。此前 TX5DR 在未填写 CA 路径时输出该参数，会导致旧版 `frpc` 解析失败。现在不再生成此字段。
+- 新版本默认生成 `transport.tls.enable = true`、`transport.tls.trustedCaFile = "本机证书绝对路径"` 及 `transport.tls.serverName = "FRPS 地址"`，适用于不支持 `useSystemCa` 的旧版 FRPC，同时保持服务器证书验证。
+- 没有 CA 证书时，TX5DR 将返回 `tunnel_trusted_ca_required`，不会退化成 TLS 加密但跳过证书验证的连接。安装脚本已在 VPS 生成了相应 CA 证书，无须修改 FRPS Token。
+- 如使用其他现有 FRPS，请从该服务器管理员获取其 TLS 服务端证书对应的**受信任 CA 公开证书**（非私钥），填入 TX5DR。
+- 配置保存后可在 TX5DR 「打开配置目录」中查看生成的 `frpc.toml`（包含 Token，**不要公开**），用对应的 `frpc.exe verify -c "frpc.toml"` 检查参数是否受该版本支持。生成文件通常在启动时刷新；检查前请确认已使用新版本 TX5DR 重新生成。
 
 **公网 IP 的 HTTPS URL 不能忽略证书错误**；公网 HTTP 也不适合依赖浏览器麦克风的远控。在 VPS 没有成功获得公信 IP 证书前，不应作为已完成验收的公网配置。
 
