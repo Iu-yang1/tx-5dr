@@ -1,7 +1,7 @@
 {
   "digitalQuick": {
     "title": "数字模式编解码快捷设置",
-    "description": "选择模式并直接修改参数。所有更改均通过现有解码器或发射控制接口生效。",
+    "description": "选择模式页签只查看或编辑该模式参数，不会切换电台当前工作模式。",
     "mode": "编解码模式",
     "sharedDepth": "当前模式的解码深度",
     "decodeWindows": "解码窗口策略",
