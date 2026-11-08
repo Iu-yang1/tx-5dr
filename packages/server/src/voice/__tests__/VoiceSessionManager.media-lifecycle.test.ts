@@ -12,6 +12,7 @@ function createSession() {
     releaseLease: vi.fn().mockResolvedValue({ success: true }),
     markStreamingLeaseActive: vi.fn(),
     forceInterruptLease: vi.fn().mockResolvedValue(null),
+    retryUnknownStop: vi.fn().mockResolvedValue({ success: true }),
     getSnapshot: vi.fn().mockReturnValue({ phase: 'idle' }),
   };
   const session = new VoiceSessionManager({
@@ -43,6 +44,28 @@ describe('VoiceSessionManager media lifecycle', () => {
     );
     expect(session.getIsTransmitting()).toBe(false);
     expect(session.getActiveVoiceAudioClientId()).toBeNull();
+    session.destroy();
+  });
+
+  it('retains the PTT lock when physical release is unconfirmed, and supports safe retry', async () => {
+    const { session, physicalTxCoordinator } = createSession();
+    await session.start();
+    await session.startTransmit('operator-1', 'Operator', 'rtc-send:one');
+
+    physicalTxCoordinator.releaseLease.mockResolvedValueOnce({ success: false });
+    physicalTxCoordinator.getSnapshot.mockReturnValue({ phase: 'unknown' });
+    await session.handleParticipantDisconnect('rtc-send:one');
+    expect(session.getIsTransmitting()).toBe(true);
+    expect(await session.startTransmit('operator-1', 'Operator', 'rtc-send:two'))
+      .toMatchObject({ success: false });
+
+    physicalTxCoordinator.retryUnknownStop.mockImplementation(async () => {
+      physicalTxCoordinator.getSnapshot.mockReturnValue({ phase: 'idle' });
+      return { success: true };
+    });
+    expect(await session.stopTransmit('operator-1')).toBe(true);
+    expect(physicalTxCoordinator.retryUnknownStop).toHaveBeenCalledTimes(1);
+    expect(session.getIsTransmitting()).toBe(false);
     session.destroy();
   });
 
