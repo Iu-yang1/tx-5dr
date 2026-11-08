@@ -65,15 +65,23 @@ jobs:
           const toml = renderFrpcToml({
             ...DEFAULT_PUBLIC_TUNNEL_SETTINGS,
             frpcPath: '/tmp/frpc',
-            serverHost: 'frps.example.com',
-            publicHost: 'radio.example.com',
-            trustedCaFile: '/etc/ssl/certs/ca-certificates.crt',
-            webProxyName: 'example-web-custom',
-            rtcUdpProxyName: 'example-rtc-custom',
+            serverHost: 'langd.space',
+            publicHost: 'langd.space',
+            localWebIP: '192.168.1.5',
+            localWebPort: 10443,
+            remoteWebPort: 18443,
+            localUdpIP: '192.168.1.5',
+            localUdpPort: 50110,
+            remoteUdpPort: 18444,
+            webProxyName: 'jvm-tx5dr-web',
+            rtcUdpProxyName: 'jvm-tx5dr-rtc-udp',
+            logLevel: 'info',
           }, 'fixture-token', 8076);
-          if (toml.includes('useSystemCa')) throw new Error('legacy unsupported TLS option');
-          if (!toml.includes('name = "example-web-custom"') ||
-              !toml.includes('name = "example-rtc-custom"')) throw new Error('custom proxy names missing');
+          if (toml.includes('useSystemCa') || toml.includes('trustedCaFile')) throw new Error('unexpected TLS CA parameter');
+          if (!toml.includes('name = "jvm-tx5dr-web"') ||
+              !toml.includes('name = "jvm-tx5dr-rtc-udp"') ||
+              !toml.includes('localPort = 10443') ||
+              !toml.includes('remotePort = 18444')) throw new Error('field-tested proxy settings missing');
           fs.writeFileSync(process.env.TX5DR_FRPC_TEST_CONFIG, toml, { mode: 0o600 });
           NODE
           "$TMP/frp_${VERSION}_linux_amd64/frpc" verify -c "$TX5DR_FRPC_TEST_CONFIG"
