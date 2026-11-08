@@ -27,7 +27,7 @@ assertVersion(
     buildStamp: '202608311200',
     commit: 'abcdef1234567890',
   }),
-  '1.0.1-nightly.202608311200+gabcdef1',
+  '1.0.2-nightly.202608311200+gabcdef1',
   'TX-5DR nightly version policy',
 );
 const hostPackages = [
