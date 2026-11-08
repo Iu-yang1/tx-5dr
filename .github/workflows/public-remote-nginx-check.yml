@@ -1,0 +1,50 @@
+name: Nginx Public Remote Configuration Validation
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'deployment/public-remote/**'
+      - 'docs/deployment/public-remote-nginx-frp.md'
+      - '.github/workflows/public-remote-nginx-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  nginx-config:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Nginx and OpenSSL
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y nginx openssl
+      - name: Validate HTTP-only ACME bootstrap
+        run: |
+          sudo install -d -m 755 /var/www/letsencrypt/.well-known/acme-challenge
+          sudo cp deployment/public-remote/nginx-tx5dr-http-bootstrap.conf.example /etc/nginx/conf.d/tx5dr.conf
+          sudo nginx -t
+      - name: Validate TLS and WebSocket reverse proxy
+        run: |
+          sudo install -d -m 755 /etc/letsencrypt/live/radio.example.com
+          sudo openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+            -subj "/CN=radio.example.com" \
+            -keyout /etc/letsencrypt/live/radio.example.com/privkey.pem \
+            -out /etc/letsencrypt/live/radio.example.com/fullchain.pem
+          sudo cp deployment/public-remote/nginx-tx5dr.conf.example /etc/nginx/conf.d/tx5dr.conf
+          sudo nginx -t
+      - name: Verify forwarded identity, scripts, and FRPS TOML
+        run: |
+          set -euo pipefail
+          grep -F 'proxy_set_header X-Forwarded-For $remote_addr;' deployment/public-remote/nginx-tx5dr.conf.example
+          grep -F 'proxy_set_header X-Forwarded-Proto https;' deployment/public-remote/nginx-tx5dr.conf.example
+          grep -F 'proxy_set_header Upgrade $http_upgrade;' deployment/public-remote/nginx-tx5dr.conf.example
+          grep -F 'proxy_set_header Connection $tx5dr_connection_upgrade;' deployment/public-remote/nginx-tx5dr.conf.example
+          ! grep -F 'proxy_add_x_forwarded_for' deployment/public-remote/nginx-tx5dr.conf.example
+          bash -n deployment/public-remote/generate-frps-tls.sh
+          sh -n deployment/public-remote/nginx-cert-renew-hook.sh
+          python3 -c "import tomllib; tomllib.load(open('deployment/public-remote/frps.toml.example','rb'))"
+          node --test packages/client-tools/src/proxyForwarding.test.mjs

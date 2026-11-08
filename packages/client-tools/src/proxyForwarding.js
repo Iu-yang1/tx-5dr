@@ -17,7 +17,7 @@ function normalizedIp(value) {
 }
 
 /**
- * Only trust the Caddy -> FRP -> loopback gateway chain when it has explicitly
+ * Only trust the Nginx -> FRP -> loopback gateway chain when it has explicitly
  * been enabled and the edge Host matches the configured public domain.
  * Always replace forwarded headers; never propagate caller-provided chains.
  */
@@ -30,7 +30,7 @@ export function trustedForwardedContext({ headers, peerAddress, expectedEdgeHost
   if (!trustLoopback || !local || !expected || forwardedHost !== expected || proto !== 'https') {
     return null;
   }
-  // Caddy does not trust incoming X-Forwarded-For unless explicitly configured.
+  // Nginx does not trust incoming X-Forwarded-For unless explicitly configured.
   // The final hop is its verified remote address, not a client-supplied prefix.
   const parts = String(first(headers['x-forwarded-for']) ?? '').split(',');
   const clientIp = normalizedIp(parts.at(-1));

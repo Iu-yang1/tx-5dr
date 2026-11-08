@@ -1,0 +1,63 @@
+# /etc/nginx/conf.d/tx5dr.conf (loaded inside nginx.conf http {})
+# Public HTTPS/WSS -> local FRP TCP proxy. Tested on Nginx HTTP/1.1.
+# Do not append untrusted browser-supplied X-Forwarded-For.
+map $http_upgrade $tx5dr_connection_upgrade {
+    default upgrade;
+    ''      '';
+}
+
+upstream tx5dr_frp_web {
+    server 127.0.0.1:18076;
+    keepalive 32;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name radio.example.com;
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/letsencrypt;
+        default_type text/plain;
+        try_files $uri =404;
+    }
+    location / {
+        return 308 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name radio.example.com;
+
+    ssl_certificate /etc/letsencrypt/live/radio.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/radio.example.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:TX5DR_SSL:10m;
+    ssl_session_timeout 1d;
+
+    client_max_body_size 6m;
+    add_header X-Content-Type-Options nosniff always;
+    add_header Referrer-Policy same-origin always;
+
+    location / {
+        proxy_pass http://tx5dr_frp_web;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Port 443;
+        # Replace, NEVER append: prevents forged XFF from changing login limits.
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Real-IP $remote_addr;
+
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $tx5dr_connection_upgrade;
+
+        proxy_connect_timeout 10s;
+        proxy_send_timeout 120s;
+        proxy_read_timeout 3600s;
+        proxy_socket_keepalive on;
+    }
+}

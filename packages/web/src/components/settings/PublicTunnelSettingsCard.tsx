@@ -7,7 +7,7 @@ const fields: Array<{ key: keyof PublicTunnelSettings; label: string; placeholde
   { key: 'frpcPath', label: 'frpc', placeholder: 'C:\\tools\\frp\\frpc.exe' },
   { key: 'serverHost', label: 'FRP server / VPS', placeholder: 'tunnel.example.com' },
   { key: 'serverPort', label: 'FRP TCP port', placeholder: '7000', numeric: true },
-  { key: 'publicHost', label: 'Public HTTPS domain (Caddy)', placeholder: 'radio.example.com' },
+  { key: 'publicHost', label: 'Public HTTPS domain (Nginx)', placeholder: 'radio.example.com' },
   { key: 'remoteWebPort', label: 'VPS web TCP port', placeholder: '18076', numeric: true },
   { key: 'remoteUdpPort', label: 'VPS WebRTC UDP port', placeholder: '50110', numeric: true },
   { key: 'localUdpPort', label: 'TX5DR WebRTC UDP port', placeholder: '50110', numeric: true },
@@ -138,7 +138,7 @@ export function PublicTunnelSettingsCard() {
               <p>{t('system.publicTunnelMediaHint', { host: draft.serverHost, port: draft.remoteUdpPort })}</p>
               {status?.lastError && <p className="text-danger-600">{status.lastError}</p>}
             </div>
-            <a href="https://github.com/Iu-yang1/tx-5dr/blob/main/docs/deployment/public-remote-caddy-frp.md" target="_blank" rel="noopener noreferrer" className="text-primary text-sm underline">
+            <a href="https://github.com/Iu-yang1/tx-5dr/blob/main/docs/deployment/public-remote-nginx-frp.md" target="_blank" rel="noopener noreferrer" className="text-primary text-sm underline">
               {t('system.publicTunnelGuide')}
             </a>
           </>
