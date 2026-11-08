@@ -1,0 +1,46 @@
+name: Native Preferences Static Acceptance
+
+on:
+  pull_request:
+    paths:
+      - 'packages/contracts/src/schema/native-decode-preferences.schema.ts'
+      - 'packages/contracts/src/index.ts'
+      - 'packages/core/src/api.ts'
+      - 'packages/server/src/config/config-manager.ts'
+      - 'packages/server/src/decode/nativeRxPreferences.ts'
+      - 'packages/server/src/decode/__tests__/nativeRxPreferences.test.ts'
+      - 'packages/server/src/routes/mfsk-capabilities.ts'
+      - 'packages/server/src/subsystems/EngineLifecycle.ts'
+      - 'packages/web/src/components/settings/DigitalDecodePreferencesPanel.tsx'
+      - 'packages/web/src/components/radio/digital/NativeDigitalRxPreferencesSync.tsx'
+      - '.github/workflows/native-preferences-static-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  types-and-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      YARN_ENABLE_SCRIPTS: 'false'
+      NODE_OPTIONS: '--max-old-space-size=6144'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Enable pinned package manager
+        run: corepack enable
+      - name: Install dependencies without native postinstall scripts
+        run: yarn install --immutable
+      - name: Build contracts, core, server and web
+        run: yarn turbo run build --filter=@tx5dr/server --filter=@tx5dr/web
+      - name: Validate localized resource keys
+        run: node scripts/check-i18n.mjs
+      - name: Run native preference logic and admission unit tests
+        run: yarn workspace @tx5dr/server exec vitest run src/decode/__tests__/nativeRxPreferences.test.ts src/routes/__tests__/mfsk-live-admission.test.ts --maxWorkers=1
+
+# This is additive. Native-addon builds and all physical-radio acceptance
+# gates remain mandatory; disabling install scripts here is only for static checks.

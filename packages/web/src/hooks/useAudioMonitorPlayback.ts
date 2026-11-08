@@ -237,6 +237,7 @@ export function useAudioMonitorPlayback(
   const opusDecoderRef = useRef<BrowserOpusDecoder | null>(null);
   const isInitializingRef = useRef(false);
   const startPromiseRef = useRef<Promise<RealtimeTransportKind> | null>(null);
+  const startAfterLossRef = useRef<((options?: string | AudioMonitorStartOptions) => Promise<RealtimeTransportKind>) | null>(null);
   const currentVolumeRef = useRef(1);
   const sourceStatsRef = useRef<RealtimeSourceStats | null>(null);
   const receiverStatsRef = useRef<ReceiverStatsData | null>(null);
@@ -1005,17 +1006,42 @@ export function useAudioMonitorPlayback(
         handleClockSyncControlMessage(message);
       },
       onClose: () => {
-        if (rtcDataAudioClientRef.current === client && !intentionalDisconnectRef.current) {
+        if (rtcDataAudioClientRef.current !== client || intentionalDisconnectRef.current) return;
+        const wasPlaying = isPlayingRef.current;
+        if (!wasPlaying || scope !== 'radio') {
           cleanup();
+          return;
         }
+        // A new, single-use session token is required. Keep the browser audio runtime
+        // alive and move the receiving session to the bounded WebSocket fallback.
+        logger.warn('RTC monitor disconnected, falling back to ws-compat');
+        const lostPreviewSessionId = activePreviewSessionIdRef.current ?? undefined;
+        cleanupTransportState({
+          preserveSessionContext: true,
+          preserveAudioContext: true,
+          preserveCompatPlaybackRuntime: true,
+        });
+        window.setTimeout(() => {
+          if (intentionalDisconnectRef.current || isPlayingRef.current) return;
+          void startAfterLossRef.current?.({
+            previewSessionId: lostPreviewSessionId,
+            transportOverride: 'ws-compat',
+          }).then(() => showRealtimeTransportFallbackToast(scope)).catch((error: unknown) => {
+            logger.warn('RTC monitor fallback after disconnect failed', error);
+            cleanup();
+          });
+        }, 0);
       },
     });
     rtcDataAudioClientRef.current = client;
     resolvePendingAudioPathWaiters();
     await client.connect();
+    if (!client.isOpen || rtcDataAudioClientRef.current !== client) {
+      throw new Error('RTC monitor closed during connection establishment');
+    }
     startClockSync((payload) => client.sendJson(payload as Record<string, unknown>));
     updateTransportKind('rtc-data-audio');
-  }, [cleanup, ensureCompatPlaybackRuntime, handleClockSyncControlMessage, handleRealtimeBinaryFrame, resolvePendingAudioPathWaiters, startClockSync, updateTransportKind]);
+  }, [cleanup, cleanupTransportState, ensureCompatPlaybackRuntime, handleClockSyncControlMessage, handleRealtimeBinaryFrame, resolvePendingAudioPathWaiters, scope, startClockSync, updateTransportKind]);
 
   const start = useCallback(async (startOptions?: string | AudioMonitorStartOptions) => {
     const existingStart = resolveExistingMonitorStart(
@@ -1117,6 +1143,8 @@ export function useAudioMonitorPlayback(
       startPromiseRef.current = null;
     }
   }, [cleanup, cleanupTransportState, nativeOperatorAudioEnabled, previewSessionId, radioDispatch, recomputeStats, scope, setPlaybackBufferPreference, startCompatPlayback, startRtcDataAudioPlayback, startStatsPolling, updateIsPlaying, updateTransportKind, waitForPlaybackPath]);
+
+  startAfterLossRef.current = start;
 
   const startFromGesture = useCallback(async (
     startOptions?: string | AudioMonitorStartOptions,

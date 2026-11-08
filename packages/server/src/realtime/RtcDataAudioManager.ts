@@ -39,6 +39,8 @@ import {
 
 const logger = createLogger('RtcDataAudioManager');
 const RTC_DATA_AUDIO_TOKEN_TTL_MS = 10 * 60 * 1000;
+const RTC_DATA_AUDIO_MAX_PENDING_SESSIONS = 512;
+const RTC_DATA_AUDIO_MAX_ACTIVE_PEERS = 32;
 const RTC_DATA_AUDIO_LABEL = 'tx5dr-audio';
 const RTC_DATA_AUDIO_PROTOCOL = 'tx5dr-audio/1';
 const RTC_DATA_AUDIO_MAX_SOURCE_FRAME_AGE_MS = 60;
@@ -174,6 +176,13 @@ function sourceFrameBufferedLimitBytes(frame: {
 
 export class RtcDataAudioManager {
   private readonly sessions = new Map<string, RtcDataAudioSessionRecord>();
+  private readonly activePeers = new Set<PeerConnection>();
+
+  private pruneExpiredSessions(now = Date.now()): void {
+    for (const [token, session] of this.sessions) {
+      if (session.expiresAt <= now) this.sessions.delete(token);
+    }
+  }
   private modulePromise: Promise<NodeDataChannelModule | null> | null = null;
   private moduleAvailable: boolean | null = null;
   private unavailableReason: string | null = null;
@@ -207,6 +216,10 @@ export class RtcDataAudioManager {
       throw new Error('Operator role or above is required to publish audio');
     }
 
+    this.pruneExpiredSessions();
+    if (this.sessions.size >= RTC_DATA_AUDIO_MAX_PENDING_SESSIONS) {
+      throw new Error('Too many pending realtime RTC sessions');
+    }
     const token = randomUUID();
     const participantIdentity = params.direction === 'send'
       ? buildRtcIdentity(params.direction, params.tokenId || params.role.toLowerCase())
@@ -263,6 +276,7 @@ export class RtcDataAudioManager {
       return;
     }
 
+    this.pruneExpiredSessions();
     const session = this.sessions.get(token);
     if (!session || session.expiresAt <= Date.now()) {
       this.sessions.delete(token);
@@ -282,7 +296,13 @@ export class RtcDataAudioManager {
   }
 
   private async handleConnection(socket: WebSocket, session: RtcDataAudioSessionRecord): Promise<void> {
+    // Register lifecycle checks before any asynchronous module/DNS initialization.
+    let disconnected = socket.readyState !== 1;
+    const observeDisconnect = () => { disconnected = true; };
+    socket.once('close', observeDisconnect);
+    socket.once('error', observeDisconnect);
     const mod = await this.loadModule();
+    if (disconnected) return;
     if (!mod) {
       socket.close(1011, 'Rtc data audio runtime is unavailable');
       return;
@@ -291,8 +311,16 @@ export class RtcDataAudioManager {
     const portRange = resolveRtcDataAudioPortRange();
     const localUdpPort = portRange.portRangeBegin ?? portRange.portRangeEnd ?? RTC_DATA_AUDIO_DEFAULT_UDP_PORT;
     const publicEndpoints = await this.resolvePublicCandidateEndpoints(localUdpPort);
+    if (disconnected) return;
+    if (this.activePeers.size >= RTC_DATA_AUDIO_MAX_ACTIVE_PEERS) {
+      socket.close(1013, 'Too many realtime RTC peers');
+      return;
+    }
     const advertisedPublicCandidates = new Set<string>();
     const peer = this.createPeerConnection(mod, session, portRange);
+    this.activePeers.add(peer);
+    let answerApplied = false;
+    const pendingRemoteCandidates: Array<{ candidate: string; mid: string }> = [];
     let dataChannel: DataChannel | null = null;
 
     const sendJson = (payload: Record<string, unknown>): void => {
@@ -309,6 +337,7 @@ export class RtcDataAudioManager {
         return;
       }
       cleanedUp = true;
+      this.activePeers.delete(peer);
       cleanupChannelBinding?.();
       cleanupChannelBinding = null;
       try {
@@ -320,6 +349,10 @@ export class RtcDataAudioManager {
         peer.close();
       } catch {
         // ignore
+      }
+      if (session.direction === 'send' && session.participantIdentity) {
+        void this.engine.getVoiceSessionManager()?.handleParticipantDisconnect(session.participantIdentity)
+          .catch((error: unknown) => logger.error('Failed to stop voice TX after RTC media disconnect', error));
       }
     };
     peer.onLocalDescription((sdp: string, type: RtcDescriptionType) => {
@@ -341,6 +374,10 @@ export class RtcDataAudioManager {
     });
     peer.onStateChange((state: string) => {
       logger.debug('Rtc data audio peer state changed', { state, direction: session.direction, scope: session.scope });
+      if ((state === 'failed' || state === 'closed') && !cleanedUp) {
+        cleanup();
+        if (socket.readyState === 1) socket.close(1011, 'Rtc data audio peer failed');
+      }
     });
 
     dataChannel = peer.createDataChannel(RTC_DATA_AUDIO_LABEL, {
@@ -357,6 +394,9 @@ export class RtcDataAudioManager {
       if (socket.readyState === 1) {
         socket.close(4004, 'Realtime audio source is not available');
       }
+    }, () => {
+      cleanup();
+      if (socket.readyState === 1) socket.close(1011, 'Rtc data audio channel closed');
     });
 
     socket.on('message', (payload: Buffer | ArrayBuffer | Buffer[]) => {
@@ -376,16 +416,28 @@ export class RtcDataAudioManager {
           candidate?: string;
           mid?: string;
         };
-        if (message.type === 'answer' && message.sdp) {
+        if (cleanedUp) return;
+        if (message.type === 'answer' && message.sdp && !answerApplied) {
           peer.setRemoteDescription(message.sdp, message.sdpType ?? 'answer');
+          answerApplied = true;
+          for (const pending of pendingRemoteCandidates.splice(0)) {
+            peer.addRemoteCandidate(pending.candidate, pending.mid);
+          }
         } else if (message.type === 'candidate' && message.candidate) {
-          peer.addRemoteCandidate(message.candidate, message.mid ?? '0');
+          const candidate = { candidate: message.candidate, mid: message.mid ?? '0' };
+          if (answerApplied) peer.addRemoteCandidate(candidate.candidate, candidate.mid);
+          else if (pendingRemoteCandidates.length < 128) pendingRemoteCandidates.push(candidate);
+          else throw new Error('Too many queued remote ICE candidates');
         }
       } catch (error) {
-        logger.debug('Failed to handle rtc-data-audio signaling message', error);
+        logger.warn('Failed to handle rtc-data-audio signaling message', error);
+        cleanup();
+        if (socket.readyState === 1) socket.close(1002, 'Invalid RTC signaling');
       }
     });
 
+    socket.off('close', observeDisconnect);
+    socket.off('error', observeDisconnect);
     socket.once('close', cleanup);
     socket.once('error', cleanup);
   }
@@ -441,6 +493,7 @@ export class RtcDataAudioManager {
     session: RtcDataAudioSessionRecord,
     sendJson: (payload: Record<string, unknown>) => void,
     onSourceUnavailable: (reason: RealtimeRxAudioSourceUnavailableReason) => void,
+    onChannelClosed: () => void,
   ): () => void {
     let cleanupSource: (() => void) | null = null;
     let source: RealtimeRxAudioSource | null = null;
@@ -488,6 +541,7 @@ export class RtcDataAudioManager {
           droppedStaleFrames += 1;
           return;
         }
+        try {
         const packets = downlinkEncoder.encodeSourceFrame(frame);
         for (const packet of packets) {
           if (dataChannel.bufferedAmount() > sourceFrameBufferedLimitBytes(packet)) {
@@ -515,6 +569,10 @@ export class RtcDataAudioManager {
               wireBytes: packet.wireBytes,
             });
           }
+        }
+        } catch (error) {
+          droppedBackpressureFrames += 1;
+          logger.warn('RTC downlink audio encode/send failed; dropping frame', { error });
         }
       };
 
@@ -574,7 +632,8 @@ export class RtcDataAudioManager {
             ...(decoded.concealment ? { concealment: decoded.concealment } : {}),
             ...(session.voiceTxBufferPolicy ? { voiceTxBufferPolicy: session.voiceTxBufferPolicy } : {}),
           };
-          void this.engine.getVoiceSessionManager()?.handleParticipantAudioFrame(meta, decoded.samples);
+          void this.engine.getVoiceSessionManager()?.handleParticipantAudioFrame(meta, decoded.samples)
+            .catch((error: unknown) => logger.warn('RTC uplink voice output failed', error));
         }
       } catch (error) {
         logger.debug('Failed to decode rtc-data-audio uplink frame', error);
@@ -604,6 +663,7 @@ export class RtcDataAudioManager {
 
     dataChannel.onClosed(() => {
       cleanupChannelBinding();
+      onChannelClosed();
     });
 
     dataChannel.onError((error: string) => {

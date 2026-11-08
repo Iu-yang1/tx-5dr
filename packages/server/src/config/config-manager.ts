@@ -26,6 +26,12 @@ import {
 } from '@tx5dr/contracts';
 import type { RadioProfile, DecodeWindowSettings, PresetFrequency, RepeaterShift, ToneSquelchMode, StationInfo, OpenWebRXStationConfig, PluginsConfig } from '@tx5dr/contracts';
 import { MODES } from '@tx5dr/contracts';
+import {
+  DEFAULT_NATIVE_DECODE_PREFERENCES, NATIVE_DIGITAL_MODES,
+  NativeDecodePreferencesSchema,
+  type NativeDecodePreferences, type NativeDigitalMode,
+  type NativeDecodePreferencesState,
+} from '@tx5dr/contracts';
 import { getConfigFilePath } from '../utils/app-paths.js';
 import { createLogger } from '../utils/logger.js';
 import { normalizeHamlibConfig, normalizeSerialConnectionConfig } from '../radio/hamlibConfigUtils.js';
@@ -141,6 +147,8 @@ export interface AppConfig {
   logLevel?: 'debug' | 'info' | 'warn' | 'error';
   /** Decode window settings per mode (preset or custom timing) */
   decodeWindowSettings?: DecodeWindowSettings;
+  /** Single authoritative station-wide native-mode settings with optimistic revision. */
+  nativeDecodePreferences?: NativeDecodePreferencesState;
   /** Custom frequency presets (null/undefined = use built-in defaults for every supported preset mode) */
   customFrequencyPresets?: PresetFrequency[] | null;
   /** Last used engine mode ('digital' or 'voice'). Restored on startup. */
@@ -468,6 +476,7 @@ export class ConfigManager {
   private static instance: ConfigManager;
   private config: AppConfig;
   private configPath: string;
+  private nativeDecodePreferencesQueue: Promise<void> = Promise.resolve();
   private configStore: JsonFileStore<Record<string, unknown>> | null = null;
   private runtimeState = RuntimeStateManager.getInstance();
   private unregisterPersistence: (() => void) | null = null;
@@ -1999,6 +2008,47 @@ export class ConfigManager {
       }
     }
     return best;
+  }
+
+
+  /** All clients read identical preferences; invalid legacy fields are isolated per mode. */
+  getNativeDecodePreferencesState(): NativeDecodePreferencesState {
+    const stored = this.config.nativeDecodePreferences;
+    const preferences = Object.fromEntries(NATIVE_DIGITAL_MODES.map(mode => {
+      const result = NativeDecodePreferencesSchema.safeParse(stored?.preferences?.[mode]);
+      return [mode, result.success ? { ...result.data } : { ...DEFAULT_NATIVE_DECODE_PREFERENCES }];
+    })) as Record<NativeDigitalMode, NativeDecodePreferences>;
+    return { revision: stored?.revision ?? 0, preferences };
+  }
+
+  /**
+   * Compare-and-swap across concurrent browsers. Serialization includes the
+   * persisted write, so stale revisions can never silently overwrite another edit.
+   */
+  async updateNativeDecodePreferences(
+    mode: NativeDigitalMode, expectedRevision: number, preferences: NativeDecodePreferences,
+  ): Promise<NativeDecodePreferencesState> {
+    const parsed = NativeDecodePreferencesSchema.parse(preferences);
+    const write = this.nativeDecodePreferencesQueue.then(async () => {
+      const current = this.getNativeDecodePreferencesState();
+      if (current.revision !== expectedRevision) {
+        throw new Error('NATIVE_DECODE_PREFERENCES_VERSION_CONFLICT');
+      }
+      const previous = this.config.nativeDecodePreferences;
+      this.config.nativeDecodePreferences = {
+        revision: current.revision + 1,
+        preferences: { ...current.preferences, [mode]: parsed },
+      };
+      try {
+        await this.saveConfig();
+      } catch (error) {
+        this.config.nativeDecodePreferences = previous;
+        throw error;
+      }
+      return this.getNativeDecodePreferencesState();
+    });
+    this.nativeDecodePreferencesQueue = write.then(() => undefined, () => undefined);
+    return write;
   }
 
   // ===== 解码窗口设置 =====

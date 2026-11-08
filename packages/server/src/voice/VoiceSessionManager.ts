@@ -12,6 +12,8 @@ import {
 } from './VoiceTxDiagnostics.js';
 
 const logger = createLogger('VoiceSessionManager');
+const MEDIA_IDLE_TIMEOUT_MS = 3000;
+const MEDIA_WATCHDOG_INTERVAL_MS = 500;
 const LEGACY_VOICE_RADIO_MODES = new Set(['USB', 'LSB', 'FM', 'AM']);
 const EXPLICIT_SUPPORT_REQUIRED_MODES = new Set(['WFM']);
 
@@ -40,6 +42,8 @@ export class VoiceSessionManager extends EventEmitter<VoiceSessionManagerEvents>
   private diagnostics = new VoiceTxDiagnostics();
   private physicalLeaseId: string | null = null;
   private transmitGeneration = 0;
+  private mediaWatchdogTimer: NodeJS.Timeout | null = null;
+  private mediaLastFrameAtMs = 0;
 
   constructor(private readonly deps: VoiceSessionManagerDeps) {
     super();
@@ -50,6 +54,11 @@ export class VoiceSessionManager extends EventEmitter<VoiceSessionManagerEvents>
     // Forward lock change events
     this.pttLockManager.on('lockChanged', (lock) => {
       this.emit('voicePttLockChanged', lock);
+    });
+    this.pttLockManager.on('lockTimedOut', (clientId) => {
+      void this.stopTransmit(clientId).catch((error) => {
+        logger.error('Failed to safely stop voice PTT after lock timeout', error);
+      });
     });
 
     this.audioStreamManager.setVoiceOutputObserver({
@@ -85,7 +94,8 @@ export class VoiceSessionManager extends EventEmitter<VoiceSessionManagerEvents>
     if (this.pttLockManager.isLocked()) {
       const holder = this.pttLockManager.getLockHolder();
       if (holder) {
-        await this.stopTransmitInternal('engine stopped');
+        const confirmed = await this.stopTransmitInternal('engine stopped');
+        if (confirmed) this.pttLockManager.releaseLock(holder);
       }
     }
 
@@ -99,6 +109,9 @@ export class VoiceSessionManager extends EventEmitter<VoiceSessionManagerEvents>
    * @param voiceAudioClientId - Voice audio WS client ID to associate with this PTT session
    */
   async startTransmit(clientId: string, label: string, voiceAudioClientId?: string): Promise<{ success: boolean; reason?: string }> {
+    if (this.physicalLeaseId && this.deps.physicalTxCoordinator.getSnapshot().phase === 'unknown') {
+      return { success: false, reason: 'Previous voice PTT release is not confirmed' };
+    }
     if (!this.isStarted) {
       return { success: false, reason: 'Voice mode not active' };
     }
@@ -140,6 +153,7 @@ export class VoiceSessionManager extends EventEmitter<VoiceSessionManagerEvents>
       this.physicalLeaseId = leaseId;
       this.audioStreamManager.setVoiceTxOutputEnabled(true);
       this.deps.physicalTxCoordinator.markStreamingLeaseActive(leaseId);
+      if (voiceAudioClientId) this.startMediaWatchdog(voiceAudioClientId);
 
       // 3. Broadcast PTT status (frontend handles monitor muting via gain node)
       this.emit('pttStatusChanged', { isTransmitting: true, operatorIds: [], source: this.getPttSource(clientId) });
@@ -154,9 +168,15 @@ export class VoiceSessionManager extends EventEmitter<VoiceSessionManagerEvents>
           this.physicalLeaseId,
           'voice start rollback',
         ).catch(() => undefined);
-        this.physicalLeaseId = null;
+        if (this.deps.physicalTxCoordinator.getSnapshot().phase !== 'unknown') {
+          this.physicalLeaseId = null;
+        }
       }
-      this.pttLockManager.releaseLock(clientId);
+      if (this.deps.physicalTxCoordinator.getSnapshot().phase === 'unknown') {
+        logger.error('Voice TX hardware stop unconfirmed after startup rollback: retaining PTT lock');
+      } else {
+        this.pttLockManager.releaseLock(clientId);
+      }
       this.audioStreamManager.setVoiceTxOutputEnabled(false);
       this.audioStreamManager.clearVoicePlaybackQueue();
       this.diagnostics.endSession();
@@ -171,7 +191,8 @@ export class VoiceSessionManager extends EventEmitter<VoiceSessionManagerEvents>
     if (!this.pttLockManager.isLocked()) return true;
     if (this.pttLockManager.getLockHolder() !== clientId) return false;
 
-    await this.stopTransmitInternal('released by client');
+    const confirmed = await this.stopTransmitInternal('released by client');
+    if (!confirmed) return false;
     this.pttLockManager.releaseLock(clientId);
     return true;
   }
@@ -179,11 +200,21 @@ export class VoiceSessionManager extends EventEmitter<VoiceSessionManagerEvents>
   /**
    * Handle client disconnect - auto-release PTT if held.
    */
+  /** Stop the physical voice TX lease when its associated media transport disappears. */
+  async handleParticipantDisconnect(participantIdentity: string): Promise<void> {
+    if (!participantIdentity || this.pttLockManager.getVoiceAudioClientId() !== participantIdentity) return;
+    const holder = this.pttLockManager.getLockHolder();
+    if (holder) {
+      logger.warn('Voice TX media transport disconnected; releasing physical PTT lease', { participantIdentity });
+      await this.stopTransmit(holder);
+    }
+  }
+
   async handleClientDisconnect(clientId: string): Promise<void> {
     if (this.pttLockManager.isLocked() && this.pttLockManager.getLockHolder() === clientId) {
       logger.info('Client disconnected while holding PTT, auto-releasing', { clientId });
-      await this.stopTransmitInternal('client disconnected');
-      this.pttLockManager.handleClientDisconnect(clientId);
+      const confirmed = await this.stopTransmitInternal('client disconnected');
+      if (confirmed) this.pttLockManager.handleClientDisconnect(clientId);
     }
   }
 
@@ -251,6 +282,7 @@ export class VoiceSessionManager extends EventEmitter<VoiceSessionManagerEvents>
       return;
     }
 
+    this.mediaLastFrameAtMs = Date.now();
     this.diagnostics.noteIngress(meta);
     await this.audioStreamManager.playVoiceAudio(pcmData, meta.sampleRate, meta);
   }
@@ -298,6 +330,7 @@ export class VoiceSessionManager extends EventEmitter<VoiceSessionManagerEvents>
   }
 
   destroy(): void {
+    this.stopMediaWatchdog();
     this.audioStreamManager.setVoiceOutputObserver(null);
     this.pttLockManager.destroy();
     this.removeAllListeners();
@@ -305,18 +338,61 @@ export class VoiceSessionManager extends EventEmitter<VoiceSessionManagerEvents>
 
   // ---- Private helpers ----
 
-  private async stopTransmitInternal(reason: string): Promise<void> {
+  private startMediaWatchdog(participantIdentity: string): void {
+    this.stopMediaWatchdog();
+    this.mediaLastFrameAtMs = Date.now();
+    this.mediaWatchdogTimer = setInterval(() => {
+      if (!this.pttLockManager.isLocked()
+        || this.pttLockManager.getVoiceAudioClientId() !== participantIdentity) {
+        this.stopMediaWatchdog();
+        return;
+      }
+      if (Date.now() - this.mediaLastFrameAtMs < MEDIA_IDLE_TIMEOUT_MS) return;
+      this.stopMediaWatchdog();
+      const holder = this.pttLockManager.getLockHolder();
+      logger.error('Voice TX media frames stopped; initiating hardware PTT release', {
+        participantIdentity,
+        idleMs: Date.now() - this.mediaLastFrameAtMs,
+      });
+      if (holder) {
+        void this.stopTransmit(holder).then((released) => {
+          if (!released) logger.error('Media watchdog could not confirm hardware PTT release');
+        }).catch((error: unknown) => logger.error('Media watchdog PTT release failed', error));
+      }
+    }, MEDIA_WATCHDOG_INTERVAL_MS);
+  }
+
+  private stopMediaWatchdog(): void {
+    if (this.mediaWatchdogTimer) clearInterval(this.mediaWatchdogTimer);
+    this.mediaWatchdogTimer = null;
+  }
+
+  private async stopTransmitInternal(reason: string): Promise<boolean> {
     ++this.transmitGeneration;
+    this.stopMediaWatchdog();
+    // Immediately gate TX audio even if the hardware PTT command is slow.
+    this.audioStreamManager.setVoiceTxOutputEnabled(false);
+    this.audioStreamManager.clearVoicePlaybackQueue();
     // 1. Release only the lease owned by this voice session.
     let pttStillUncertain = false;
     if (this.physicalLeaseId) {
       try {
-        const result = await this.deps.physicalTxCoordinator.releaseLease(this.physicalLeaseId, reason);
-        pttStillUncertain = !result.success
-          && this.deps.physicalTxCoordinator.getSnapshot().phase === 'unknown';
+        const recoveringUnknown = this.deps.physicalTxCoordinator.getSnapshot().phase === 'unknown';
+        const result = recoveringUnknown
+          ? await this.deps.physicalTxCoordinator.retryUnknownStop(reason)
+          : await this.deps.physicalTxCoordinator.releaseLease(this.physicalLeaseId, reason);
+        // retryUnknownStop deliberately returns success:false to preserve the
+        // original failed transmission result even if the physical stop has
+        // now recovered. For recovery, the terminal idle phase and non-null
+        // result confirm release; normal releases additionally need success.
+        pttStillUncertain = !result
+          || this.deps.physicalTxCoordinator.getSnapshot().phase !== 'idle'
+          || (!recoveringUnknown && !result.success);
         if (!pttStillUncertain) this.physicalLeaseId = null;
       } catch (err) {
-        pttStillUncertain = this.deps.physicalTxCoordinator.getSnapshot().phase === 'unknown';
+        // A failed physical command cannot be treated as a safe RX state,
+        // even if a separately sampled snapshot happened to report idle.
+        pttStillUncertain = true;
         logger.error('Failed to release voice PTT lease', err);
       }
     }
@@ -332,7 +408,12 @@ export class VoiceSessionManager extends EventEmitter<VoiceSessionManagerEvents>
       source: this.getPttSource(this.pttLockManager.getLockHolder()),
     });
 
-    logger.info('Voice transmission stopped', { reason });
+    if (pttStillUncertain) {
+      logger.error('Voice PTT release unconfirmed: retaining lock and blocking further TX', { reason });
+    } else {
+      logger.info('Voice transmission stopped', { reason });
+    }
+    return !pttStillUncertain;
   }
 
   private getPttSource(clientId: string | null | undefined): 'manual' | 'voice-keyer' {

@@ -104,6 +104,7 @@ export class VoiceCapture {
   private captureBackend: CompatCaptureBackend | null = null;
   private captureBackendSourceConnected = false;
   private startPromise: Promise<void> | null = null;
+  private lifecycleGeneration = 0;
   private pttActive = false;
   private _participantIdentity: string | null = null;
   private transportKind: RealtimeTransportKind | null = null;
@@ -193,13 +194,13 @@ export class VoiceCapture {
   }
 
   async start(options?: VoiceCaptureStartOptions): Promise<void> {
-    if (this.startPromise) {
-      return this.startPromise;
-    }
+    if (this.state === 'capturing') return;
+    if (this.startPromise) return this.startPromise;
 
+    const generation = this.lifecycleGeneration;
     this.setState('starting');
 
-    this.startPromise = (async () => {
+    const pending = (async () => {
       try {
         const result = await executeRealtimeSessionFlow({
           scope: 'radio',
@@ -209,12 +210,15 @@ export class VoiceCapture {
           audioCodecPreference: options?.audioCodecPreference ?? loadRealtimeAudioCodecPreference(),
           audioCodecCapabilities: await getRealtimeAudioCodecCapabilities(),
           connectStage: 'connect',
-          startCompat: (offer, txBufferPolicy, audioCodecPolicy) => this.startCompatCapture(offer, txBufferPolicy, audioCodecPolicy),
-          startRtcDataAudio: (offer, hints, txBufferPolicy, audioCodecPolicy) => this.startRtcDataAudioCapture(offer, hints, txBufferPolicy, audioCodecPolicy),
+          startCompat: (offer, txBufferPolicy, audioCodecPolicy) => this.startCompatCapture(offer, txBufferPolicy, audioCodecPolicy, generation),
+          startRtcDataAudio: (offer, hints, txBufferPolicy, audioCodecPolicy) => this.startRtcDataAudioCapture(offer, hints, txBufferPolicy, audioCodecPolicy, generation),
           cleanupFailedAttempt: () => {
             this.cleanupTransportOnly({ preserveCaptureBackend: true });
           },
         });
+        if (generation !== this.lifecycleGeneration) {
+          throw new Error('Voice capture was stopped during connection establishment');
+        }
         this.activeTxBufferPolicy = result.voiceTxBufferPolicy
           ?? resolveVoiceTxBufferPolicy(options?.voiceTxBufferPreference);
         this.activeAudioCodecPolicy = result.audioCodecPolicy;
@@ -224,25 +228,26 @@ export class VoiceCapture {
         this.transportKind = result.transport;
         this.setState('capturing');
       } catch (error) {
-        logger.error('Failed to start voice capture', error);
-        this.setState('error');
-        this.options.onError?.(error as Error);
-        this.cleanup();
+        if (generation === this.lifecycleGeneration) {
+          logger.error('Failed to start voice capture', error);
+          this.setState('error');
+          this.options.onError?.(error as Error);
+          this.cleanup();
+        }
         throw error;
       }
     })();
 
+    this.startPromise = pending;
     try {
-      await this.startPromise;
+      await pending;
     } finally {
-      if (this.state !== 'capturing') {
-        this.startPromise = null;
-      }
+      if (this.startPromise === pending) this.startPromise = null;
     }
   }
 
   stop(): void {
-    if (this.state === 'idle') return;
+    if (this.state === 'idle' && !this.startPromise) return;
 
     this.pttActive = false;
     this.cleanup();
@@ -428,10 +433,21 @@ export class VoiceCapture {
     };
   }
 
+  private handleTransportLoss(transport: RealtimeTransportKind): void {
+    if (this.state !== 'capturing') return;
+    const error = new Error(`Voice uplink ${transport} disconnected`);
+    logger.warn('Voice capture transport lost', { transport, pttActive: this.pttActive });
+    this.pttActive = false;
+    this.cleanup();
+    this.setState('error');
+    this.options.onError?.(error);
+  }
+
   private async startCompatCapture(
     offer: RealtimeTransportOffer,
     txBufferPolicy?: ResolvedVoiceTxBufferPolicy,
     audioCodecPolicy?: ResolvedRealtimeAudioCodecPolicy,
+    expectedGeneration = this.lifecycleGeneration,
   ): Promise<void> {
     const {
       mediaStream,
@@ -439,6 +455,9 @@ export class VoiceCapture {
       mediaSource,
       captureBackend,
     } = await this.ensureCompatCaptureRuntime();
+    if (expectedGeneration !== this.lifecycleGeneration) {
+      throw new Error('Voice capture stopped during microphone setup');
+    }
     captureBackend.setFrameHandler(null);
 
     await new Promise<void>((resolve, reject) => {
@@ -449,32 +468,51 @@ export class VoiceCapture {
         if (resolved) {
           return;
         }
-        reject(new Error('Realtime compatibility uplink timed out before ready'));
+        resolved = true;
+        reject(new Error('Realtime compatibility uplink timed out before server ready'));
+        ws.close();
       }, COMPAT_CAPTURE_CONNECT_TIMEOUT_MS);
 
-      ws.onopen = () => {
-        resolved = true;
-        window.clearTimeout(timer);
-        this.compatSocket = ws;
-        resolve();
+      this.compatSocket = ws;
+      ws.onmessage = (event) => {
+        if (resolved || typeof event.data !== 'string') return;
+        try {
+          const message = JSON.parse(event.data) as { type?: string; direction?: string };
+          if (message.type === 'ready' && message.direction === 'send') {
+            resolved = true;
+            window.clearTimeout(timer);
+            resolve();
+          }
+        } catch {
+          // Ignore irrelevant or malformed control frames before readiness.
+        }
       };
 
       ws.onerror = () => {
+        if (resolved) return;
+        resolved = true;
         window.clearTimeout(timer);
         reject(new Error('Realtime compatibility uplink WebSocket failed'));
       };
 
       ws.onclose = () => {
         if (!resolved) {
+          resolved = true;
           window.clearTimeout(timer);
           reject(new Error('Realtime compatibility uplink closed before ready'));
         }
       };
     });
 
+    if (expectedGeneration !== this.lifecycleGeneration) {
+      this.compatSocket?.close();
+      throw new Error('Voice capture stopped during WS connection');
+    }
+
     if (this.compatSocket) {
+      const activeSocket = this.compatSocket;
       this.compatSocket.onclose = () => {
-        logger.warn('Realtime compatibility uplink closed unexpectedly');
+        if (this.compatSocket === activeSocket) this.handleTransportLoss('ws-compat');
       };
     }
 
@@ -577,6 +615,7 @@ export class VoiceCapture {
     hints?: RealtimeConnectivityHints,
     txBufferPolicy?: ResolvedVoiceTxBufferPolicy,
     audioCodecPolicy?: ResolvedRealtimeAudioCodecPolicy,
+    expectedGeneration = this.lifecycleGeneration,
   ): Promise<void> {
     const {
       mediaStream,
@@ -584,6 +623,9 @@ export class VoiceCapture {
       mediaSource,
       captureBackend,
     } = await this.ensureCompatCaptureRuntime();
+    if (expectedGeneration !== this.lifecycleGeneration) {
+      throw new Error('Voice capture stopped during microphone setup');
+    }
     captureBackend.setFrameHandler(null);
     const client = new RtcDataAudioClient({
       offer,
@@ -592,13 +634,15 @@ export class VoiceCapture {
         this.handleClockSyncControlMessage(message);
       },
       onClose: () => {
-        if (this.rtcDataAudioClient === client) {
-          logger.warn('rtc-data-audio uplink closed unexpectedly');
-        }
+        if (this.rtcDataAudioClient === client) this.handleTransportLoss('rtc-data-audio');
       },
     });
     this.rtcDataAudioClient = client;
     await client.connect();
+    if (!client.isOpen || this.rtcDataAudioClient !== client || expectedGeneration !== this.lifecycleGeneration) {
+      client.close();
+      throw new Error('RTC uplink closed during connection establishment');
+    }
     this.startClockSync((payload) => client.sendJson(payload as Record<string, unknown>));
     this.startTimingProbe();
 
@@ -795,6 +839,7 @@ export class VoiceCapture {
   }
 
   private cleanup(options: VoiceCaptureCleanupOptions = {}): void {
+    ++this.lifecycleGeneration;
     const { preserveInteractiveRuntime = false } = options;
 
     this.cleanupTransportOnly({ preserveCaptureBackend: preserveInteractiveRuntime });

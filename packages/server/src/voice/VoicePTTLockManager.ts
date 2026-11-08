@@ -6,6 +6,7 @@ const logger = createLogger('VoicePTTLockManager');
 
 export interface VoicePTTLockManagerEvents {
   lockChanged: (lock: VoicePTTLock) => void;
+  lockTimedOut: (clientId: string) => void;
 }
 
 /**
@@ -34,9 +35,12 @@ export class VoicePTTLockManager extends EventEmitter<VoicePTTLockManagerEvents>
     if (this.lock.locked) {
       if (this.lock.lockedBy === clientId) {
         // Already held by this client - idempotent success, update voice audio client ID
-        if (voiceAudioClientId) {
-          this._voiceAudioClientId = voiceAudioClientId;
+        // Rebinding live PTT to a different media peer could bypass old-peer
+        // disconnect safety. Require the current lease to be stopped first.
+        if (voiceAudioClientId && this._voiceAudioClientId && this._voiceAudioClientId !== voiceAudioClientId) {
+          return { success: false, reason: 'Release PTT before switching the voice audio participant' };
         }
+        if (voiceAudioClientId) this._voiceAudioClientId = voiceAudioClientId;
         return { success: true };
       }
       return {
@@ -149,7 +153,10 @@ export class VoicePTTLockManager extends EventEmitter<VoicePTTLockManagerEvents>
           holder: this.lock.lockedBy,
           timeoutMs: this.lock.timeoutMs,
         });
-        this.doRelease('timeout');
+        // The physical radio lease must be released before the logical lock.
+        // VoiceSessionManager owns that asynchronous, hardware-aware operation.
+        const holder = this.lock.lockedBy;
+        if (holder) this.emit('lockTimedOut', holder);
       }
     }, this.lock.timeoutMs);
   }

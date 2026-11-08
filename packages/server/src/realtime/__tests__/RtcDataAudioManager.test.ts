@@ -60,8 +60,8 @@ vi.mock('node-datachannel', () => {
     onLocalCandidate(): void {}
     onStateChange(): void {}
     createDataChannel(): FakeDataChannel { return new FakeDataChannel(); }
-    setRemoteDescription(): void {}
-    addRemoteCandidate(): void {}
+    readonly setRemoteDescription = vi.fn();
+    readonly addRemoteCandidate = vi.fn();
   }
 
   const fakeModule = {
@@ -203,6 +203,33 @@ describe('RtcDataAudioManager', () => {
     expect(peer.close).toHaveBeenCalledTimes(1);
     expect(source.listenerCount('audioFrame')).toBe(0);
     expect(source.listenerCount('unavailable')).toBe(0);
+  });
+
+  it('queues RTC remote ICE until answer and cleans up a closed signaling socket', async () => {
+    const source = Object.assign(new EventEmitter(), {
+      id: 'native-radio:radio', sourcePath: 'native-radio' as const,
+      isAvailable: () => true, getLatestStats: () => null,
+    });
+    const manager = new RtcDataAudioManager({} as never, { resolveSource: () => source } as never);
+    const offer = await manager.buildOffer({ scope: 'radio', direction: 'recv', role: UserRole.VIEWER });
+    const socket = Object.assign(new EventEmitter(), {
+      readyState: 1, send: vi.fn(), close: vi.fn(),
+    });
+    manager.acceptConnection(socket as never, `/api/realtime/rtc-data-audio?token=${offer?.token}`);
+    await vi.waitFor(() => expect(rtcTestState.dataChannels).toHaveLength(1));
+    const peer = rtcTestState.peers[0] as {
+      setRemoteDescription: ReturnType<typeof vi.fn>;
+      addRemoteCandidate: ReturnType<typeof vi.fn>;
+      close: ReturnType<typeof vi.fn>;
+    };
+    socket.emit('message', Buffer.from(JSON.stringify({ type: 'candidate', candidate: 'candidate:1', mid: '0' })));
+    expect(peer.addRemoteCandidate).not.toHaveBeenCalled();
+    socket.emit('message', Buffer.from(JSON.stringify({ type: 'answer', sdp: 'v=0', sdpType: 'answer' })));
+    expect(peer.setRemoteDescription).toHaveBeenCalledWith('v=0', 'answer');
+    expect(peer.addRemoteCandidate).toHaveBeenCalledWith('candidate:1', '0');
+    socket.emit('close');
+    expect(peer.close).toHaveBeenCalledTimes(1);
+    expect(source.listenerCount('audioFrame')).toBe(0);
   });
 
   it('keeps paced 20 ms PCM monitor frames flowing with nonzero DataChannel backlog', async () => {

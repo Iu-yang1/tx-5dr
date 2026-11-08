@@ -1790,6 +1790,111 @@ describe('PhysicalRadioManager', () => {
     await expect(PhysicalRadioManager.getRigConfigSchema(2036)).resolves.toMatchObject({ portType: 'network', endpointKind: 'network-address' });
   });
 
+  describe('fake frequency public RX dial isolation', () => {
+    it('keeps the logical RX dial visible without polling the shifted TX dial', async () => {
+      const getFrequency = vi.fn().mockResolvedValue(7_074_436);
+      const setFrequency = vi.fn().mockResolvedValue(undefined);
+      asTestManager(manager).connection = { getFrequency, setFrequency, setKnownFrequency: vi.fn() };
+      asTestManager(manager).lastKnownFrequency = 7_074_000;
+      const observed: number[] = [];
+      manager.on('radioFrequencyChanged', (frequency) => observed.push(frequency));
+
+      expect(await manager.setTxDialOffset(436)).toBe(true);
+      await expect(manager.getFrequency()).resolves.toBe(7_074_000);
+      expect(getFrequency).not.toHaveBeenCalled();
+      expect(manager.getKnownFrequency()).toBe(7_074_000);
+      expect(observed).toEqual([]);
+      await manager.clearTxDialOffset();
+    });
+
+    it('discards a public CAT read that returns a TX-shifted dial after the offset starts', async () => {
+      const read = createDeferred<number>();
+      const getFrequency = vi.fn().mockReturnValue(read.promise);
+      asTestManager(manager).connection = {
+        getFrequency,
+        setFrequency: vi.fn().mockResolvedValue(undefined),
+        setKnownFrequency: vi.fn(),
+      };
+      asTestManager(manager).lastKnownFrequency = 7_074_000;
+      const observed: number[] = [];
+      manager.on('radioFrequencyChanged', (frequency) => observed.push(frequency));
+
+      const pendingRead = manager.getFrequency();
+      await Promise.resolve();
+      expect(await manager.setTxDialOffset(436)).toBe(true);
+      read.resolve(7_074_436);
+      await expect(pendingRead).resolves.toBe(7_074_000);
+      expect(manager.getKnownFrequency()).toBe(7_074_000);
+      expect(observed).toEqual([]);
+      await manager.clearTxDialOffset();
+    });
+
+    it('discards an in-flight frequency monitor poll that overlaps a TX dial shift', async () => {
+      const read = createDeferred<number>();
+      asTestManager(manager).connection = {
+        getType: vi.fn().mockReturnValue(RadioConnectionType.HAMLIB),
+        getFrequency: vi.fn().mockReturnValue(read.promise),
+        setFrequency: vi.fn().mockResolvedValue(undefined),
+        setKnownFrequency: vi.fn(),
+        isCriticalOperationActive: vi.fn().mockReturnValue(false),
+      };
+      asTestManager(manager).lastKnownFrequency = 7_074_000;
+      vi.spyOn(manager, 'isConnected').mockReturnValue(true);
+      const observed: number[] = [];
+      manager.on('radioFrequencyChanged', (frequency) => observed.push(frequency));
+
+      const poll = asTestManager(manager).checkFrequencyChange();
+      await Promise.resolve();
+      expect(await manager.setTxDialOffset(436)).toBe(true);
+      read.resolve(7_074_436);
+      await poll;
+
+      expect(manager.getKnownFrequency()).toBe(7_074_000);
+      expect(observed).toEqual([]);
+      await manager.clearTxDialOffset();
+    });
+
+    it('fences an ambiguous CAT offset failure until the saved RX dial is restored', async () => {
+      const setFrequency = vi.fn()
+        .mockRejectedValueOnce(new Error('CAT write timed out after sending'))
+        .mockResolvedValueOnce(undefined);
+      asTestManager(manager).connection = { setFrequency, setKnownFrequency: vi.fn() };
+      asTestManager(manager).lastKnownFrequency = 7_074_000;
+
+      await expect(manager.setTxDialOffset(436)).resolves.toBe(false);
+      expect(manager.isTxDialOffsetActive()).toBe(true);
+      await expect(manager.getFrequency()).resolves.toBe(7_074_000);
+      await manager.clearTxDialOffset();
+
+      expect(setFrequency).toHaveBeenNthCalledWith(1, 7_074_436);
+      expect(setFrequency).toHaveBeenNthCalledWith(2, 7_074_000);
+      expect(manager.isTxDialOffsetActive()).toBe(false);
+    });
+
+    it('never accepts an old TX-offset observation even after the RX dial has been restored', async () => {
+      const read = createDeferred<number>();
+      const getFrequency = vi.fn().mockReturnValueOnce(read.promise).mockResolvedValue(7_074_000);
+      asTestManager(manager).connection = {
+        getFrequency,
+        setFrequency: vi.fn().mockResolvedValue(undefined),
+        setKnownFrequency: vi.fn(),
+      };
+      asTestManager(manager).lastKnownFrequency = 7_074_000;
+      const observed: number[] = [];
+      manager.on('radioFrequencyChanged', (frequency) => observed.push(frequency));
+
+      const pendingRead = manager.getFrequency();
+      await Promise.resolve();
+      await manager.setTxDialOffset(436);
+      await manager.clearTxDialOffset();
+      read.resolve(7_074_436);
+      await expect(pendingRead).resolves.toBe(7_074_000);
+      expect(manager.getKnownFrequency()).toBe(7_074_000);
+      expect(observed).toEqual([]);
+      await expect(manager.getFrequency()).resolves.toBe(7_074_000);
+    });
+  });
+
   describe('fake frequency TX dial offset', () => {
     it('suppresses connection frequency events while applying and restoring the TX offset', async () => {
       const connection = Object.assign(new EventEmitter(), {
