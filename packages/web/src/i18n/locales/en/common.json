@@ -167,6 +167,9 @@
     "currentColor": "Current color: {{value}}"
   },
   "slotPacks": {
+      "targetRequestSent": "Operator request sent",
+      "targetRequestPending": "{{callsign}} → operator {{operator}}; awaiting remote processing",
+      "targetRequestFailed": "Could not send operator request",
     "noMessages": "No decoded messages",
     "connectFirst": "Please connect to TX5DR server first",
     "startEngine": "Please start the decode engine",
