@@ -8,9 +8,12 @@ export const PublicTunnelSettingsSchema = z.object({
   remoteWebPort: z.number().int().min(1).max(65535).default(18076),
   remoteUdpPort: z.number().int().min(1).max(65535).default(50110),
   localUdpPort: z.number().int().min(1).max(65535).default(50110),
+  localWebPort: z.number().int().min(0).max(65535).default(0),
+  localWebIP: z.string().min(1).max(253).default('127.0.0.1'),
+  localUdpIP: z.string().min(1).max(253).default('127.0.0.1'),
   webProxyName: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/).default('tx5dr-web'),
   rtcUdpProxyName: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/).default('tx5dr-rtc-udp'),
-  trustedCaFile: z.string().default(''),
+  logLevel: z.enum(['error', 'warn', 'info', 'debug']).default('warn'),
   autoStart: z.boolean().default(false),
 });
 export type PublicTunnelSettings = z.infer<typeof PublicTunnelSettingsSchema>;

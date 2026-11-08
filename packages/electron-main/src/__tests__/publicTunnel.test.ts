@@ -15,7 +15,6 @@ const settings = {
   frpcPath: path.resolve(process.execPath),
   serverHost: 'tunnel.example.com',
   publicHost: 'radio.example.com',
-  trustedCaFile: path.resolve('/tmp/ca.crt'),
 };
 
 describe('isolated public tunnel configuration', () => {
@@ -24,10 +23,11 @@ describe('isolated public tunnel configuration', () => {
     expect(DEFAULT_PUBLIC_TUNNEL_SETTINGS.serverHost).toBe('');
   });
 
-  it('builds a verified FRP TLS connection and separate web/UDP proxies', () => {
+  it('builds TLS-encrypted FRP with the configured web/UDP proxies', () => {
     const token = 'S'.repeat(40);
     const file = renderFrpcToml(settings, token, 8077);
-    expect(file).toContain('transport.tls.trustedCaFile');
+    expect(file).toContain('transport.tls.enable = true');
+    expect(file).not.toContain('transport.tls.trustedCaFile');
     expect(file).not.toContain('transport.tls.useSystemCa');
     expect(file).toContain('name = "tx5dr-web"');
     expect(file).toContain('name = "tx5dr-rtc-udp"');
@@ -39,13 +39,35 @@ describe('isolated public tunnel configuration', () => {
     expect(file).toContain(token);
   });
 
-  it('requires a trusted FRPS CA instead of emitting unsupported or insecure TLS options', () => {
-    expect(() => renderFrpcToml({ ...settings, trustedCaFile: '' }, 'S'.repeat(40), 8076))
-      .toThrow('tunnel_trusted_ca_required');
-    const file = renderFrpcToml(settings, 'S'.repeat(40), 8076);
-    expect(file).not.toContain('transport.tls.useSystemCa');
-    expect(file).not.toContain('tls.skipVerify');
-    expect(file).not.toContain('insecureSkipVerify');
+  it('matches the field-tested LAN FRPC transport and proxy endpoints without a CA field', () => {
+    const file = renderFrpcToml({
+      ...settings,
+      serverHost: 'langd.space',
+      publicHost: 'langd.space',
+      localWebIP: '192.168.1.5',
+      localWebPort: 10443,
+      remoteWebPort: 18443,
+      localUdpIP: '192.168.1.5',
+      localUdpPort: 50110,
+      remoteUdpPort: 18444,
+      webProxyName: 'jvm-tx5dr-web',
+      rtcUdpProxyName: 'jvm-tx5dr-rtc-udp',
+      logLevel: 'info',
+    }, 'redacted-fixture-token', 8076);
+    expect(file).toContain('serverAddr = "langd.space"');
+    expect(file).toContain('transport.tls.enable = true');
+    expect(file).toContain('transport.tls.serverName = "langd.space"');
+    expect(file).not.toContain('trustedCaFile');
+    expect(file).not.toContain('useSystemCa');
+    expect(file).toContain('log.level = "info"');
+    expect(file).toMatch(/name = "jvm-tx5dr-web"\ntype = "tcp"\nlocalIP = "192.168.1.5"\nlocalPort = 10443\nremotePort = 18443/);
+    expect(file).toMatch(/name = "jvm-tx5dr-rtc-udp"\ntype = "udp"\nlocalIP = "192.168.1.5"\nlocalPort = 50110\nremotePort = 18444/);
+  });
+
+  it('defaults to the automatically selected TX5DR gateway port, with independent UDP host', () => {
+    const file = renderFrpcToml({ ...settings, localWebIP: '127.0.0.1', localWebPort: 0, localUdpIP: '192.168.1.5' }, 'test', 9876);
+    expect(file).toContain('localPort = 9876');
+    expect(file).toContain('localIP = "192.168.1.5"');
   });
 
   it('renders independent user-selected TCP and UDP proxy names safely', () => {
@@ -72,6 +94,11 @@ describe('isolated public tunnel configuration', () => {
   it('rejects unsafe or ambiguous input', () => {
     expect(() => validatePublicTunnelSettings({ ...settings, serverHost: 'https://invalid.example' })).toThrow();
     expect(() => validatePublicTunnelSettings({ ...settings, remoteWebPort: 0 })).toThrow();
+    expect(() => validatePublicTunnelSettings({ ...settings, localWebPort: -1 })).toThrow('tunnel_invalid_port');
+    expect(() => validatePublicTunnelSettings({ ...settings, localWebPort: 65536 })).toThrow('tunnel_invalid_port');
+    expect(() => validatePublicTunnelSettings({ ...settings, localWebIP: 'https://host' })).toThrow('tunnel_invalid_local_ip');
+    expect(() => validatePublicTunnelSettings({ ...settings, localUdpIP: '0.0.0.0' })).toThrow('tunnel_invalid_local_ip');
+    expect(() => validatePublicTunnelSettings({ ...settings, logLevel: 'trace' as never })).toThrow('tunnel_invalid_log_level');
     expect(() => renderFrpcToml(settings, '', 8076)).toThrow('tunnel_token_invalid');
     expect(() => renderFrpcToml(settings, '   ', 8076)).toThrow('tunnel_token_invalid');
     expect(() => validateFrpAuthToken('abc\n123')).toThrow('tunnel_token_invalid');
@@ -88,20 +115,32 @@ describe('isolated public tunnel configuration', () => {
   it('migrates previously saved tunnel settings using the original proxy names', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'tx5dr-frpc-legacy-'));
     try {
-      const { webProxyName: _webProxyName, rtcUdpProxyName: _rtcUdpProxyName, ...legacy } = settings;
+      const {
+        webProxyName: _webProxyName, rtcUdpProxyName: _rtcUdpProxyName,
+        localWebIP: _localWebIP, localWebPort: _localWebPort, localUdpIP: _localUdpIP,
+        logLevel: _logLevel, ...legacy
+      } = settings;
       const configDir = path.join(root, 'public-tunnel');
       await mkdir(configDir, { recursive: true });
-      await writeFile(path.join(configDir, 'settings.json'), JSON.stringify(legacy));
+      await writeFile(path.join(configDir, 'settings.json'), JSON.stringify({
+        ...legacy,
+        trustedCaFile: '/legacy/old-ca.crt',
+      }));
       const manager = new PublicTunnelManager(root);
       const loaded = await manager.loadSettings();
       expect(loaded.webProxyName).toBe('tx5dr-web');
       expect(loaded.rtcUdpProxyName).toBe('tx5dr-rtc-udp');
+      expect(loaded.localWebIP).toBe('127.0.0.1');
+      expect(loaded.localWebPort).toBe(0);
+      expect(loaded.localUdpIP).toBe('127.0.0.1');
+      expect(loaded).not.toHaveProperty('trustedCaFile');
       expect(renderFrpcToml(loaded, 'existing-secret', 8076))
         .toContain('name = "tx5dr-rtc-udp"');
       const updated = await manager.save({ webProxyName: 'my-web', rtcUdpProxyName: 'my-rtc' });
       expect(updated.settings.webProxyName).toBe('my-web');
       expect(updated.settings.rtcUdpProxyName).toBe('my-rtc');
       expect((await manager.loadSettings()).webProxyName).toBe('my-web');
+      expect((await readFile(path.join(configDir, 'settings.json'), 'utf8'))).not.toContain('trustedCaFile');
     } finally {
       await rm(root, { recursive: true, force: true });
     }

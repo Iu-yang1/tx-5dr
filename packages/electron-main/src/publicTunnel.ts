@@ -11,9 +11,13 @@ export interface PublicTunnelSettings {
   remoteWebPort: number;
   remoteUdpPort: number;
   localUdpPort: number;
+  // 0 uses the gateway port resolved by Electron at runtime.
+  localWebPort: number;
+  localWebIP: string;
+  localUdpIP: string;
   webProxyName: string;
   rtcUdpProxyName: string;
-  trustedCaFile: string;
+  logLevel: 'error' | 'warn' | 'info' | 'debug';
   autoStart: boolean;
 }
 
@@ -39,9 +43,12 @@ export const DEFAULT_PUBLIC_TUNNEL_SETTINGS: PublicTunnelSettings = {
   remoteWebPort: 18076,
   remoteUdpPort: 50110,
   localUdpPort: 50110,
+  localWebPort: 0,
+  localWebIP: '127.0.0.1',
+  localUdpIP: '127.0.0.1',
   webProxyName: 'tx5dr-web',
   rtcUdpProxyName: 'tx5dr-rtc-udp',
-  trustedCaFile: '',
+  logLevel: 'warn',
   autoStart: false,
 };
 
@@ -50,6 +57,14 @@ function checkHost(input: string): string {
   const host = input.trim().toLowerCase();
   if (!hostnamePattern.test(host) || host === 'localhost' || host === '0.0.0.0') throw new Error('tunnel_invalid_host');
   return host;
+}
+function localIP(input: string): string {
+  if (typeof input !== 'string') throw new Error('tunnel_invalid_local_ip');
+  const value = input.trim();
+  if (!hostnamePattern.test(value) || value === '0.0.0.0') {
+    throw new Error('tunnel_invalid_local_ip');
+  }
+  return value;
 }
 function port(n: unknown): number {
   if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > 65535) throw new Error('tunnel_invalid_port');
@@ -71,12 +86,17 @@ function proxyName(value: string): string {
 export function validatePublicTunnelSettings(settings: PublicTunnelSettings): PublicTunnelSettings {
   const next = { ...settings, serverHost: checkHost(settings.serverHost), publicHost: checkHost(settings.publicHost) };
   for (const key of ['serverPort', 'remoteWebPort', 'remoteUdpPort', 'localUdpPort'] as const) port(next[key]);
+  if (!Number.isInteger(next.localWebPort) || next.localWebPort < 0 || next.localWebPort > 65535) {
+    throw new Error('tunnel_invalid_port');
+  }
+  next.localWebIP = localIP(next.localWebIP);
+  next.localUdpIP = localIP(next.localUdpIP);
+  if (!['error', 'warn', 'info', 'debug'].includes(next.logLevel)) throw new Error('tunnel_invalid_log_level');
   if (next.remoteWebPort === next.remoteUdpPort) throw new Error('tunnel_web_udp_ports_conflict');
   next.webProxyName = proxyName(next.webProxyName);
   next.rtcUdpProxyName = proxyName(next.rtcUdpProxyName);
   if (next.webProxyName === next.rtcUdpProxyName) throw new Error('tunnel_duplicate_proxy_names');
   if (!path.isAbsolute(next.frpcPath)) throw new Error('tunnel_frpc_absolute_path_required');
-  if (next.trustedCaFile && !path.isAbsolute(next.trustedCaFile)) throw new Error('tunnel_ca_absolute_path_required');
   return next;
 }
 
@@ -93,9 +113,9 @@ export function renderFrpcToml(settings: PublicTunnelSettings, token: string, lo
   const cfg = validatePublicTunnelSettings(settings);
   validateFrpAuthToken(token);
   port(localWebPort);
-  // In FRP < 0.72, omitting trustedCaFile means TLS without server identity
-  // verification. Never silently downgrade this public remote to unverified TLS.
-  if (!cfg.trustedCaFile) throw new Error('tunnel_trusted_ca_required');
+  // FRPC TLS without a trust source encrypts the transport but does NOT authenticate
+  // the FRPS certificate. This mirrors the user-verified legacy FRPC configuration.
+  // TX5DR still enforces local login and Public access policy before starting.
   return [
     '# Managed by TX5DR. Contains a secret: do not share this file.',
     'serverAddr = ' + toml(cfg.serverHost),
@@ -103,23 +123,22 @@ export function renderFrpcToml(settings: PublicTunnelSettings, token: string, lo
     'auth.method = "token"',
     'auth.token = ' + toml(token),
     'transport.tls.enable = true',
-    'transport.tls.trustedCaFile = ' + toml(cfg.trustedCaFile),
     'transport.tls.serverName = ' + toml(cfg.serverHost),
     'transport.poolCount = 1',
     'log.to = "console"',
-    'log.level = "warn"',
+    'log.level = ' + toml(cfg.logLevel),
     '',
     '[[proxies]]',
     'name = ' + toml(cfg.webProxyName),
     'type = "tcp"',
-    'localIP = "127.0.0.1"',
-    'localPort = ' + localWebPort,
+    'localIP = ' + toml(cfg.localWebIP),
+    'localPort = ' + (cfg.localWebPort || localWebPort),
     'remotePort = ' + cfg.remoteWebPort,
     '',
     '[[proxies]]',
     'name = ' + toml(cfg.rtcUdpProxyName),
     'type = "udp"',
-    'localIP = "127.0.0.1"',
+    'localIP = ' + toml(cfg.localUdpIP),
     'localPort = ' + cfg.localUdpPort,
     'remotePort = ' + cfg.remoteUdpPort,
     '',
@@ -148,8 +167,11 @@ export class PublicTunnelManager {
 
   async loadSettings(): Promise<PublicTunnelSettings> {
     try {
-      const parsed = JSON.parse(await fs.readFile(this.settingsPath, 'utf-8')) as Partial<PublicTunnelSettings>;
-      return { ...DEFAULT_PUBLIC_TUNNEL_SETTINGS, ...parsed };
+      const parsed = JSON.parse(await fs.readFile(this.settingsPath, 'utf-8')) as
+        Partial<PublicTunnelSettings> & { trustedCaFile?: string };
+      // Legacy CA setting is no longer exposed or emitted by managed FRPC.
+      const { trustedCaFile: _legacyTrustedCaFile, ...persisted } = parsed;
+      return { ...DEFAULT_PUBLIC_TUNNEL_SETTINGS, ...persisted };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { ...DEFAULT_PUBLIC_TUNNEL_SETTINGS };
       throw error;
@@ -206,9 +228,7 @@ export class PublicTunnelManager {
     const token = validateFrpAuthToken(await fs.readFile(this.tokenPath, 'utf-8'));
     const executable = await fs.stat(settings.frpcPath);
     if (!executable.isFile()) throw new Error('tunnel_frpc_not_a_file');
-    if (!settings.trustedCaFile) throw new Error('tunnel_trusted_ca_required');
-    await fs.access(settings.trustedCaFile);
-    await fs.mkdir(this.dir, { recursive: true, mode: 0o700 });
+     await fs.mkdir(this.dir, { recursive: true, mode: 0o700 });
     await fs.writeFile(this.frpcConfigPath, renderFrpcToml(settings, token, localWebPort), { mode: 0o600 });
     await fs.chmod(this.frpcConfigPath, 0o600).catch(() => {});
     if (generation !== this.startGeneration) throw new Error('tunnel_start_cancelled');
