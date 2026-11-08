@@ -199,12 +199,37 @@ export async function mfskCapabilityRoutes(fastify:FastifyInstance):Promise<void
         preferencesApplyBusy=false;
       }
     });
+  // A short, per-browser-session AP lease prevents multiple operator tabs
+  // from constantly replacing each other's Q65 hypotheses. It is independent
+  // of the versioned station-wide receiver preferences.
+  const ApLeaseRequest = MfskLiveRxApContextUpdateSchema.extend({
+    clientId:z.string().min(8).max(128),
+  });
+  let apLease:{clientId:string;until:number;generation:number;key:string}|null=null;
   fastify.post('/live/ap-context',{preHandler:[requireAbility('execute','ModeSwitch')]},
     async(request,reply)=>{
-      const payload=MfskLiveRxApContextUpdateSchema.parse(request.body);
+      const payload=ApLeaseRequest.parse(request.body);
       const live=DigitalRadioEngine.getInstance().getMfskLiveRxService();
-      return reply.send(MfskLiveRxStatusSchema.parse(
-        await live.updateApContext(payload.apContext??undefined)));
+      const current=live.status();
+      if(!current.ready || current.mode!=='Q65'){
+        return reply.code(409).send({success:false,error:'Q65 receiver not ready'});
+      }
+      const now=Date.now();
+      if(apLease && apLease.generation===current.generation &&
+        apLease.until>now && apLease.clientId!==payload.clientId){
+        return reply.code(409).send({success:false,error:'Q65 AP context controlled by another session'});
+      }
+      const key=JSON.stringify(payload.apContext);
+      if(apLease?.generation!==current.generation || apLease.key!==key){
+        try{
+          await live.updateApContext(payload.apContext??undefined);
+        }catch(error){
+          return reply.code(503).send({success:false,error:error instanceof Error?error.message:String(error)});
+        }
+      }
+      apLease={clientId:payload.clientId,until:Date.now()+5500,
+        generation:current.generation,key};
+      return reply.send(MfskLiveRxStatusSchema.parse(live.status()));
     });
   fastify.post('/live/stop',{preHandler:[requireAbility('execute','ModeSwitch')]},
     async(_request,reply)=>{

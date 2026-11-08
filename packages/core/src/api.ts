@@ -620,14 +620,23 @@ export const api = {
   },
   async updateMfskLiveRxApContext(
     apContext: import('@tx5dr/contracts').MfskApContext | null,
+    clientId: string,
   ): Promise<import('@tx5dr/contracts').MfskLiveRxStatus> {
     return apiRequest('/mfsk/live/ap-context',{
-      method:'POST',body:JSON.stringify({apContext}),
+      method:'POST',body:JSON.stringify({apContext,clientId}),
     });
   },
   async stopMfskLiveRx(): Promise<import('@tx5dr/contracts').MfskLiveRxStatus> {
     return apiRequest<import('@tx5dr/contracts').MfskLiveRxStatus>('/mfsk/live/stop',{
       method:'POST',
+    });
+  },
+  async getNativeDecodePreferences(): Promise<import('@tx5dr/contracts').NativeDecodePreferencesState> {
+    return apiRequest('/mfsk/live/preferences');
+  },
+  async updateNativeDecodePreferences(payload: { mode: import('@tx5dr/contracts').NativeDigitalMode; expectedRevision: number; preferences: import('@tx5dr/contracts').NativeDecodePreferences }): Promise<import('@tx5dr/contracts').NativeDecodePreferencesState> {
+    return apiRequest('/mfsk/live/preferences', {
+      method: 'PUT', body: JSON.stringify(payload),
     });
   },
   async getMfskLiveRxStatus(): Promise<import('@tx5dr/contracts').MfskLiveRxStatus> {
