@@ -39,6 +39,11 @@ export class RtcDataAudioClient {
   private dataChannel: RTCDataChannel | null = null;
   private intentionallyClosed = false;
   private ready = false;
+  private connectPromise: Promise<void> | null = null;
+  private signalQueue: Promise<void> = Promise.resolve();
+  private pendingCandidates: RTCIceCandidateInit[] = [];
+  private disconnectTimer: number | null = null;
+  private closeNotified = false;
 
   constructor(options: RtcDataAudioClientOptions) {
     this.offer = options.offer;
@@ -59,10 +64,19 @@ export class RtcDataAudioClient {
   }
 
   async connect(): Promise<void> {
-    if (this.ready) {
-      return;
+    if (this.ready) return;
+    if (this.intentionallyClosed) throw new Error('rtc-data-audio client is closed');
+    if (this.connectPromise) return this.connectPromise;
+    const pending = this.connectInternal();
+    this.connectPromise = pending;
+    try {
+      await pending;
+    } finally {
+      if (this.connectPromise === pending) this.connectPromise = null;
     }
+  }
 
+  private async connectInternal(): Promise<void> {
     await new Promise<void>((resolve, reject) => {
       const socket = new WebSocket(`${normalizeWsUrl(this.offer.url)}?token=${encodeURIComponent(this.offer.token)}`);
       this.socket = socket;
@@ -99,6 +113,11 @@ export class RtcDataAudioClient {
         this.close();
       };
 
+      const handleFailure = (error: Error) => {
+        if (!settled) settleReject(error);
+        else this.notifyDisconnected(error);
+      };
+
       socket.onmessage = (event) => {
         if (typeof event.data !== 'string') {
           return;
@@ -110,9 +129,10 @@ export class RtcDataAudioClient {
           settleReject(error instanceof Error ? error : new Error(String(error)));
           return;
         }
-        void this.handleSignalMessage(message, settleResolve, settleReject).catch((error) => {
-          settleReject(error instanceof Error ? error : new Error(String(error)));
-        });
+        // WebSocket onmessage does not await async callbacks. Serialize SDP and ICE.
+        this.signalQueue = this.signalQueue
+          .then(() => this.intentionallyClosed ? undefined : this.handleSignalMessage(message, settleResolve, handleFailure))
+          .catch((error) => handleFailure(error instanceof Error ? error : new Error(String(error))));
       };
       socket.onerror = () => {
         settleReject(new Error('rtc-data-audio signaling WebSocket failed'));
@@ -121,7 +141,7 @@ export class RtcDataAudioClient {
         if (!this.intentionallyClosed && !settled) {
           settleReject(new Error('rtc-data-audio signaling closed before ready'));
         } else if (!this.intentionallyClosed) {
-          this.onClose?.();
+          this.notifyDisconnected(new Error('rtc-data-audio signaling closed'));
         }
       };
     });
@@ -148,6 +168,11 @@ export class RtcDataAudioClient {
   close(): void {
     this.intentionallyClosed = true;
     this.ready = false;
+    this.pendingCandidates.length = 0;
+    if (this.disconnectTimer !== null) {
+      window.clearTimeout(this.disconnectTimer);
+      this.disconnectTimer = null;
+    }
     try {
       this.dataChannel?.close();
     } catch {
@@ -168,6 +193,14 @@ export class RtcDataAudioClient {
     this.socket = null;
   }
 
+  private notifyDisconnected(error: Error): void {
+    if (this.intentionallyClosed || this.closeNotified) return;
+    this.closeNotified = true;
+    logger.warn('rtc-data-audio transport disconnected', { reason: error.message });
+    this.close();
+    this.onClose?.();
+  }
+
   private async handleSignalMessage(
     message: SignalMessage,
     onReady: () => void,
@@ -178,10 +211,16 @@ export class RtcDataAudioClient {
       return;
     }
     if (message.type === 'candidate' && message.candidate) {
-      await this.peer?.addIceCandidate({ candidate: message.candidate, sdpMid: message.mid ?? '0' });
+      const candidate = { candidate: message.candidate, sdpMid: message.mid ?? '0' };
+      if (!this.peer?.remoteDescription) {
+        if (this.pendingCandidates.length >= 128) throw new Error('rtc-data-audio ICE candidate queue overflow');
+        this.pendingCandidates.push(candidate);
+      } else {
+        await this.peer.addIceCandidate(candidate);
+      }
       return;
     }
-    if (message.type === 'ready') {
+    if (message.type === 'ready' && this.dataChannel?.readyState === 'open') {
       onReady();
     }
   }
@@ -196,6 +235,9 @@ export class RtcDataAudioClient {
       this.peer = this.createPeerConnection(onReady, onFailure);
     }
     await this.peer.setRemoteDescription({ type, sdp });
+    for (const candidate of this.pendingCandidates.splice(0)) {
+      await this.peer.addIceCandidate(candidate);
+    }
     const answer = await this.peer.createAnswer();
     await this.peer.setLocalDescription(answer);
     this.sendSignal({ type: 'answer', sdp: answer.sdp, sdpType: answer.type });
@@ -220,11 +262,17 @@ export class RtcDataAudioClient {
       this.bindDataChannel(event.channel, onReady);
     };
     peer.onconnectionstatechange = () => {
-      if (peer.connectionState === 'failed' || peer.connectionState === 'closed') {
-        logger.warn('rtc-data-audio peer connection state changed', { state: peer.connectionState });
-      }
-      if (peer.connectionState === 'failed' && !this.intentionallyClosed) {
-        onFailure(new Error('rtc-data-audio peer connection failed'));
+      if (this.intentionallyClosed) return;
+      if (peer.connectionState === 'connected') {
+        if (this.disconnectTimer !== null) window.clearTimeout(this.disconnectTimer);
+        this.disconnectTimer = null;
+      } else if (peer.connectionState === 'disconnected' && this.ready && this.disconnectTimer === null) {
+        this.disconnectTimer = window.setTimeout(() => {
+          this.disconnectTimer = null;
+          if (peer.connectionState === 'disconnected') onFailure(new Error('rtc-data-audio peer disconnected'));
+        }, 3000);
+      } else if (peer.connectionState === 'failed' || peer.connectionState === 'closed') {
+        onFailure(new Error(`rtc-data-audio peer connection ${peer.connectionState}`));
       }
     };
     peer.oniceconnectionstatechange = () => {
@@ -255,9 +303,7 @@ export class RtcDataAudioClient {
       }
     };
     channel.onclose = () => {
-      if (!this.intentionallyClosed) {
-        this.onClose?.();
-      }
+      if (!this.intentionallyClosed) this.notifyDisconnected(new Error('rtc-data-audio DataChannel closed'));
     };
     channel.onerror = () => {
       logger.warn('rtc-data-audio data channel error');
