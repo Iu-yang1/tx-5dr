@@ -1,14 +1,16 @@
-import type { RealtimeScope, RealtimeSessionDirection, RealtimeTransportOffer } from '@tx5dr/contracts';
+import type { RealtimeScope, RealtimeSessionDirection, RealtimeTransportOffer, RealtimeIceServerConfig } from '@tx5dr/contracts';
 import { createLogger } from '../utils/logger';
 import { normalizeWsUrl } from '../utils/config';
 
 const logger = createLogger('RtcDataAudioClient');
-const RTC_DATA_AUDIO_CONNECT_TIMEOUT_MS = 5000;
+const RTC_DATA_AUDIO_LOCAL_CONNECT_TIMEOUT_MS = 5000;
+const RTC_DATA_AUDIO_PUBLIC_CONNECT_TIMEOUT_MS = 8000;
+const RTC_DATA_AUDIO_TURN_CONNECT_TIMEOUT_MS = 12000;
 const RTC_DATA_AUDIO_DEFAULT_STUN = 'stun:stun.l.google.com:19302';
 
 interface RtcDataAudioClientOptions {
   offer: RealtimeTransportOffer;
-  iceServers?: string[];
+  iceServers?: Array<string | RealtimeIceServerConfig>;
   onBinaryMessage?: (payload: ArrayBuffer) => void;
   onControlMessage?: (payload: unknown) => void;
   onClose?: () => void;
@@ -28,7 +30,7 @@ type SignalMessage = {
 
 export class RtcDataAudioClient {
   private readonly offer: RealtimeTransportOffer;
-  private readonly iceServers: string[];
+  private readonly iceServers: RTCIceServer[];
   private readonly onBinaryMessage?: (payload: ArrayBuffer) => void;
   private readonly onControlMessage?: (payload: unknown) => void;
   private readonly onClose?: () => void;
@@ -40,7 +42,9 @@ export class RtcDataAudioClient {
 
   constructor(options: RtcDataAudioClientOptions) {
     this.offer = options.offer;
-    this.iceServers = options.iceServers?.filter(Boolean) ?? [RTC_DATA_AUDIO_DEFAULT_STUN];
+    this.iceServers = (options.iceServers?.filter(Boolean) ?? [RTC_DATA_AUDIO_DEFAULT_STUN]).map(
+      (entry) => typeof entry === 'string' ? { urls: entry } : entry,
+    );
     this.onBinaryMessage = options.onBinaryMessage;
     this.onControlMessage = options.onControlMessage;
     this.onClose = options.onClose;
@@ -67,10 +71,18 @@ export class RtcDataAudioClient {
       const timer = window.setTimeout(() => {
         if (!settled) {
           settled = true;
-          reject(new Error('rtc-data-audio timed out before DataChannel opened'));
+          reject(new Error(
+            'rtc-data-audio timed out before DataChannel opened: '
+            + `webSocket=${socket.readyState},ice=${this.peer?.iceConnectionState || 'not-created'}`,
+          ));
           this.close();
         }
-      }, RTC_DATA_AUDIO_CONNECT_TIMEOUT_MS);
+      }, this.iceServers.some((server) =>
+        (Array.isArray(server.urls) ? server.urls : [server.urls]).some((url) => url.startsWith('turn'))
+      ) ? RTC_DATA_AUDIO_TURN_CONNECT_TIMEOUT_MS
+        : (['localhost', '127.0.0.1', '::1'].includes(window.location.hostname)
+          ? RTC_DATA_AUDIO_LOCAL_CONNECT_TIMEOUT_MS
+          : RTC_DATA_AUDIO_PUBLIC_CONNECT_TIMEOUT_MS));
 
       const settleResolve = () => {
         if (settled) return;
@@ -192,7 +204,7 @@ export class RtcDataAudioClient {
   private createPeerConnection(onReady: () => void, onFailure: (error: Error) => void): RTCPeerConnection {
     const peer = new RTCPeerConnection({
       iceServers: this.iceServers.length > 0
-        ? this.iceServers.map((urls) => ({ urls }))
+        ? this.iceServers
         : [{ urls: RTC_DATA_AUDIO_DEFAULT_STUN }],
     });
     peer.onicecandidate = (event) => {
