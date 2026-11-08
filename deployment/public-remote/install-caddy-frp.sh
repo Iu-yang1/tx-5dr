@@ -99,6 +99,17 @@ if (( DRY )); then log 'Dry run: no changes made'; exit 0; fi
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq ca-certificates curl gnupg openssl python3 tar iptables iproute2
+# Fail before modifying anything if this is a fresh install and FRP ports are taken.
+if [[ -z "$OLDHOST" ]]; then
+  for tcp_port in "$FP" "$WP"; do
+    if ss -H -ltn "( sport = :$tcp_port )" | grep -q .; then
+      fail "TCP $tcp_port already in use: choose another --frp-port or --web-port"
+    fi
+  done
+  if ss -H -lun "( sport = :$UP )" | grep -q .; then
+    fail "UDP $UP already in use: choose another --udp-port"
+  fi
+fi
 for edge in 80 443; do
   if ss -H -ltnp "( sport = :$edge )" | grep -q .; then
     ss -H -ltnp "( sport = :$edge )" | grep -q caddy ||
@@ -226,6 +237,9 @@ CADDYFILE=/etc/caddy/Caddyfile
 [[ -f "$CADDYFILE" ]] || touch "$CADDYFILE"
 BACKUP="/etc/caddy/Caddyfile.pre-tx5dr.$(date +%Y%m%d-%H%M%S)"
 cp -a "$CADDYFILE" "$BACKUP"
+SITE=/etc/caddy/tx5dr.d/tx5dr.caddy
+OLD_SITE="$TMP/old-tx5dr.caddy"
+if [[ -f "$SITE" ]]; then cp -a "$SITE" "$OLD_SITE"; fi
 if ! grep -Fqx 'import /etc/caddy/tx5dr.d/*.caddy' "$CADDYFILE"; then
   printf '\n# TX5DR managed site\nimport /etc/caddy/tx5dr.d/*.caddy\n' >> "$CADDYFILE"
 fi
@@ -249,14 +263,14 @@ $TLS
         header_up X-Forwarded-Host {host}
         header_up X-Forwarded-Proto https
         header_up X-Real-IP {remote_host}
-        stream_close_delay 5m
-    }
+     }
 }
 EOF
 chmod 644 /etc/caddy/tx5dr.d/tx5dr.caddy
 if ! caddy validate --config "$CADDYFILE" --adapter caddyfile; then
   cp -a "$BACKUP" "$CADDYFILE"
-  fail "Caddy validation failed; original config restored ($BACKUP)"
+  if [[ -f "$OLD_SITE" ]]; then cp -a "$OLD_SITE" "$SITE"; else rm -f "$SITE"; fi
+  fail "Caddy validation failed; original config and site restored ($BACKUP)"
 fi
 {
   printf 'TX5DR_HOST=%q\n' "$HOST"
