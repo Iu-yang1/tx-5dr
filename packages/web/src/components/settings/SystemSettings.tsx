@@ -1671,7 +1671,16 @@ export const SystemSettings = forwardRef<
         onChange={setRemoteAccessSettings}
       />
 
-      {isElectron && <PublicTunnelSettingsCard />}
+      {isElectron && (
+        <PublicTunnelSettingsCard
+          selectedRemoteAccessPreset={remoteAccessSettings?.preset ?? null}
+          savedRemoteAccessPreset={originalRemoteAccessSettings?.preset ?? null}
+          remoteAccessHasUnsavedChanges={Boolean(
+            remoteAccessSettings && originalRemoteAccessSettings
+            && !remoteAccessSettingsEqual(remoteAccessSettings, originalRemoteAccessSettings)
+          )}
+        />
+      )}
 
       <Card shadow="none" radius="lg" className="order-[9]" classNames={SETTINGS_CARD_CLASS_NAMES}>
         <CardBody className={SETTINGS_CARD_BODY_CLASS}>
