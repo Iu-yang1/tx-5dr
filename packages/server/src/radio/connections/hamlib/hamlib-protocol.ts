@@ -45,7 +45,7 @@ export const HAMLIB_OPERATIONS = {
   ...operations(['getFrequency', 'getRFPower', 'getAFGain', 'getRFGain', 'getSQL', 'getMicGain', 'getCompressorLevel', 'getMonitorGain', 'getNBLevel', 'getNRLevel', 'getPreampLevel', 'getAttenuatorLevel', 'getRitOffset', 'getXitOffset', 'getTuningStep', 'getRepeaterOffset', 'getCtcssTone', 'getDcsCode', 'getMaxRit', 'getMaxXit'] as const, empty, number),
   getVfo: { args: empty, result: z.string() },
   setVfo: { args: z.tuple([z.string()]), result: z.void() },
-  ...operations(['setFrequency', 'setRFPower', 'setAFGain', 'setSQL', 'setMicGain', 'setCompressorLevel', 'setMonitorGain', 'setNBLevel', 'setNRLevel', 'setPreampLevel', 'setAttenuatorLevel', 'setRitOffset', 'setXitOffset', 'setTuningStep', 'setRepeaterOffset', 'setCtcssTone', 'setDcsCode', 'setSpectrumSpan', 'setSplitFrequency'] as const, z.tuple([number]), z.void()),
+  ...operations(['setFrequency', 'setRFPower', 'setAFGain', 'setRFGain', 'setSQL', 'setMicGain', 'setCompressorLevel', 'setMonitorGain', 'setNBLevel', 'setNRLevel', 'setPreampLevel', 'setAttenuatorLevel', 'setRitOffset', 'setXitOffset', 'setTuningStep', 'setRepeaterOffset', 'setCtcssTone', 'setDcsCode', 'setSpectrumSpan', 'setSplitFrequency'] as const, z.tuple([number]), z.void()),
   ...operations(['getPTT', 'getDCD', 'getCompressorEnabled', 'getNBEnabled', 'getNREnabled', 'getLockMode', 'getMuteEnabled', 'getVOXEnabled', 'getSplitEnabled', 'startTuning'] as const, empty, z.boolean()),
   ...operations(['setPTT', 'setTuner', 'setCompressorEnabled', 'setNBEnabled', 'setNREnabled', 'setLockMode', 'setMuteEnabled', 'setVOXEnabled', 'setSplitEnabled'] as const, z.tuple([z.boolean()]), z.void()),
   ...operations(['getAgcMode', 'getPowerState', 'getRepeaterShift'] as const, empty, z.string()),
