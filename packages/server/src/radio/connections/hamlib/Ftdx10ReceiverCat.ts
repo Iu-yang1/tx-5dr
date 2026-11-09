@@ -30,7 +30,7 @@ const numeric = (min: number, max: number, step = 1) =>
 // Yaesu RF0 set values 1=12k, 2=3k, 4=500Hz, 5=optional 300Hz.
 // The auto mode is intentionally excluded: its hardware readback is ambiguous.
 const roofingSetToRead = new Map([[1, '6'], [2, '7'], [4, '9'], [5, 'A']]);
-const roofingReadToSet = new Map([...roofingSetToRead].map(([choice, code]) => [code, choice]));
+const roofingReadToSet = new Map<string, number>([...roofingSetToRead].map(([choice, code]) => [code, choice] as const));
 
 export const FTDX10_RECEIVER_REGISTERS: Record<Ftdx10ReceiverControl, ReceiverCatRegister> = {
   roofing_filter: {
