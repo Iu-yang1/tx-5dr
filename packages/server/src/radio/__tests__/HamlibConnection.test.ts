@@ -436,6 +436,21 @@ describe('HamlibConnection', () => {
       expect(rig.setMode).toHaveBeenCalledTimes(1);
     });
 
+    it('uses generic SSB filter metadata or Hamlib fallback widths without arbitrary guesses', async () => {
+      const generic = prepare({
+        getFilterList: vi.fn().mockResolvedValue([{ modes: ['SSB'], width: 1800 }]),
+      });
+      await expect(generic.connection.setManualModeBandwidth(1800)).resolves.toBeUndefined();
+      expect(generic.rig.setMode).toHaveBeenCalledWith('USB', 1800);
+
+      const fallback = prepare({
+        getFilterList: vi.fn().mockRejectedValue(new Error('filter table unavailable')),
+      });
+      await expect(fallback.connection.setManualModeBandwidth(1800)).resolves.toBeUndefined();
+      await expect(fallback.connection.setManualModeBandwidth(2000)).rejects.toThrow('does not advertise');
+      expect(fallback.rig.setMode).toHaveBeenCalledTimes(1);
+    });
+
     it('blocks TX, unknown PTT and Split ON without mutating the radio', async () => {
       const { connection, rig } = prepare();
       rig.getPtt.mockResolvedValue(true);
