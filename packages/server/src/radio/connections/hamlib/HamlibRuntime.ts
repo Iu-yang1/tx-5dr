@@ -4163,6 +4163,67 @@ export class HamlibRuntime
     }, { critical: true });
   }
 
+  /**
+   * Read the transmitter's Split mode independently of the RX mode and dial.
+   * The live radio selects the TX VFO; no cached RX mode is substituted.
+   */
+  async getSplitMode(): Promise<string | null> {
+    return this.runSerializedTask('getSplitMode', async () => {
+      this.checkConnected();
+      const split = await this.readSplitStatus();
+      if (!split.enabled) return null;
+
+      let lastError: unknown;
+      for (const txVfo of this.getSplitTxVfoCandidates(split.txVfo)) {
+        try {
+          const state = await this.rig!.getSplitMode(txVfo as VFO);
+          if (state?.mode && typeof state.mode === 'string') {
+            this.lastSuccessfulOperation = Date.now();
+            return normalizeModeName(state.mode);
+          }
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      if (lastError) throw this.convertError(lastError, 'getSplitMode');
+      return null;
+    }, { id: 'getSplitMode' });
+  }
+
+  /**
+   * Split TX mode is an independent operation: it must not overwrite the
+   * current RX VFO mode or the independently configured Split TX frequency.
+   */
+  async setSplitMode(txMode: string): Promise<void> {
+    await this.runSerializedTask('setSplitMode', async () => {
+      this.checkConnected();
+      const target = normalizeModeName(txMode);
+      if (!target || (this.supportedModes.size && !this.supportedModes.has(target))) {
+        throw new Error(`Split TX mode is not advertised by the radio: ${txMode}`);
+      }
+
+      const split = await this.readSplitStatus();
+      let lastError: unknown;
+      for (const txVfo of this.getSplitTxVfoCandidates(split.txVfo)) {
+        try {
+          await this.rig!.setSplitMode(target as any, txVfo as VFO);
+          const observed = await this.rig!.getSplitMode(txVfo as VFO);
+          if (normalizeModeName(observed?.mode ?? '') !== target) {
+            // A write was accepted but did not affect the intended TX VFO.
+            // Trying another VFO now could inadvertently change both VFOs.
+            throw new Error(`Split TX mode readback mismatch: requested ${target}, observed ${observed?.mode ?? 'unknown'}`);
+          }
+          this.lastSuccessfulOperation = Date.now();
+          return;
+        } catch (error) {
+          if (error instanceof Error && error.message.includes('readback mismatch')) throw error;
+          lastError = error;
+        }
+      }
+      throw this.convertError(lastError ?? new Error('No usable Split TX VFO candidate'), 'setSplitMode');
+    }, { critical: true });
+  }
+
   async setSplitFreqMode(txFrequency: number, txMode: string, txWidth: number): Promise<void> {
     this.checkConnected();
 
