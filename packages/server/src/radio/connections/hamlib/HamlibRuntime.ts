@@ -1352,9 +1352,28 @@ export class HamlibRuntime
         throw new Error('Current FTDX10 mode is not reported as supported');
       }
       const candidates = this.getRangeMatchModeCandidates(mode);
-      const options = (await this.rig!.getFilterList())
-        .filter((filter) => filter.modes.some((m) => candidates.includes(normalizeModeName(m))))
-        .map((filter) => filter.width);
+      // Hamlib rigs often expose SSB filters generically, even while the
+      // actual dial mode is USB or LSB.
+      if (mode === 'USB' || mode === 'LSB') candidates.push('SSB');
+      let options: number[] = [];
+      try {
+        options = (await this.rig!.getFilterList())
+          .filter((filter) => filter.modes.some((m) => candidates.includes(normalizeModeName(m))))
+          .map((filter) => filter.width)
+          .filter((width) => Number.isInteger(width) && width > 0);
+      } catch (error) {
+        logger.debug('FTDX10 passband filter table unavailable; probing Hamlib passband helpers', error);
+      }
+      if (options.length === 0) {
+        // Same fallback used by getSupportedModeBandwidths(): no broad range
+        // guesswork and no arbitrary passband outside native Hamlib options.
+        const widths = await Promise.all([
+          this.rig!.getPassbandNarrow(mode as any),
+          this.rig!.getPassbandNormal(mode as any),
+          this.rig!.getPassbandWide(mode as any),
+        ]);
+        options = widths.filter((width) => Number.isInteger(width) && width > 0);
+      }
       if (!options.includes(bandwidthHz)) {
         throw new Error(`FTDX10 mode ${mode} does not advertise passband width ${bandwidthHz} Hz`);
       }
