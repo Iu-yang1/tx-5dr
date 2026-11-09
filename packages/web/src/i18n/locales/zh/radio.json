@@ -923,6 +923,32 @@
       "label": "衰减器",
       "description": "切换接收衰减器（ATT）档位，用于在强信号环境下降低前端过载风险。数值越高，衰减越强。"
     },
+    "roofing_filter": {
+      "label": "Roofing Filter（预选滤波器）",
+      "description": "独立的模拟 Roofing Filter，不是 DSP WIDTH。300 Hz 档位仅在安装可选滤波器后可用。",
+      "options": {
+        "12khz": "12 kHz",
+        "3khz": "3 kHz",
+        "500hz": "500 Hz",
+        "300hz": "300 Hz（选装）"
+      }
+    },
+    "contour_enabled": {
+      "label": "Contour 开关",
+      "description": "开启或关闭接收 Contour 滤波功能。"
+    },
+    "contour_frequency": {
+      "label": "Contour 中心频率",
+      "description": "接收 Contour 滤波器的中心频率，单位 Hz。"
+    },
+    "contour_level": {
+      "label": "Contour 电平",
+      "description": "Contour 峰值/陷波增益，单位 dB。"
+    },
+    "contour_width": {
+      "label": "Contour 宽度",
+      "description": "Contour 滤波器宽度档位，1–11。"
+    },
     "mode_auto_follow": {
       "label": "自动跟随模式",
       "description": "开启后允许 TX5DR 根据工作模式自动改变 FTDX10 的调制模式。关闭后锁定当前接收模式；当自动请求与锁定模式不一致时拒绝写入，防止数字发射使用错误模式。"
