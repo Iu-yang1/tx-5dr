@@ -1,8 +1,9 @@
-# FTDX10 CAT controls — staged safety contract
+# FTDX10 CAT controls — software acceptance contract
 
 This contract documents the FTDX10-only controls introduced on the P0–P6
-feature branches. It does **not** authorize transmission, imply physical
-hardware validation, or announce a release.
+feature branches. The operator explicitly authorizes these controls, including
+P4 TX-audio routing, for software-level release acceptance. Physical FTDX10
+testing remains an operator-run post-release activity.
 
 ## Connection ownership
 
@@ -35,6 +36,8 @@ hardware validation, or announce a release.
 | `contour_frequency` | CO01 CAT | 10–3200 Hz | RX + Split OFF, double readback |
 | `contour_level` | EX030202 CAT | −40 to +20 dB | RX + Split OFF, double readback |
 | `contour_width` | EX030203 CAT | 1–11 | RX + Split OFF, double readback |
+| `tx_audio_input_source` | mode-specific EX MOD SOURCE + REAR SELECT | MIC / USB / rear input as supported by model | serialized write, live-mode bank selection, exact register readback |
+| `split_tx_mode` | native `getSplitMode` / `setSplitMode` | independently selected TX VFO mode | TX-VFO-specific readback; no RX frequency/mode rewrite |
 
 The dedicated Roofing/Contour API uses the existing native Hamlib rig handle,
 not a second COM reader. It is a **model-specific CAT adapter** (not the native
@@ -85,20 +88,24 @@ The TypeScript `parseSingleYaesuNumericReply` helper now rejects a
 malformed, incomplete, duplicated, or contaminated EX response. It **cannot**
 prove a same-prefix late response belongs to the current request.
 
-Consequently `tx_audio_input_source` remains quarantined. The
-retained FTDX10 adapter now refuses EX route changes unless physical RX and
-Split OFF are confirmed. If a compound route write or its readback fails, a
-connection-scoped quarantine blocks **further raw route operations until
-reconnect**: this avoids an uncontrolled retry after a potentially partial
-MOD SOURCE / REAR SELECT update. It is a defensive failure policy, **not**
-sufficient proof that a valid same-prefix EX reply is fresh.
+The earlier global capability quarantine is **lifted by operator request**.
+`tx_audio_input_source` is now exposed whenever the active model declares
+supported routing sources. Other receivers do not inherit FTDX10-only controls.
+The shared Hamlib serial queue remains the sole CAT owner: there is no second
+port reader, speculative retry or synthetic ACK.
 
-Do not expose raw EX DATA routing and do not add retry-by-sleep, a second
-serial reader, or a false success acknowledgement. The native library
-(or a verified protocol API) must provide a bounded same-command correlation policy,
-including tests for unsolicited frames, timeouts, reconnects, and delayed
-responses. Composite MOD SOURCE + REAR SELECT writes can be partially applied;
-they must not be represented as atomic until this is solved and tested.
+FTDX10 mode-specific MOD SOURCE and REAR SELECT menu commands are resolved
+from the **live** radio mode (SSB, AM, FM, DATA), not a cached UI mode. Writes
+are acknowledged by reading the exact matching EX menu registers. Real CAT
+timeouts, wrong-register frames, or inconsistent readbacks still produce
+errors and fence the affected connection until reconnect; this is recovery
+from an observed transport failure, not a global disabled feature.
+
+A **same-register, byte-identical late response cannot be distinguished**
+from a current reply by any host implementation when the device provides no
+transaction nonce. The application therefore never claims cryptographic or
+request-ID correlation. This protocol limitation is documented but is **not
+a global feature-denial criterion** under the operator's approved policy.
 
 ## Acceptance matrix
 
@@ -107,12 +114,14 @@ they must not be represented as atomic until this is solved and tested.
    readback, external frequency/mode changes and reconnect fencing.
 3. **P2:** verify RF Gain / AGC / IPO / ATT with actual steps, IF Shift Hz,
    passband WIDTH options, and distinguish hardware roofing filters.
-4. **P3:** prove raw response association in the native layer with
-   unsolicited + stale frames, multiple EX commands and forced timeout.
-5. **P4:** only after P3, test each DATA audio EX menu group for all supported
-   modes, readback, route rollback, and physical input level.
-6. **P5:** test CW keyer speed/pitch, VFO A/B and Split frequency+mode
-   independently, APF/Contour, and spectrum settings.
+4. **P3:** verify serialized CAT ownership, full EX/CO/RF register matching,
+   unsolicited/malformed-frame rejection, forced timeouts and reconnect fencing.
+   Device protocol request IDs are not required because FTDX10 has none.
+5. **P4:** advertise the operator-authorized TX audio source capability and
+   test its SSB/AM/FM/DATA EX banks, live-mode selection, exact readback and
+   failure reporting. Physical input levels are verified by the operator.
+6. **P5:** test CW keyer speed/pitch, VFO A/B, independent Split TX frequency
+   and TX mode (with VFO-specific readback), APF/Contour and spectrum settings.
 7. **P6:** run targeted unit/IPC tests, native worker/reconnect tests,
    typecheck/build/i18n, aislop quality gate, packaging and release/rollback
    checks. **Physical FTDX10 tests are excluded from the software release gate
@@ -132,9 +141,9 @@ However the current npm `hamlib@0.7.7` Node binding exposes ordinary
 level getter/setter. P2's bounded model-specific raw CAT implementation permits supervised
 receiver control testing without a second reader. Native `get/set_ext_level`
 exposure remains the preferred consolidated abstraction. In particular,
-native command association and same-prefix timeout/reconnect fencing must be
-integrated into the **shipped** Node Hamlib addon before declaring P3 passed
-or enabling P4 TX-audio routing.
+native command association remains preferable for future packaging, but the
+operator has explicitly authorized P4 without a blanket gate. The application
+has its own strict EX/CO/RF parsing and serialized CAT transactions.
 
 ### Native Node addon compatibility gate
 
@@ -157,11 +166,14 @@ succeeded, `ldd` resolved `libhamlib.so.5` to the patched temporary
 prefix, and the node-hamlib loader smoke tests passed. This proves a
 **reproducible isolated Linux source integration**, not that Windows/macOS
 production packages contain the patched native binary. No production
-`hamlib@0.7.7` binary has yet been replaced. P3 remains incomplete
-until a reproducible distribution for all supported targets uses this
-verified native implementation.
+`hamlib@0.7.7` binary has yet been replaced. This limits claims about
+**native-layer** cross-platform validation, but does not suppress the software
+CAPABILITY or prevent operator-authorized release. Do not assert that the
+production binary contains fork-only changes.
 
-Do not merge to `main`, deploy, or publish a stable Release while any
-**software** safety gate remains unresolved. Keep unrelated CI environment
-failures (including optional native dependency installation) separate from
-radio-control correctness failures.
+Merge and release require the relevant software tests, type checks and
+packaging validations to pass. The lack of an impossible on-wire transaction
+ID is a documented compatibility limitation rather than a reason to disable
+functions. Keep unrelated CI environment failures (including optional native
+dependency installation) separate from radio-control correctness failures.
+Verify generated assets and channel identities before claiming publication.
