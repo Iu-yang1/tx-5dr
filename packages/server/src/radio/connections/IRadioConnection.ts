@@ -652,6 +652,18 @@ export interface IRadioConnection extends EventEmitter<IRadioConnectionEvents> {
 
   getMonitorEnabled?(): Promise<boolean>;
   setMonitorEnabled?(enabled: boolean): Promise<void>;
+  /** FTDX10 independent analogue roofing filter (1=12k,2=3k,4=500,5=300 optional). */
+  getRoofingFilter?(): Promise<number>;
+  setRoofingFilter?(index: number): Promise<void>;
+  /** Receiver Contour DSP controls; not the standard mode passband. */
+  getContourEnabled?(): Promise<boolean>;
+  setContourEnabled?(enabled: boolean): Promise<void>;
+  getContourFrequency?(): Promise<number>;
+  setContourFrequency?(hz: number): Promise<void>;
+  getContourLevel?(): Promise<number>;
+  setContourLevel?(db: number): Promise<void>;
+  getContourWidth?(): Promise<number>;
+  setContourWidth?(width: number): Promise<void>;
   getApfEnabled?(): Promise<boolean>;
   setApfEnabled?(enabled: boolean): Promise<void>;
   getApfLevel?(): Promise<number>;
