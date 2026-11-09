@@ -55,6 +55,24 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22.15.1'
+      - name: Adapt node-hamlib 0.7.7 shim state ABI to native Hamlib 5
+        working-directory: node-hamlib
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          shim = Path("src/shim/hamlib_shim.c")
+          source = shim.read_text(encoding="utf-8")
+          assert source.count("rig->state.") == 36, "Upstream rig state ABI changed; review patch"
+          assert source.count("rot->state.") == 3, "Upstream rot state ABI changed; review patch"
+          assert source.count("#include <hamlib/rig_state.h>") == 1
+          source = source.replace(
+              "#include <hamlib/rig_state.h>",
+              "#include <hamlib/rig_state.h>\\n#include <hamlib/rot_state.h>"
+          )
+          source = source.replace("rig->state.", "STATE(rig)->")
+          source = source.replace("rot->state.", "ROTSTATE(rot)->")
+          shim.write_text(source, encoding="utf-8")
+          PY
       - name: Rebuild node-hamlib against patched native Hamlib prefix
         working-directory: node-hamlib
         env:
