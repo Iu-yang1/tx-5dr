@@ -21,7 +21,7 @@ describe('Yaesu CAT EX response validation', () => {
 
   it('accepts trailing native NUL padding without accepting a second reply', () => {
     expect(parseSingleYaesuNumericReply(
-      Buffer.from([...'EX0104151;'].map(c => c.charCodeAt(0)), 0, 0),
+      Buffer.concat([Buffer.from('EX0104151;', 'ascii'), Buffer.alloc(2)]),
       'EX010415',
     )).toBe(1);
     expect(parseSingleYaesuNumericReply(Buffer.from('EX0104151;'), 'bad')).toBeNull();
