@@ -59,6 +59,7 @@ export const HAMLIB_OPERATIONS = {
   setKnownFrequency: { args: z.tuple([number]), result: z.void() },
   sendCWMessage: { args: z.tuple([z.string(), number]), result: z.void() },
   setMode: { args: z.tuple([z.string(), bandwidth.optional(), modeOptions.optional()]), result: z.void() },
+  setManualMode: { args: z.tuple([z.string().trim().min(1).max(12)]), result: z.void() },
   getMode: { args: empty, result: z.object({ mode: z.string(), bandwidth: z.union([z.string(), number]) }) },
   getModeBandwidth: { args: empty, result: z.union([z.string(), number]) },
   setModeBandwidth: { args: z.tuple([bandwidth]), result: z.void() },
