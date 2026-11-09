@@ -1326,7 +1326,10 @@ export class HamlibRuntime
 
           modeApplied = true;
 
-          if (request.frequency !== undefined) {
+          // Reassert the dial only if a native mode write might have changed
+          // it. A compatible manually locked mode is readback-only and must
+          // not send the same frequency twice.
+          if (request.frequency !== undefined && this.ftdx10ManualModeLock === null) {
             await this.performFrequencyWrite(request.frequency, targetVfo);
           }
         } catch (error) {
