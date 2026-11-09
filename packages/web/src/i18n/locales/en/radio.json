@@ -923,6 +923,10 @@
       "label": "Attenuator",
       "description": "Switches the receive attenuator (ATT) level to reduce front-end overload in strong-signal environments. Higher values apply stronger attenuation."
     },
+    "mode_auto_follow": {
+      "label": "Automatic Mode Follow",
+      "description": "Allow TX5DR to select the FTDX10 radio mode automatically. Turn off to lock the current receive mode; conflicting automatic mode writes are rejected, including before digital TX."
+    },
     "radio_mode": {
       "label": "Radio Mode",
       "description": "Shows the current voice-capable modulation modes reported by the connected radio."
