@@ -824,6 +824,9 @@ export interface IRadioConnection extends EventEmitter<IRadioConnectionEvents> {
   getSplitFrequency?(): Promise<number | null>;
   /** 设置 Split TX 频率。 */
   setSplitFrequency?(txFrequency: number): Promise<void>;
+  /** 独立读写 Split TX 模式；Split OFF 时读取返回 null。 */
+  getSplitMode?(): Promise<string | null>;
+  setSplitMode?(txMode: string): Promise<void>;
   /** 原子设置 Split TX 频率和模式。 */
   setSplitFreqMode?(txFrequency: number, txMode: string, txWidth: number): Promise<void>;
   getAudioIfMode?(): Promise<string>;
