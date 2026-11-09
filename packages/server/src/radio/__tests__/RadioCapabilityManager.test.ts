@@ -2,6 +2,7 @@ import { EventEmitter } from 'eventemitter3';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CapabilityDescriptor, CapabilityState, HamlibConfig } from '@tx5dr/contracts';
 import { RadioCapabilityManager } from '../RadioCapabilityManager.js';
+import { CAPABILITY_DEFINITION_MAP } from '../capabilities/definitions.js';
 import {
   RadioConnectionState,
   RadioConnectionType,
@@ -65,6 +66,20 @@ function getDescriptor(snapshot: CapabilityDescriptor[], id: string): Capability
   }
   return descriptor;
 }
+
+describe('FTDX10 P3/P4 CAT safety gate', () => {
+  it('retains the TX audio route capability quarantine until native correlation is proven', () => {
+    const definition = CAPABILITY_DEFINITION_MAP.get('tx_audio_input_source');
+    expect(definition).toBeDefined();
+    expect(definition!.descriptor).toMatchObject({
+      readable: false,
+      writable: false,
+      options: [],
+    });
+    expect(definition!.write).toBeUndefined();
+    expect(definition!.read).toBeUndefined();
+  });
+});
 
 describe('RadioCapabilityManager', () => {
   afterEach(() => {
