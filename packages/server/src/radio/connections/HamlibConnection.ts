@@ -153,6 +153,8 @@ export class HamlibConnection extends EventEmitter<IRadioConnectionEvents> imple
   getSupportedRFPowerSteps(): ReturnType<HamlibRuntime['getSupportedRFPowerSteps']> { return this.invoke('getSupportedRFPowerSteps', []) as ReturnType<HamlibRuntime['getSupportedRFPowerSteps']>; }
   getAFGain(): ReturnType<HamlibRuntime['getAFGain']> { return this.invoke('getAFGain', []) as ReturnType<HamlibRuntime['getAFGain']>; }
   setAFGain(value: number): ReturnType<HamlibRuntime['setAFGain']> { return this.invoke('setAFGain', [value]) as ReturnType<HamlibRuntime['setAFGain']>; }
+  getRFGain(): ReturnType<HamlibRuntime['getRFGain']> { return this.invoke('getRFGain', []) as ReturnType<HamlibRuntime['getRFGain']>; }
+  setRFGain(value: number): ReturnType<HamlibRuntime['setRFGain']> { return this.invoke('setRFGain', [value]) as ReturnType<HamlibRuntime['setRFGain']>; }
   getSQL(): ReturnType<HamlibRuntime['getSQL']> { return this.invoke('getSQL', []) as ReturnType<HamlibRuntime['getSQL']>; }
   setSQL(value: number): ReturnType<HamlibRuntime['setSQL']> { return this.invoke('setSQL', [value]) as ReturnType<HamlibRuntime['setSQL']>; }
   getDCD(): ReturnType<HamlibRuntime['getDCD']> { return this.invoke('getDCD', []) as ReturnType<HamlibRuntime['getDCD']>; }
