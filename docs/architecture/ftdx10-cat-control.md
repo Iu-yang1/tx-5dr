@@ -30,11 +30,22 @@ hardware validation, or announce a release.
 | `cw_pitch` | native `RIG_LEVEL_CWPITCH` | 300–900 Hz, 10 Hz step | exact readback; RX guard |
 | `key_speed` | native `RIG_LEVEL_KEYSPD` | 6–48 WPM | exact readback; RX guard |
 | `apf_enabled` | native `RIG_FUNC_APF` | receiver APF switch; not APF level | exact readback; RX guard |
+| `roofing_filter` | FTDX10 RF0 CAT (Hamlib-owned raw transport) | independent analogue 12 kHz/3 kHz/500 Hz/optional 300 Hz; **not DSP WIDTH** | RX + Split OFF, one pre-read and two post-reads |
+| `contour_enabled` | CO00 CAT | receiver Contour ON/OFF | RX + Split OFF, double readback |
+| `contour_frequency` | CO01 CAT | 10–3200 Hz | RX + Split OFF, double readback |
+| `contour_level` | EX030202 CAT | −40 to +20 dB | RX + Split OFF, double readback |
+| `contour_width` | EX030203 CAT | 1–11 | RX + Split OFF, double readback |
 
-These controls do not implement a native FTDX10 roofing-filter selector,
-Contour, APF *level* adjustment, or full VFO/Split state machine. Existing Hamlib
-AGC/PREAMP/ATT capabilities must continue to be advertised only after their
-own supported-value discovery and read probes.
+The dedicated Roofing/Contour API uses the existing native Hamlib rig handle,
+not a second COM reader. It is a **model-specific CAT adapter** (not the native
+Hamlib extended-level API) and cannot claim a transport-level response identity.
+Optional 300 Hz Roofing requires an installed hardware filter. Any ambiguous
+raw read or write leaves the shared raw CAT access quarantined until reconnect,
+including the future audio-route code.
+
+APF *level* adjustment and the full VFO/Split state machine remain separate.
+Existing Hamlib AGC/PREAMP/ATT capabilities must continue to be advertised only
+after their own supported-value discovery and read probes.
 
 ## Raw EX commands: why P3 is still a gate
 
@@ -44,6 +55,16 @@ worker calls `shim_rig_send_raw` under the native rig lock. Hamlib
 `rig_send_raw` reads a single terminator-delimited reply and subsequently
 flushes the serial port. It does **not** associate the response with a unique
 transaction identifier at the API boundary.
+
+A native FTDX10 wrong-register reply detector has been implemented in
+[`Iu-yang1/Hamlib` PR #1](https://github.com/Iu-yang1/Hamlib/pull/1).
+The native `newcat_get_cmd` pathway checks EX/CO/RF **full register selectors**
+for model 1042, rather than only the first two command letters, and rejects
+contaminated frames without blind retry. A focused standalone native C test
+covers valid, wrong-slot, incomplete and repeated replies. **This is not
+deployed into the `hamlib@0.7.7` Node addon's native binary used by TX5DR.**
+In addition, matching old same-register replies have no protocol transaction
+identifier. Therefore P3 cannot be marked complete on that evidence alone.
 
 The TypeScript `parseSingleYaesuNumericReply` helper now rejects a
 malformed, incomplete, duplicated, or contaminated EX response. It **cannot**
@@ -93,9 +114,12 @@ The checked Hamlib FTDX10 backend exposes extended tokens
 `CONTOUR_FREQ`, `CONTOUR_LEVEL`, and `CONTOUR_WIDTH`.
 However the current npm `hamlib@0.7.7` Node binding exposes ordinary
 `getLevel` / `setLevel` and raw `sendRaw`, but **not** Hamlib's extended
-level getter/setter. The implementation must extend the owning native
-binding (and preserve its queue/lock) before advertising these capabilities,
-rather than treating raw RF/EX/CO commands as safely isolated.
+level getter/setter. P2's bounded model-specific raw CAT implementation permits supervised
+receiver control testing without a second reader. Native `get/set_ext_level`
+exposure remains the preferred consolidated abstraction. In particular,
+native command association and same-prefix timeout/reconnect fencing must be
+integrated into the **shipped** Node Hamlib addon before declaring P3 passed
+or enabling P4 TX-audio routing.
 
 Do not merge to `main`, deploy, or publish a stable Release while any
 **software** safety gate remains unresolved. Keep unrelated CI environment
