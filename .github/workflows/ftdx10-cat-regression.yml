@@ -17,6 +17,33 @@ permissions:
   contents: read
 
 jobs:
+  ftdx10-native-hamlib:
+    name: Native Hamlib FTDX10 reply guard (fork source)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout native Hamlib FTDX10 branch
+        uses: actions/checkout@v4
+        with:
+          repository: Iu-yang1/Hamlib
+          ref: feature/ftdx10-strict-cat-reply-prefix
+          persist-credentials: false
+      - name: Compile and run native reply discriminator tests
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -pedantic -o /tmp/ftdx10_cat_reply_test tests/ftdx10_cat_reply_test.c
+          /tmp/ftdx10_cat_reply_test
+      - name: Build native Hamlib library and patched FTDX10 raw send path
+        run: |
+          ./bootstrap
+          ./configure --enable-html-matrix=no --enable-parallel=no --enable-pytest=no \
+            --enable-shared=yes --enable-static=no --enable-usrp=no \
+            --with-cxx-binding=no --with-indi=no --with-libusb=no \
+            --with-lua-binding=no --with-perl-binding=no \
+            --with-python-binding=no --with-readline=no \
+            --with-samplerate=no --with-tcl-binding=no --with-xml-support=no
+          make -j2 --no-print-directory
+          test -f src/.libs/libhamlib.so || find . -name 'libhamlib.so*' -type f -print -quit | grep libhamlib
+
   ftdx10-cat-protocol:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
