@@ -5,6 +5,7 @@ on:
     branches: [ main, develop ]
     paths-ignore:
       - 'release/official-version.txt'
+      - 'release/official-rebuild.txt'
       - '.github/workflows/official-release-dispatch.yml'
       - '.github/workflows/tx5dr-p9-half-hour-watch.yml'
   pull_request:
@@ -20,6 +21,11 @@ on:
         required: false
         type: boolean
         default: true
+      replace_existing:
+        description: 'Explicitly replace already published assets for the same version'
+        required: false
+        type: boolean
+        default: false
 
 # 授予 GITHUB_TOKEN 写入权限以创建 release
 concurrency:
@@ -1263,11 +1269,21 @@ jobs:
             - SkyCAT port 4534 is a WSJT-X-only restricted rigctl proxy; independent TX-5DR frequency/mode writes to 4534 are acknowledged but not performed.
             - WaveLog v1/v2 sync should be validated against actual accounts with a small sample before bulk sync.
             - Production diagnostics are minimized by default; set TX5DR_ENABLE_DIAGNOSTICS=1 and/or LOG_LEVEL for explicit troubleshooting.
+          allowUpdates: ${{ github.event.inputs.replace_existing == 'true' }}
+          removeArtifacts: ${{ github.event.inputs.replace_existing == 'true' }}
           artifacts: "release-assets/*"
           token: ${{ secrets.GITHUB_TOKEN }}
           draft: false
           prerelease: ${{ contains(github.event.inputs.version, '-rc.') }}
           makeLatest: ${{ !contains(github.event.inputs.version, '-rc.') }}
+
+      - name: Align rebuilt desktop release tag with source commit
+        if: github.event.inputs.version != '' && github.event.inputs.replace_existing == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/${{ github.event.inputs.version }}" -f sha="$GITHUB_SHA" -F force=true
 
       - name: Correct and verify RC prerelease metadata
         if: contains(github.event.inputs.version, '-rc.')
