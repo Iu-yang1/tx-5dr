@@ -71,7 +71,7 @@ jobs:
           assert source.count("#include <hamlib/rig_state.h>") == 1
           source = source.replace(
               "#include <hamlib/rig_state.h>",
-              "#include <hamlib/rig_state.h>\\n#include <hamlib/port.h>"
+              "#include <hamlib/rig_state.h>\n#include <hamlib/port.h>"
           )
           # Port handles moved OUT of rig_state / rot_state in Hamlib 5.
           # Use public port accessor APIs rather than private struct members.
