@@ -646,6 +646,8 @@ export class HamlibRuntime
 
   /** Last successfully read TX audio route for the active model provider. */
   private txAudioInputSource: TxAudioInputSource | null = null;
+  /** A failed FTDX10 EX route write poisons further raw routing until reconnect. */
+  private ftdx10RawRouteQuarantined = false;
 
   constructor() {
     super();
@@ -759,6 +761,7 @@ export class HamlibRuntime
     // 保存配置
     this.currentConfig = effectiveConfig;
     this.ftdx10ManualModeLock = null;
+    this.ftdx10RawRouteQuarantined = false;
     this.ioSessionId += 1;
     this.backgroundTasksStarted = false;
 
@@ -1031,6 +1034,7 @@ export class HamlibRuntime
     this.txFrequencyRanges = [];
     this.currentRadioMode = null;
     this.ftdx10ManualModeLock = null;
+    this.ftdx10RawRouteQuarantined = false;
 
     // 清理资源
     await this.cleanup();
@@ -3250,7 +3254,12 @@ export class HamlibRuntime
       if (!provider) return this.txAudioInputSource;
       // Yaesu EX menu banks depend on the radio's *actual* mode. Do not
       // choose one from a stale cached mode after a front-panel change.
-      if (this.meterRigMetadata?.rigModel === 1042) await this.performModeRead();
+      if (this.meterRigMetadata?.rigModel === 1042) {
+        if (this.ftdx10RawRouteQuarantined) {
+          throw new Error('FTDX10 raw CAT route is quarantined until reconnect');
+        }
+        await this.performModeRead();
+      }
       const raw = await this.sendTxAudioRaw(provider);
       const normalized = raw === null ? null : provider.reverseMap[raw] ?? null;
       // An incomplete or unrelated EX reply must not present stale cached
@@ -3273,18 +3282,38 @@ export class HamlibRuntime
       this.checkConnected();
       const provider = this.getTxAudioProvider();
       if (!provider) throw new Error('Hamlib model has no verified TX audio input provider');
-      if (this.meterRigMetadata?.rigModel === 1042) await this.performModeRead();
+      const ftdx10 = this.meterRigMetadata?.rigModel === 1042;
+      if (ftdx10) {
+        if (this.ftdx10RawRouteQuarantined) {
+          throw new Error('FTDX10 raw CAT route is quarantined until reconnect');
+        }
+        if (await this.rig!.getPtt() !== false) {
+          throw new Error('FTDX10 TX audio routing requires confirmed RX state');
+        }
+        const split = await this.rig!.getSplit();
+        if (!split || split.enabled !== false) {
+          throw new Error('FTDX10 TX audio routing requires confirmed Split OFF');
+        }
+        await this.performModeRead();
+      }
       const value = provider.valueMap[source];
       if (value === undefined) throw new Error(`Unsupported TX audio input source for ${this.meterRigMetadata?.modelName ?? 'radio'}: ${source}`);
-      await this.sendTxAudioRaw(provider, value);
-      const actual = await this.sendTxAudioRaw(provider);
-      // Yaesu EX writes have no state ACK; require an actual successful
-      // readback instead of treating a missing reply as applied.
-      const applied = actual === null && provider.manufacturer !== 'Yaesu'
-        ? source : actual === null ? null : provider.reverseMap[actual] ?? null;
-      if (applied !== source) throw new Error(`TX audio input readback mismatch: requested ${source}, radio reported ${applied ?? 'unknown'}`);
-      this.txAudioInputSource = source;
-      return { requested: source, applied: source, outcome: 'applied', acknowledgement: 'readback' };
+      try {
+        await this.sendTxAudioRaw(provider, value);
+        const actual = await this.sendTxAudioRaw(provider);
+        // An EX setter has no ACK: require the live physical menu readback.
+        const applied = actual === null && provider.manufacturer !== 'Yaesu'
+          ? source : actual === null ? null : provider.reverseMap[actual] ?? null;
+        if (applied !== source) throw new Error(`TX audio input readback mismatch: requested ${source}, radio reported ${applied ?? 'unknown'}`);
+        this.txAudioInputSource = source;
+        return { requested: source, applied: source, outcome: 'applied', acknowledgement: 'readback' };
+      } catch (error) {
+        // Without native request IDs a delayed identical EX response cannot
+        // safely be retried. Force a new connection before any further EX
+        // route mutation; never assume a composite write rolled back.
+        if (ftdx10) this.ftdx10RawRouteQuarantined = true;
+        throw error;
+      }
     }, { critical: true });
   }
 
@@ -4105,6 +4134,8 @@ export class HamlibRuntime
       this.supportedVfoOps.clear();
       this.txFrequencyRanges = [];
       this.currentRadioMode = null;
+      this.ftdx10ManualModeLock = null;
+      this.ftdx10RawRouteQuarantined = false;
       this.splitSupportState = 'unknown';
       this.splitEnabled = false;
       this.removeAllListeners();
