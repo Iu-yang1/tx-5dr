@@ -734,7 +734,7 @@ describe('RadioCapabilityManager', () => {
       writable: true,
       requiresIdle: true,
       options: [
-        { value: 1 }, { value: 2 }, { value: 4 }, { value: 5 },
+        { value: 0 }, { value: 1 }, { value: 2 }, { value: 4 }, { value: 5 },
       ],
     });
     expect(getDescriptor(descriptors, 'contour_enabled')).toMatchObject({
@@ -742,7 +742,7 @@ describe('RadioCapabilityManager', () => {
     });
     expect(getDescriptor(descriptors, 'contour_frequency')).toMatchObject({
       valueType: 'number', writable: true, requiresIdle: true,
-      range: { min: 10, max: 3200, step: 10 },
+      range: { min: 10, max: 3200, step: 1 },
     });
     expect(getCapability(manager.getCapabilityStates(), 'roofing_filter')).toMatchObject({
       supported: true, value: 2,
