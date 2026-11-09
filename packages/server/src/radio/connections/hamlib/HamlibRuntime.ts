@@ -2923,8 +2923,17 @@ export class HamlibRuntime
       this.checkConnected();
       const provider = this.getTxAudioProvider();
       if (!provider) return this.txAudioInputSource;
+      // Yaesu EX menu banks depend on the radio's *actual* mode. Do not
+      // choose one from a stale cached mode after a front-panel change.
+      if (provider.manufacturer === 'Yaesu') await this.performModeRead();
       const raw = await this.sendTxAudioRaw(provider);
       const normalized = raw === null ? null : provider.reverseMap[raw] ?? null;
+      // An incomplete or unrelated EX reply must not present stale cached
+      // routing as the physical radio's verified state.
+      if (provider.manufacturer === 'Yaesu') {
+        if (normalized) this.txAudioInputSource = normalized;
+        return normalized;
+      }
       if (normalized) this.txAudioInputSource = normalized;
       return this.txAudioInputSource;
     });
@@ -2939,11 +2948,15 @@ export class HamlibRuntime
       this.checkConnected();
       const provider = this.getTxAudioProvider();
       if (!provider) throw new Error('Hamlib model has no verified TX audio input provider');
+      if (provider.manufacturer === 'Yaesu') await this.performModeRead();
       const value = provider.valueMap[source];
       if (value === undefined) throw new Error(`Unsupported TX audio input source for ${this.meterRigMetadata?.modelName ?? 'radio'}: ${source}`);
       await this.sendTxAudioRaw(provider, value);
       const actual = await this.sendTxAudioRaw(provider);
-      const applied = actual === null ? source : provider.reverseMap[actual] ?? null;
+      // Yaesu EX writes have no state ACK; require an actual successful
+      // readback instead of treating a missing reply as applied.
+      const applied = actual === null && provider.manufacturer !== 'Yaesu'
+        ? source : actual === null ? null : provider.reverseMap[actual] ?? null;
       if (applied !== source) throw new Error(`TX audio input readback mismatch: requested ${source}, radio reported ${applied ?? 'unknown'}`);
       this.txAudioInputSource = source;
       return { requested: source, applied: source, outcome: 'applied', acknowledgement: 'readback' };
