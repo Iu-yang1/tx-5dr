@@ -35,6 +35,7 @@ import {
 import { RADIO_IO_SKIPPED, RadioIoQueue, type RadioIoTaskContext, type RadioIoTaskOptions } from '../RadioIoQueue.js';
 import { HamlibNativeMonitor } from './HamlibNativeMonitor.js';
 import { parseSingleYaesuNumericReply } from './YaesuCatReply.js';
+import { FTDX10_RECEIVER_REGISTERS, encodeFtdx10ReceiverWrite, parseFtdx10ReceiverReply, type Ftdx10ReceiverControl } from './Ftdx10ReceiverCat.js';
 import { serializeHamlibError, type HamlibSnapshot } from './hamlib-protocol.js';
 import {
   type ApplyOperatingStateRequest,
@@ -2287,6 +2288,95 @@ export class HamlibRuntime
       this.lastSuccessfulOperation = Date.now();
     }, { critical: true });
   }
+
+  /**
+   * Dedicated FTDX10 RX analogue/DSP controls. All raw commands still travel
+   * through the sole Hamlib rig handle, within the owning serialized task.
+   * Hamlib rig_send_raw does not offer a request identifier; a questionable
+   * frame poisons this connection's raw CAT state until reconnect.
+   */
+  private assertFtdx10ReceiverCatAvailable(): void {
+    this.checkConnected();
+    if (this.currentConfig?.type !== 'serial' || this.currentConfig.serial?.rigModel !== 1042) {
+      throw new Error('FTDX10 receiver CAT controls are not available on this model');
+    }
+    if (this.ftdx10RawRouteQuarantined) {
+      throw new Error('FTDX10 raw CAT is quarantined until reconnect');
+    }
+  }
+
+  private async queryFtdx10ReceiverCat(control: Ftdx10ReceiverControl): Promise<number> {
+    const command = FTDX10_RECEIVER_REGISTERS[control].query;
+    const reply = await this.rig!.sendRaw(Buffer.from(command, 'ascii'), 64, Buffer.from(';'));
+    const value = parseFtdx10ReceiverReply(control, reply);
+    if (value === null) {
+      throw new Error(`FTDX10 ${control} CAT reply was incomplete, unrelated or ambiguous`);
+    }
+    return value;
+  }
+
+  async getFtdx10ReceiverControl(control: Ftdx10ReceiverControl): Promise<number> {
+    return this.runSerializedTask('getFtdx10ReceiverControl', async () => {
+      this.assertFtdx10ReceiverCatAvailable();
+      try {
+        const value = await this.queryFtdx10ReceiverCat(control);
+        this.lastSuccessfulOperation = Date.now();
+        return value;
+      } catch (error) {
+        this.ftdx10RawRouteQuarantined = true;
+        throw error;
+      }
+    }, { id: `getFtdx10ReceiverControl:${control}` });
+  }
+
+  async setFtdx10ReceiverControl(control: Ftdx10ReceiverControl, value: number): Promise<void> {
+    // Validation before queueing prevents accidental serial writes from
+    // malformed or out-of-range IPC values.
+    const command = encodeFtdx10ReceiverWrite(control, value);
+    await this.runSerializedTask('setFtdx10ReceiverControl', async () => {
+      this.assertFtdx10ReceiverCatAvailable();
+      if (await this.rig!.getPtt() !== false) {
+        throw new Error('FTDX10 receiver CAT controls require confirmed RX');
+      }
+      const split = await this.rig!.getSplit();
+      if (!split || split.enabled !== false) {
+        throw new Error('FTDX10 receiver CAT controls require confirmed Split OFF');
+      }
+      try {
+        // Verify query/response association as far as this native Hamlib API
+        // permits. A same-prefix late response is inherently indistinguishable
+        // and therefore P3 cannot be declared fully complete on this transport.
+        await this.queryFtdx10ReceiverCat(control);
+        await this.rig!.sendRawWrite(Buffer.from(command, 'ascii'));
+        const first = await this.queryFtdx10ReceiverCat(control);
+        const confirmed = await this.queryFtdx10ReceiverCat(control);
+        if (first !== value || confirmed !== value) {
+          throw new Error(`FTDX10 ${control} readback mismatch: expected ${value}, observed ${first}/${confirmed}`);
+        }
+        this.lastSuccessfulOperation = Date.now();
+      } catch (error) {
+        this.ftdx10RawRouteQuarantined = true;
+        throw error;
+      }
+    }, { critical: true });
+  }
+
+  getRoofingFilter(): Promise<number> { return this.getFtdx10ReceiverControl('roofing_filter'); }
+  setRoofingFilter(value: number): Promise<void> { return this.setFtdx10ReceiverControl('roofing_filter', value); }
+
+  async getContourEnabled(): Promise<boolean> {
+    return (await this.getFtdx10ReceiverControl('contour_enabled')) === 1;
+  }
+  setContourEnabled(enabled: boolean): Promise<void> {
+    return this.setFtdx10ReceiverControl('contour_enabled', enabled ? 1 : 0);
+  }
+
+  getContourFrequency(): Promise<number> { return this.getFtdx10ReceiverControl('contour_frequency'); }
+  setContourFrequency(value: number): Promise<void> { return this.setFtdx10ReceiverControl('contour_frequency', value); }
+  getContourLevel(): Promise<number> { return this.getFtdx10ReceiverControl('contour_level'); }
+  setContourLevel(value: number): Promise<void> { return this.setFtdx10ReceiverControl('contour_level', value); }
+  getContourWidth(): Promise<number> { return this.getFtdx10ReceiverControl('contour_width'); }
+  setContourWidth(value: number): Promise<void> { return this.setFtdx10ReceiverControl('contour_width', value); }
 
   private requireFtdx10ConfigLevel(level: 'IF' | 'CWPITCH' | 'KEYSPD'): void {
     this.checkConnected();
