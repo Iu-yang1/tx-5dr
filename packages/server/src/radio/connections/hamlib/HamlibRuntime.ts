@@ -624,6 +624,9 @@ export class HamlibRuntime
    */
   private currentRadioMode: string | null = null;
 
+  /** FTDX10 session-local manual RX mode selection; null means automatic engine following. */
+  private ftdx10ManualModeLock: string | null = null;
+
   /**
    * 当前工作频率（Hz），由 PhysicalRadioManager 通过 setKnownFrequency 更新
    * 用于选择正确的 S 表标准（HF: S9=-73dBm vs VHF/UHF: S9=-93dBm）
@@ -755,6 +758,7 @@ export class HamlibRuntime
 
     // 保存配置
     this.currentConfig = effectiveConfig;
+    this.ftdx10ManualModeLock = null;
     this.ioSessionId += 1;
     this.backgroundTasksStarted = false;
 
@@ -1026,6 +1030,7 @@ export class HamlibRuntime
     this.supportedVfoOps.clear();
     this.txFrequencyRanges = [];
     this.currentRadioMode = null;
+    this.ftdx10ManualModeLock = null;
 
     // 清理资源
     await this.cleanup();
@@ -1187,10 +1192,66 @@ export class HamlibRuntime
   /**
    * 设置模式
    */
+  /**
+   * Engine mode writes cannot silently overwrite a manually selected FTDX10
+   * receive mode. A conflict is an error (never a fake successful no-op),
+   * including digital TX preparation. Another model stays on the legacy path.
+   */
   async setMode(mode: string, bandwidth?: RadioModeBandwidth, options?: SetRadioModeOptions): Promise<void> {
     await this.runSerializedTask('setMode', async () => {
-      await this.performModeWrite(mode, bandwidth, options);
+      await this.assertFtdx10EngineModeCompatible(mode, bandwidth);
+      if (this.ftdx10ManualModeLock === null) {
+        await this.performModeWrite(mode, bandwidth, options);
+      }
     }, { critical: true });
+  }
+
+  private async assertFtdx10EngineModeCompatible(mode: string, bandwidth?: RadioModeBandwidth): Promise<void> {
+    if (this.currentConfig?.type !== 'serial' || this.currentConfig.serial?.rigModel !== 1042
+      || this.ftdx10ManualModeLock === null) return;
+    const observed = await this.performModeRead();
+    const physicalMode = normalizeModeName(observed.mode);
+    const requestedMode = normalizeModeName(mode);
+    if (physicalMode !== this.ftdx10ManualModeLock || requestedMode !== this.ftdx10ManualModeLock
+      || (typeof bandwidth === 'number' && bandwidth !== observed.bandwidth)) {
+      throw new Error(`FTDX10 manual mode lock requires ${this.ftdx10ManualModeLock}; physical ${physicalMode}, engine requested ${requestedMode}. Enable automatic mode following before changing modes.`);
+    }
+  }
+
+  async getManualModeAutoFollow(): Promise<boolean> {
+    return this.runSerializedTask('getManualModeAutoFollow', async () => {
+      this.requireFtdx10ManualMode();
+      return this.ftdx10ManualModeLock === null;
+    }, { id: 'getManualModeAutoFollow' });
+  }
+
+  async setManualModeAutoFollow(enabled: boolean): Promise<void> {
+    await this.runSerializedTask('setManualModeAutoFollow', async () => {
+      this.requireFtdx10ManualMode();
+      if (enabled) {
+        this.ftdx10ManualModeLock = null;
+        return;
+      }
+      if (await this.rig!.getPtt() !== false) {
+        throw new Error('FTDX10 manual mode lock requires confirmed RX state');
+      }
+      const split = await this.rig!.getSplit();
+      if (!split || split.enabled !== false) {
+        throw new Error('FTDX10 manual mode lock requires confirmed Split OFF');
+      }
+      const actual = normalizeModeName((await this.performModeRead()).mode);
+      if (!this.supportedModes.has(actual)) {
+        throw new Error('FTDX10 current mode is not available for manual locking');
+      }
+      this.ftdx10ManualModeLock = actual;
+    }, { critical: true });
+  }
+
+  private requireFtdx10ManualMode(): void {
+    this.checkConnected();
+    if (this.currentConfig?.type !== 'serial' || this.currentConfig.serial?.rigModel !== 1042) {
+      throw new Error('FTDX10 manual-mode policy is not available on this model');
+    }
   }
 
   /**
@@ -1200,10 +1261,7 @@ export class HamlibRuntime
    */
   async setManualMode(mode: string): Promise<void> {
     await this.runSerializedTask('setManualMode', async () => {
-      this.checkConnected();
-      if (this.currentConfig?.type !== 'serial' || this.currentConfig.serial?.rigModel !== 1042) {
-        throw new Error('Manual CAT mode control is not enabled for this radio model');
-      }
+      this.requireFtdx10ManualMode();
 
       const requested = normalizeModeName(mode);
       if (!this.supportedModes.has(requested)) {
@@ -1226,6 +1284,9 @@ export class HamlibRuntime
       if (observed !== requested) {
         throw new Error(`FTDX10 mode readback mismatch: requested ${requested}, observed ${observed}`);
       }
+      // Only a confirmed manual write changes session policy. Failed writes
+      // never poison subsequent digital/voice mode ownership.
+      this.ftdx10ManualModeLock = requested;
     }, { critical: true });
   }
 
@@ -1233,6 +1294,12 @@ export class HamlibRuntime
     return this.runSerializedTask('applyOperatingState', async () => {
       this.checkConnected();
 
+      // Refuse a conflicting automatic mode before touching RX or TX frequency.
+      // Otherwise a failed mode change could leave a digital TX running with
+      // an incompatible manually selected mode, even with tolerateModeFailure.
+      if (request.mode) {
+        await this.assertFtdx10EngineModeCompatible(request.mode, request.bandwidth);
+      }
       // Keep the legacy current-VFO path untouched unless Hamlib explicitly
       // identifies a Yaesu backend as dual-VFO and can report the live A/B VFO.
       const targetVfo = await this.resolveYaesuTargetVfoForCorrelation();
@@ -1247,7 +1314,10 @@ export class HamlibRuntime
 
       if (request.mode) {
         try {
-          await this.performModeWrite(request.mode, request.bandwidth, request.options, targetVfo);
+          if (this.ftdx10ManualModeLock === null) {
+            await this.performModeWrite(request.mode, request.bandwidth, request.options, targetVfo);
+          }
+
           modeApplied = true;
 
           if (request.frequency !== undefined) {
@@ -1317,6 +1387,9 @@ export class HamlibRuntime
 
   async setModeBandwidth(bandwidth: RadioModeBandwidth): Promise<void> {
     await this.runSerializedTask('setModeBandwidth', async () => {
+      if (this.ftdx10ManualModeLock !== null) {
+        throw new Error('FTDX10 manually locked passband must use the guarded manual bandwidth capability');
+      }
       const modeInfo = await this.performModeRead();
       await this.performModeWrite(modeInfo.mode, bandwidth);
     }, { critical: true });
