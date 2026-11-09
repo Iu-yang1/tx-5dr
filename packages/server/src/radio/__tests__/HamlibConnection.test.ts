@@ -330,6 +330,42 @@ describe('HamlibConnection', () => {
     expect(rig.sendRaw).not.toHaveBeenCalled();
   });
 
+  describe('FTDX10 RF gain acknowledgement', () => {
+    const prepare = () => {
+      const { connection, rig } = createConnectedConnection();
+      const accessor = asTestConnection(connection);
+      accessor.currentConfig = { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } };
+      accessor.supportedLevels = new Set(['RF']);
+      return { connection, rig, accessor };
+    };
+
+    it('confirms physical RX and accepts small float quantization', async () => {
+      const { connection, rig } = prepare();
+      rig.getLevel.mockResolvedValue(0.505);
+      await expect(connection.setRFGain(0.5)).resolves.toBeUndefined();
+      expect(rig.setLevel).toHaveBeenCalledWith('RF', 0.5);
+      expect(rig.getLevel).toHaveBeenCalledWith('RF');
+    });
+
+    it('fails closed on TX state or inconsistent RF gain readback', async () => {
+      const { connection, rig } = prepare();
+      rig.getPtt.mockResolvedValue(true);
+      await expect(connection.setRFGain(0.7)).rejects.toThrow('confirmed RX');
+      expect(rig.setLevel).not.toHaveBeenCalled();
+      rig.getPtt.mockResolvedValue(false);
+      rig.getLevel.mockResolvedValue(0.1);
+      await expect(connection.setRFGain(0.7)).rejects.toThrow('readback mismatch');
+    });
+
+    it('retains generic RF level behavior for other radios', async () => {
+      const { connection, rig, accessor } = prepare();
+      accessor.currentConfig = { type: 'serial', serial: { rigModel: 1035, path: 'COM5' } };
+      await expect(connection.setRFGain(0.4)).resolves.toBeUndefined();
+      expect(rig.getPtt).not.toHaveBeenCalled();
+      expect(rig.getLevel).not.toHaveBeenCalled();
+    });
+  });
+
   describe('FTDX10 signed IF and CW level controls', () => {
     const setup = () => {
       const { connection, rig } = createConnectedConnection();
