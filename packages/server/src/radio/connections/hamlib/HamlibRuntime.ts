@@ -2089,6 +2089,85 @@ export class HamlibRuntime
     }, { critical: true });
   }
 
+  private requireFtdx10ConfigLevel(level: 'IF' | 'CWPITCH' | 'KEYSPD'): void {
+    this.checkConnected();
+    if (this.currentConfig?.type !== 'serial' || this.currentConfig.serial?.rigModel !== 1042
+      || !this.supportedLevels.has(level)) {
+      throw new Error(`FTDX10 Hamlib level ${level} is unavailable`);
+    }
+  }
+
+  async getIFShift(): Promise<number> {
+    return this.runSerializedTask('getIFShift', async () => {
+      this.requireFtdx10ConfigLevel('IF');
+      const hz = (await this.rig!.getLevel('IF')) as number;
+      if (!Number.isInteger(hz) || hz < -1200 || hz > 1200) {
+        throw new Error('FTDX10 IF shift readback is outside the supported Hz range');
+      }
+      this.lastSuccessfulOperation = Date.now();
+      return hz;
+    }, { id: 'getIFShift' });
+  }
+
+  async setIFShift(hz: number): Promise<void> {
+    if (!Number.isInteger(hz) || hz < -1200 || hz > 1200) {
+      throw new Error('FTDX10 IF shift must be an integer between -1200 and +1200 Hz');
+    }
+    await this.runSerializedTask('setIFShift', async () => {
+      this.requireFtdx10ConfigLevel('IF');
+      await this.rig!.setLevel('IF', hz);
+      const actual = (await this.rig!.getLevel('IF')) as number;
+      if (actual !== hz) throw new Error(`FTDX10 IF shift readback mismatch: expected ${hz} Hz, observed ${actual}`);
+      this.lastSuccessfulOperation = Date.now();
+    }, { critical: true });
+  }
+
+  async getCwPitch(): Promise<number> {
+    return this.runSerializedTask('getCwPitch', async () => {
+      this.requireFtdx10ConfigLevel('CWPITCH');
+      const hz = (await this.rig!.getLevel('CWPITCH')) as number;
+      if (!Number.isFinite(hz)) throw new Error('Invalid FTDX10 CW pitch readback');
+      this.lastSuccessfulOperation = Date.now();
+      return hz;
+    }, { id: 'getCwPitch' });
+  }
+
+  async setCwPitch(hz: number): Promise<void> {
+    if (!Number.isInteger(hz) || hz < 300 || hz > 900 || hz % 10 !== 0) {
+      throw new Error('FTDX10 CW pitch must be 300–900 Hz in 10 Hz steps');
+    }
+    await this.runSerializedTask('setCwPitch', async () => {
+      this.requireFtdx10ConfigLevel('CWPITCH');
+      await this.rig!.setLevel('CWPITCH', hz);
+      const actual = (await this.rig!.getLevel('CWPITCH')) as number;
+      if (actual !== hz) throw new Error(`FTDX10 CW pitch readback mismatch: expected ${hz}, observed ${actual}`);
+      this.lastSuccessfulOperation = Date.now();
+    }, { critical: true });
+  }
+
+  async getKeySpeed(): Promise<number> {
+    return this.runSerializedTask('getKeySpeed', async () => {
+      this.requireFtdx10ConfigLevel('KEYSPD');
+      const speed = (await this.rig!.getLevel('KEYSPD')) as number;
+      if (!Number.isFinite(speed)) throw new Error('Invalid FTDX10 CW key speed readback');
+      this.lastSuccessfulOperation = Date.now();
+      return speed;
+    }, { id: 'getKeySpeed' });
+  }
+
+  async setKeySpeed(speed: number): Promise<void> {
+    if (!Number.isInteger(speed) || speed < 6 || speed > 48) {
+      throw new Error('FTDX10 CW key speed must be between 6 and 48 WPM');
+    }
+    await this.runSerializedTask('setKeySpeed', async () => {
+      this.requireFtdx10ConfigLevel('KEYSPD');
+      await this.rig!.setLevel('KEYSPD', speed);
+      const actual = (await this.rig!.getLevel('KEYSPD')) as number;
+      if (actual !== speed) throw new Error(`FTDX10 key speed readback mismatch: expected ${speed}, observed ${actual}`);
+      this.lastSuccessfulOperation = Date.now();
+    }, { critical: true });
+  }
+
   /**
    * 获取静噪电平（0.0–1.0）
    */
