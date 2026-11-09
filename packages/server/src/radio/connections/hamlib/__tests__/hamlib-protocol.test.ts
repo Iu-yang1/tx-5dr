@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decodeHamlibResult, deserializeHamlibError, encodeHamlibResult, HamlibCommandSchema, HamlibSpectrumLineSchema, serializeHamlibError } from '../hamlib-protocol.js';
+import { decodeHamlibResult, deserializeHamlibError, encodeHamlibResult, HamlibCommandSchema, HAMLIB_OPERATIONS, HamlibSpectrumLineSchema, serializeHamlibError } from '../hamlib-protocol.js';
 import { RadioError, RadioErrorCode } from '../../../../utils/errors/RadioError.js';
 
 describe('Hamlib protocol', () => {
@@ -31,11 +31,11 @@ describe('Hamlib protocol', () => {
       type: 'call', generation: 'test', id: 4, operation, args,
     });
     expect(HamlibCommandSchema.safeParse(command('setManualMode', ['PKTUSB'])).success).toBe(true);
-    expect(HamlibCommandSchema.safeParse(command('setManualMode', [''])).success).toBe(false);
+    expect(HAMLIB_OPERATIONS.setManualMode.args.safeParse(['']).success).toBe(false);
     expect(HamlibCommandSchema.safeParse(command('getRFGain', [])).success).toBe(true);
     expect(HamlibCommandSchema.safeParse(command('setRFGain', [0.8])).success).toBe(true);
-    expect(HamlibCommandSchema.safeParse(command('setRFGain', [-0.01])).success).toBe(false);
-    expect(HamlibCommandSchema.safeParse(command('setRFGain', [1.01])).success).toBe(false);
+    expect(HAMLIB_OPERATIONS.setRFGain.args.safeParse([-0.01]).success).toBe(false);
+    expect(HAMLIB_OPERATIONS.setRFGain.args.safeParse([1.01]).success).toBe(false);
   });
 
   it('does not expose private runtime methods through IPC', () => {
