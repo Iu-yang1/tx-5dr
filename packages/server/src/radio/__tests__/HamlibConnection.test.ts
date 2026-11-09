@@ -638,7 +638,7 @@ describe('HamlibConnection', () => {
       const { connection, rig, accessor } = prepare();
       await expect(connection.setManualMode('PKTUSB')).rejects.toThrow('readback mismatch');
       accessor.currentConfig = { type: 'serial', serial: { rigModel: 1035, path: 'COM4' } };
-      await expect(connection.setManualMode('PKTUSB')).rejects.toThrow('not enabled');
+      await expect(connection.setManualMode('PKTUSB')).rejects.toThrow('not available on this model');
       expect(rig.setMode).toHaveBeenCalledTimes(1);
     });
   });
