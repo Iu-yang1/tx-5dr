@@ -49,10 +49,17 @@ The TypeScript `parseSingleYaesuNumericReply` helper now rejects a
 malformed, incomplete, duplicated, or contaminated EX response. It **cannot**
 prove a same-prefix late response belongs to the current request.
 
-Consequently `tx_audio_input_source` remains quarantined. Do not expose
-raw EX DATA routing and do not add retry-by-sleep, a second serial reader,
-or a false success acknowledgement. The native library (or a verified
-protocol API) must provide a bounded same-command correlation policy,
+Consequently `tx_audio_input_source` remains quarantined. The
+retained FTDX10 adapter now refuses EX route changes unless physical RX and
+Split OFF are confirmed. If a compound route write or its readback fails, a
+connection-scoped quarantine blocks **further raw route operations until
+reconnect**: this avoids an uncontrolled retry after a potentially partial
+MOD SOURCE / REAR SELECT update. It is a defensive failure policy, **not**
+sufficient proof that a valid same-prefix EX reply is fresh.
+
+Do not expose raw EX DATA routing and do not add retry-by-sleep, a second
+serial reader, or a false success acknowledgement. The native library
+(or a verified protocol API) must provide a bounded same-command correlation policy,
 including tests for unsolicited frames, timeouts, reconnects, and delayed
 responses. Composite MOD SOURCE + REAR SELECT writes can be partially applied;
 they must not be represented as atomic until this is solved and tested.
