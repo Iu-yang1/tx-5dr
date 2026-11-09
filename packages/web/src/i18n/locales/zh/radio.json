@@ -927,7 +927,6 @@
       "label": "Roofing Filter（预选滤波器）",
       "description": "独立的模拟 Roofing Filter，不是 DSP WIDTH。300 Hz 档位仅在安装可选滤波器后可用。",
       "options": {
-        "auto": "自动",
         "12khz": "12 kHz",
         "3khz": "3 kHz",
         "500hz": "500 Hz",
