@@ -46,7 +46,7 @@ export const HAMLIB_OPERATIONS = {
   getVfo: { args: empty, result: z.string() },
   setVfo: { args: z.tuple([z.string()]), result: z.void() },
   ...operations(['setFrequency', 'setRFPower', 'setAFGain', 'setSQL', 'setMicGain', 'setCompressorLevel', 'setMonitorGain', 'setNBLevel', 'setNRLevel', 'setPreampLevel', 'setAttenuatorLevel', 'setRitOffset', 'setXitOffset', 'setTuningStep', 'setRepeaterOffset', 'setCtcssTone', 'setDcsCode', 'setSpectrumSpan', 'setSplitFrequency'] as const, z.tuple([number]), z.void()),
-  ...operations(['getPTT', 'getDCD', 'getApfEnabled', 'getCompressorEnabled', 'getNBEnabled', 'getNREnabled', 'getLockMode', 'getMuteEnabled', 'getVOXEnabled', 'getSplitEnabled', 'startTuning'] as const, empty, z.boolean()),
+  ...operations(['getPTT', 'getDCD', 'getApfEnabled', 'getManualModeAutoFollow', 'getCompressorEnabled', 'getNBEnabled', 'getNREnabled', 'getLockMode', 'getMuteEnabled', 'getVOXEnabled', 'getSplitEnabled', 'startTuning'] as const, empty, z.boolean()),
   ...operations(['setPTT', 'setTuner', 'setApfEnabled', 'setCompressorEnabled', 'setNBEnabled', 'setNREnabled', 'setLockMode', 'setMuteEnabled', 'setVOXEnabled', 'setSplitEnabled'] as const, z.tuple([z.boolean()]), z.void()),
   ...operations(['getAgcMode', 'getPowerState', 'getRepeaterShift'] as const, empty, z.string()),
   ...operations(['setAgcMode', 'setPowerState', 'setRepeaterShift'] as const, z.tuple([z.string()]), z.void()),
