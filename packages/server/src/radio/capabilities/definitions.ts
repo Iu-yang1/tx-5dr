@@ -308,6 +308,7 @@ function createFtdx10ReceiverDefinitions(): CapabilityDefinition[] {
       descriptor: {
         ...roofing.descriptor,
         options: [
+          createOption(0, 'radio:capability.roofing_filter.options.auto'),
           createOption(1, 'radio:capability.roofing_filter.options.12khz'),
           createOption(2, 'radio:capability.roofing_filter.options.3khz'),
           createOption(4, 'radio:capability.roofing_filter.options.500hz'),
