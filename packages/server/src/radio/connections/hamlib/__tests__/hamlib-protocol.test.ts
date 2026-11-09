@@ -26,6 +26,18 @@ describe('Hamlib protocol', () => {
     expect(HamlibCommandSchema.safeParse({ type: 'call', generation: 'session', id: 3, operation: 'setVfo', args: ['VFOB'] }).success).toBe(true);
   });
 
+  it('accepts safe manual-mode and normalized RF gain worker commands', () => {
+    const command = (operation: string, args: unknown[]) => ({
+      type: 'call', generation: 'test', id: 4, operation, args,
+    });
+    expect(HamlibCommandSchema.safeParse(command('setManualMode', ['PKTUSB'])).success).toBe(true);
+    expect(HamlibCommandSchema.safeParse(command('setManualMode', [''])).success).toBe(false);
+    expect(HamlibCommandSchema.safeParse(command('getRFGain', [])).success).toBe(true);
+    expect(HamlibCommandSchema.safeParse(command('setRFGain', [0.8])).success).toBe(true);
+    expect(HamlibCommandSchema.safeParse(command('setRFGain', [-0.01])).success).toBe(false);
+    expect(HamlibCommandSchema.safeParse(command('setRFGain', [1.01])).success).toBe(false);
+  });
+
   it('does not expose private runtime methods through IPC', () => {
     expect(HamlibCommandSchema.safeParse({ type: 'call', generation: 'session', id: 1, operation: 'cleanup', args: [] }).success).toBe(false);
     expect(HamlibCommandSchema.safeParse({ type: 'call', generation: 'session', id: 1, operation: 'convertError', args: [] }).success).toBe(false);
