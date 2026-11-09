@@ -1322,6 +1322,55 @@ export class HamlibRuntime
     }, { critical: true });
   }
 
+  /**
+   * Manual FTDX10 RX passband control (not the roofing-filter selector).
+   * Unlike the generic engine operation, this path refuses unknown TX/Split
+   * state, validates against the live mode's published filter widths, and
+   * checks both mode and width after the native write. Everything runs in
+   * the same radio-I/O critical section without a second CAT reader.
+   */
+  async setManualModeBandwidth(bandwidthHz: number): Promise<void> {
+    if (!Number.isInteger(bandwidthHz) || bandwidthHz < 50 || bandwidthHz > 15000) {
+      throw new Error('FTDX10 passband width must be an integer from 50 to 15000 Hz');
+    }
+    await this.runSerializedTask('setManualModeBandwidth', async () => {
+      this.checkConnected();
+      if (this.currentConfig?.type !== 'serial' || this.currentConfig.serial?.rigModel !== 1042) {
+        throw new Error('Manual FTDX10 passband control is unavailable for this radio');
+      }
+      if (await this.rig!.getPtt() !== false) {
+        throw new Error('Manual FTDX10 passband control requires confirmed RX state');
+      }
+      const split = await this.rig!.getSplit();
+      if (!split || split.enabled !== false) {
+        throw new Error('Manual FTDX10 passband control requires confirmed Split OFF');
+      }
+
+      const before = await this.performModeRead();
+      const mode = normalizeModeName(before.mode);
+      if (!this.supportedModes.has(mode)) {
+        throw new Error('Current FTDX10 mode is not reported as supported');
+      }
+      const candidates = this.getRangeMatchModeCandidates(mode);
+      const options = (await this.rig!.getFilterList())
+        .filter((filter) => filter.modes.some((m) => candidates.includes(normalizeModeName(m))))
+        .map((filter) => filter.width);
+      if (!options.includes(bandwidthHz)) {
+        throw new Error(`FTDX10 mode ${mode} does not advertise passband width ${bandwidthHz} Hz`);
+      }
+      // Native write via the same Hamlib handle. Do not invoke the generic
+      // performModeWrite() here, which may synchronize a Split TX-VFO mode.
+      await this.rig!.setMode(mode, bandwidthHz);
+      const after = await this.performModeRead();
+      if (normalizeModeName(after.mode) !== mode || after.bandwidth !== bandwidthHz) {
+        throw new Error(
+          `FTDX10 passband readback mismatch: expected ${mode}/${bandwidthHz}, observed ${after.mode}/${after.bandwidth}`,
+        );
+      }
+      this.lastSuccessfulOperation = Date.now();
+    }, { critical: true });
+  }
+
   async getSupportedModeBandwidths(): Promise<RadioModeReadBandwidth[]> {
     return this.runSerializedTask('getSupportedModeBandwidths', async () => {
       this.checkConnected();
