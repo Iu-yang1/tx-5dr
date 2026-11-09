@@ -199,7 +199,7 @@ export class HamlibConnection extends EventEmitter<IRadioConnectionEvents> imple
   setContourLevel(value: number): ReturnType<HamlibRuntime['setContourLevel']> { return this.invoke('setContourLevel', [value]) as ReturnType<HamlibRuntime['setContourLevel']>; }
   getContourWidth(): ReturnType<HamlibRuntime['getContourWidth']> { return this.invoke('getContourWidth', []) as ReturnType<HamlibRuntime['getContourWidth']>; }
   setContourWidth(value: number): ReturnType<HamlibRuntime['setContourWidth']> { return this.invoke('setContourWidth', [value]) as ReturnType<HamlibRuntime['setContourWidth']>; }
-  getApfEnabled(): ReturnType<HamlibRuntime['getApfEnabled']> { return this.invoke('getApfEnabled', []) as ReturnType<HamlibRuntime['getApfEnabled']>;
+  getApfEnabled(): ReturnType<HamlibRuntime['getApfEnabled']> { return this.invoke('getApfEnabled', []) as ReturnType<HamlibRuntime['getApfEnabled']>; }
   setApfEnabled(enabled: boolean): ReturnType<HamlibRuntime['setApfEnabled']> { return this.invoke('setApfEnabled', [enabled]) as ReturnType<HamlibRuntime['setApfEnabled']>; }
   getAgcMode(): ReturnType<HamlibRuntime['getAgcMode']> { return this.invoke('getAgcMode', []) as ReturnType<HamlibRuntime['getAgcMode']>; }
   setAgcMode(mode: string): ReturnType<HamlibRuntime['setAgcMode']> { return this.invoke('setAgcMode', [mode]) as ReturnType<HamlibRuntime['setAgcMode']>; }
