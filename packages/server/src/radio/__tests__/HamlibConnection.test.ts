@@ -394,6 +394,16 @@ describe('HamlibConnection', () => {
       expect(rig.sendRawWrite).not.toHaveBeenCalled();
     });
 
+    it('quarantines the native CAT session after a timed-out receiver query', async () => {
+      const { connection, rig } = setup();
+      rig.sendRaw.mockRejectedValueOnce(new Error('native CAT read timeout'));
+      await expect(connection.getContourFrequency()).rejects.toThrow('native CAT read timeout');
+      await expect(connection.getRoofingFilter()).rejects.toThrow('quarantined until reconnect');
+      await expect(connection.setContourLevel(-12)).rejects.toThrow('quarantined until reconnect');
+      expect(rig.sendRaw).toHaveBeenCalledTimes(1);
+      expect(rig.sendRawWrite).not.toHaveBeenCalled();
+    });
+
     it('detects inconsistent post-write Roofing state and blocks retries', async () => {
       const { connection, rig } = setup();
       rig.sendRawWrite.mockResolvedValue(undefined);
