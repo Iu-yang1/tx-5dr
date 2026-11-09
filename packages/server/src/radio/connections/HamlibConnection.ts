@@ -238,5 +238,7 @@ export class HamlibConnection extends EventEmitter<IRadioConnectionEvents> imple
   setSplitEnabled(enabled: boolean): ReturnType<HamlibRuntime['setSplitEnabled']> { return this.invoke('setSplitEnabled', [enabled]) as ReturnType<HamlibRuntime['setSplitEnabled']>; }
   getSplitFrequency(): ReturnType<HamlibRuntime['getSplitFrequency']> { return this.invoke('getSplitFrequency', []) as ReturnType<HamlibRuntime['getSplitFrequency']>; }
   setSplitFrequency(txFrequency: number): ReturnType<HamlibRuntime['setSplitFrequency']> { return this.invoke('setSplitFrequency', [txFrequency]) as ReturnType<HamlibRuntime['setSplitFrequency']>; }
+  getSplitMode(): ReturnType<HamlibRuntime['getSplitMode']> { return this.invoke('getSplitMode', []) as ReturnType<HamlibRuntime['getSplitMode']>; }
+  setSplitMode(txMode: string): ReturnType<HamlibRuntime['setSplitMode']> { return this.invoke('setSplitMode', [txMode]) as ReturnType<HamlibRuntime['setSplitMode']>; }
   setSplitFreqMode(txFrequency: number, txMode: string, txWidth: number): ReturnType<HamlibRuntime['setSplitFreqMode']> { return this.invoke('setSplitFreqMode', [txFrequency, txMode, txWidth]) as ReturnType<HamlibRuntime['setSplitFreqMode']>; }
 }
