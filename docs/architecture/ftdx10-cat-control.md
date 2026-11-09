@@ -61,13 +61,20 @@ transaction identifier at the API boundary.
 
 A native FTDX10 wrong-register reply detector and EX/CO/RF no-retry policy have been implemented in
 [`Iu-yang1/Hamlib` PR #1](https://github.com/Iu-yang1/Hamlib/pull/1).
-The native `newcat_get_cmd` pathway checks EX/CO/RF **full register selectors**
-for model 1042, rather than only the first two command letters, and rejects
-contaminated frames without blind retry. FTDX10 native EX/CO/RF queries now
-fail immediately on timeout or ambiguous `?;` instead of retrying a
-non-identifiable response. A focused standalone native C test
-covers valid, wrong-slot, incomplete and repeated replies. **This is not
-deployed into the `hamlib@0.7.7` Node addon's native binary used by TX5DR.**
+Both native entry points now have a guarded FTDX10 EX/CO/RF path:
+`newcat_get_cmd` checks **full register selectors** instead of the first
+two letters and fails without retry on ambiguous `?;` or timeout;
+`rig_send_raw` (the API actually called by node-hamlib's
+`sendRaw`) drains the RX side before a register query, validates its
+single terminated reply against the complete register selector, and rejects
+unrelated or concatenated frames with `-RIG_EPROTO`. It does not retry.
+
+A standalone C test verifies correct/wrong-slot/incomplete/repeated frames
+locally with `-std=c11 -Wall -Wextra -Werror -pedantic`.
+The TX5DR FTDX10 CAT regression workflow also builds the **fork's entire
+native Hamlib library** and exercises the C test as a separate job.
+**This patched native library is not yet linked into the published
+`hamlib@0.7.7` Node addon's binary used by TX5DR.**
 In addition, matching old same-register replies have no protocol transaction
 identifier. Therefore P3 cannot be marked complete on that evidence alone.
 
