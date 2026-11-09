@@ -2169,6 +2169,43 @@ export class HamlibRuntime
     }, { critical: true });
   }
 
+  /**
+   * FTDX10 APF switch uses RIG_FUNC_APF. The upstream backend advertises
+   * this function; APF level is a separate feature and is not implied.
+   */
+  async getApfEnabled(): Promise<boolean> {
+    return this.runSerializedTask('getApfEnabled', async () => {
+      this.checkConnected();
+      if (this.currentConfig?.type !== 'serial' || this.currentConfig.serial?.rigModel !== 1042
+        || !this.supportedFunctions.has('APF')) {
+        throw new Error('FTDX10 APF is not available');
+      }
+      const value = await this.rig!.getFunction('APF');
+      if (typeof value !== 'boolean') throw new Error('Invalid FTDX10 APF state');
+      this.lastSuccessfulOperation = Date.now();
+      return value;
+    }, { id: 'getApfEnabled' });
+  }
+
+  async setApfEnabled(enabled: boolean): Promise<void> {
+    await this.runSerializedTask('setApfEnabled', async () => {
+      this.checkConnected();
+      if (this.currentConfig?.type !== 'serial' || this.currentConfig.serial?.rigModel !== 1042
+        || !this.supportedFunctions.has('APF')) {
+        throw new Error('FTDX10 APF is not available');
+      }
+      if (await this.rig!.getPtt() !== false) {
+        throw new Error('FTDX10 APF control requires confirmed RX state');
+      }
+      await this.rig!.setFunction('APF', enabled);
+      const observed = await this.rig!.getFunction('APF');
+      if (observed !== enabled) {
+        throw new Error(`FTDX10 APF readback mismatch: requested ${enabled}, observed ${observed}`);
+      }
+      this.lastSuccessfulOperation = Date.now();
+    }, { critical: true });
+  }
+
   private requireFtdx10ConfigLevel(level: 'IF' | 'CWPITCH' | 'KEYSPD'): void {
     this.checkConnected();
     if (this.currentConfig?.type !== 'serial' || this.currentConfig.serial?.rigModel !== 1042
