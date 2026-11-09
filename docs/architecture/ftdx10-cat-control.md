@@ -146,11 +146,17 @@ resulting link map. The source-level Hamlib native build and C reply test
 already passed.
 
 Upstream node-hamlib's legacy shim directly accesses `RIG.state` and
-`ROT.state`, removed from newer Hamlib. The isolated CI adaptation now
-replaces those accesses with the *public*
-`HAMLIB_STATE(rig)`/`HAMLIB_ROTSTATE(rot)` functions, rather than the
-`IN_HAMLIB`-only internal `STATE`/`ROTSTATE` macros. The adapter build
-and runtime linker check are independent release gates; no production
+`ROT.state`, removed from newer Hamlib. The isolated CI adaptation replaces legacy port fields with public
+`HAMLIB_RIGPORT`/`HAMLIB_PTTPORT`/`HAMLIB_DCDPORT`/`HAMLIB_ROTPORT`
+accessors and the remaining state fields with `HAMLIB_STATE`. It deliberately
+does not use the `IN_HAMLIB`-only internal macros.
+
+**Linux native integration CI passed** for the pinned patched Hamlib source:
+the `node-hamlib@0.7.7` shim and N-API addon rebuilt, direct addon import
+succeeded, `ldd` resolved `libhamlib.so.5` to the patched temporary
+prefix, and the node-hamlib loader smoke tests passed. This proves a
+**reproducible isolated Linux source integration**, not that Windows/macOS
+production packages contain the patched native binary. No production
 `hamlib@0.7.7` binary has yet been replaced. P3 remains incomplete
 until a reproducible distribution for all supported targets uses this
 verified native implementation.
