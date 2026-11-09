@@ -806,6 +806,37 @@ describe('HamlibConnection', () => {
     expect(rig.sendRawWrite).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['USB', 'EX010113', 'EX010114'],
+    ['AM', 'EX010213', 'EX010215'],
+    ['FM', 'EX010313', 'EX010314'],
+    ['PKTUSB', 'EX010415', 'EX010416'],
+  ] as const)('writes and reads %s TX audio source using its live CAT menu bank', async (mode, modSource, rearSelect) => {
+    const { connection, rig } = createConnectedConnection({
+      getMode: vi.fn().mockResolvedValue({ mode, bandwidth: 2400 }),
+      sendRaw: vi.fn(async (wire: Buffer) => {
+        const query = wire.toString('ascii');
+        if (query === `${modSource};`) return Buffer.from(`${modSource}1;`, 'ascii');
+        if (query === `${rearSelect};`) return Buffer.from(`${rearSelect}1;`, 'ascii');
+        return Buffer.from('FA014074000;', 'ascii');
+      }),
+    });
+    const accessor = asTestConnection(connection);
+    accessor.meterRigMetadata = { rigModel: 1042, mfgName: 'Yaesu', modelName: 'FTDX-10' };
+    accessor.currentConfig = { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } };
+    accessor.currentRadioMode = 'LSB'; // deliberately stale: physical mode owns menu bank
+
+    await expect(connection.setTxAudioInputSource!('usb')).resolves.toMatchObject({
+      applied: 'usb', acknowledgement: 'readback',
+    });
+    expect(rig.sendRawWrite.mock.calls.map((args) => args[0].toString('ascii'))).toEqual([
+      `${modSource}1;`, `${rearSelect}1;`,
+    ]);
+    expect(rig.sendRaw.mock.calls.map((args) => args[0].toString('ascii'))).toEqual([
+      `${modSource};`, `${rearSelect};`,
+    ]);
+  });
+
   it('writes FTDX10 USB as an ordered MOD SOURCE + REAR SELECT transaction', async () => {
     const { connection, rig } = createConnectedConnection({
       sendRaw: vi.fn()
