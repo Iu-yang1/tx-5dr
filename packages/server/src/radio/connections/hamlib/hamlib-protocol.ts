@@ -60,6 +60,9 @@ export const HAMLIB_OPERATIONS = {
   sendCWMessage: { args: z.tuple([z.string(), number]), result: z.void() },
   // RF gain is a normalized receiver level, never an arbitrary native rig value.
   setRFGain: { args: z.tuple([z.number().finite().min(0).max(1)]), result: z.void() },
+  setIFShift: { args: z.tuple([z.number().int().min(-1200).max(1200)]), result: z.void() },
+  setCwPitch: { args: z.tuple([z.number().int().min(300).max(900).refine(value => value % 10 === 0)]), result: z.void() },
+  setKeySpeed: { args: z.tuple([z.number().int().min(6).max(48)]), result: z.void() },
   setMode: { args: z.tuple([z.string(), bandwidth.optional(), modeOptions.optional()]), result: z.void() },
   setManualMode: { args: z.tuple([z.string().trim().min(1).max(12)]), result: z.void() },
   getMode: { args: empty, result: z.object({ mode: z.string(), bandwidth: z.union([z.string(), number]) }) },
