@@ -7,7 +7,7 @@
  */
 export function parseSingleYaesuNumericReply(reply: Buffer, prefix: string): number | null {
   if (!/^EX[0-9]+$/.test(prefix)) return null;
-  const wire = reply.toString('ascii').replace(/\\x00+$/g, '');
+  const wire = reply.toString('ascii').replace(/\x00+$/g, '');
   if (!wire.endsWith(';')) return null;
 
   const frames = wire.slice(0, -1).split(';');
