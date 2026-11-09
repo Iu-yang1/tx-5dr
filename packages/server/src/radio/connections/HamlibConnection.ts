@@ -131,6 +131,7 @@ export class HamlibConnection extends EventEmitter<IRadioConnectionEvents> imple
   getPTT(): ReturnType<HamlibRuntime['getPTT']> { return this.invoke('getPTT', []) as ReturnType<HamlibRuntime['getPTT']>; }
   setMode(mode: string, bandwidth?: RadioModeBandwidth, options?: SetRadioModeOptions): ReturnType<HamlibRuntime['setMode']> { return this.invoke('setMode', [mode, bandwidth, options]) as ReturnType<HamlibRuntime['setMode']>; }
   setManualMode(mode: string): ReturnType<HamlibRuntime['setManualMode']> { return this.invoke('setManualMode', [mode]) as ReturnType<HamlibRuntime['setManualMode']>; }
+  setManualModeBandwidth(bandwidthHz: number): ReturnType<HamlibRuntime['setManualModeBandwidth']> { return this.invoke('setManualModeBandwidth', [bandwidthHz]) as ReturnType<HamlibRuntime['setManualModeBandwidth']>; }
   applyOperatingState(request: ApplyOperatingStateRequest): ReturnType<HamlibRuntime['applyOperatingState']> { return this.invoke('applyOperatingState', [request]) as ReturnType<HamlibRuntime['applyOperatingState']>; }
   getMode(): ReturnType<HamlibRuntime['getMode']> { return this.invoke('getMode', []) as ReturnType<HamlibRuntime['getMode']>; }
   getModeBandwidth(): ReturnType<HamlibRuntime['getModeBandwidth']> { return this.invoke('getModeBandwidth', []) as ReturnType<HamlibRuntime['getModeBandwidth']>; }
