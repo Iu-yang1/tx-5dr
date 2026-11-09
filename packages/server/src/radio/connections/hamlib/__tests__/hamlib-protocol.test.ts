@@ -34,6 +34,12 @@ describe('Hamlib protocol', () => {
     expect(HAMLIB_OPERATIONS.setManualMode.args.safeParse(['']).success).toBe(false);
     expect(HamlibCommandSchema.safeParse(command('getRFGain', [])).success).toBe(true);
     expect(HamlibCommandSchema.safeParse(command('setRFGain', [0.8])).success).toBe(true);
+    expect(HAMLIB_OPERATIONS.setIFShift.args.safeParse([-1200]).success).toBe(true);
+    expect(HAMLIB_OPERATIONS.setIFShift.args.safeParse([1500]).success).toBe(false);
+    expect(HAMLIB_OPERATIONS.setCwPitch.args.safeParse([650]).success).toBe(true);
+    expect(HAMLIB_OPERATIONS.setCwPitch.args.safeParse([655]).success).toBe(false);
+    expect(HAMLIB_OPERATIONS.setKeySpeed.args.safeParse([20]).success).toBe(true);
+    expect(HAMLIB_OPERATIONS.setKeySpeed.args.safeParse([49]).success).toBe(false);
     expect(HAMLIB_OPERATIONS.setRFGain.args.safeParse([-0.01]).success).toBe(false);
     expect(HAMLIB_OPERATIONS.setRFGain.args.safeParse([1.01]).success).toBe(false);
   });
