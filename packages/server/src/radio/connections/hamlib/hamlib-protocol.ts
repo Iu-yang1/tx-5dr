@@ -58,7 +58,7 @@ export const HAMLIB_OPERATIONS = {
   probeResponding: { args: z.tuple([number]), result: z.boolean() },
   setKnownFrequency: { args: z.tuple([number]), result: z.void() },
   sendCWMessage: { args: z.tuple([z.string(), number]), result: z.void() },
-  setRoofingFilter: { args: z.tuple([z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(4), z.literal(5)])]), result: z.void() },
+  setRoofingFilter: { args: z.tuple([z.union([z.literal(1), z.literal(2), z.literal(4), z.literal(5)])]), result: z.void() },
   setContourFrequency: { args: z.tuple([z.number().int().min(10).max(3200)]), result: z.void() },
   setContourLevel: { args: z.tuple([z.number().int().min(-40).max(20)]), result: z.void() },
   setContourWidth: { args: z.tuple([z.number().int().min(1).max(11)]), result: z.void() },
