@@ -3,7 +3,7 @@ name: Dispatch validated official TX-5DR platform releases
 on:
   push:
     branches: [main]
-    paths: ['release/official-version.txt']
+    paths: ['release/official-version.txt', 'release/official-rebuild.txt']
   workflow_dispatch:
 
 permissions:
@@ -19,6 +19,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 2
 
       - name: Validate release request
         shell: bash
@@ -31,12 +32,22 @@ jobs:
           [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]] || { echo "Invalid version: $VERSION"; exit 1; }
           PACKAGE_VERSION=$(node -p "require('./package.json').version")
           test "$VERSION" = "v$PACKAGE_VERSION" || { echo "Release version $VERSION does not match package.json $PACKAGE_VERSION"; exit 1; }
-          if gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          REPLACE_EXISTING=false
+          # A change to this dedicated one-time marker is the explicit opt-in.
+          # Ordinary version-file pushes still reject already published releases.
+          if [ "${{ github.event_name }}" = "push" ] && \
+             git diff --name-only HEAD^ HEAD -- release/official-rebuild.txt | grep -Fxq 'release/official-rebuild.txt'; then
+            REBUILD_VERSION=$(tr -d '\r\n ' < release/official-rebuild.txt)
+            test "$REBUILD_VERSION" = "$VERSION" || { echo "Rebuild version mismatch"; exit 1; }
+            REPLACE_EXISTING=true
+          fi
+          echo "RELEASE_REPLACE_EXISTING=$REPLACE_EXISTING" >> "$GITHUB_ENV"
+          if [ "$REPLACE_EXISTING" != "true" ] && gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Desktop release $VERSION already exists, refusing to replace";
             exit 1
           fi
           for suffix in server docker; do
-            if gh release view "$VERSION-$suffix" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            if [ "$REPLACE_EXISTING" != "true" ] && gh release view "$VERSION-$suffix" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
               echo "Release $VERSION-$suffix already exists, refusing to replace";
               exit 1
             fi
@@ -49,7 +60,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh workflow run electron-release.yml --repo "$GITHUB_REPOSITORY" --ref main --field "version=$RELEASE_VERSION" --field "windows_linux_only=true"
-          gh workflow run server-release.yml --repo "$GITHUB_REPOSITORY" --ref main --field "version=$RELEASE_VERSION"
-          gh workflow run docker-release.yml --repo "$GITHUB_REPOSITORY" --ref main --field "tag=$RELEASE_VERSION"
+          gh workflow run electron-release.yml --repo "$GITHUB_REPOSITORY" --ref main --field "version=$RELEASE_VERSION" --field "replace_existing=$RELEASE_REPLACE_EXISTING" --field "windows_linux_only=true"
+          gh workflow run server-release.yml --repo "$GITHUB_REPOSITORY" --ref main --field "version=$RELEASE_VERSION" --field "replace_existing=$RELEASE_REPLACE_EXISTING"
+          gh workflow run docker-release.yml --repo "$GITHUB_REPOSITORY" --ref main --field "tag=$RELEASE_VERSION" --field "replace_existing=$RELEASE_REPLACE_EXISTING"
           echo "Dispatched Windows/Linux RC builds for $RELEASE_VERSION; -rc.N is prerelease, NOT stable/latest."

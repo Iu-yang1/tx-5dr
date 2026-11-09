@@ -2701,6 +2701,8 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
             <Select
               disableSelectorIconRotation
               fullWidth={false}
+              popoverProps={{ classNames: { base: 'tx5dr-select-popover' } }}
+              listboxProps={{ itemClasses: { title: 'whitespace-normal break-words' } }}
               className="min-w-0"
               style={{ width: frequencySelectWidth, maxWidth: '100%' }}
               labelPlacement="outside"
@@ -2756,6 +2758,8 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
             <Select
               disableSelectorIconRotation
               fullWidth={false}
+              popoverProps={{ classNames: { base: 'tx5dr-select-popover' } }}
+              listboxProps={{ itemClasses: { title: 'whitespace-normal break-words' } }}
               className="min-w-0"
               style={{ width: modeSelectWidth, maxWidth: '100%' }}
               labelPlacement="outside"

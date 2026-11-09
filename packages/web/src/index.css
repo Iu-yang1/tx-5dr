@@ -459,3 +459,17 @@ section[role="dialog"][data-placement="center"].w-full:not(.max-w-full) {
     width: 9rem;
   }
 }
+
+/* HeroUI v2 renders Select listboxes in a portal. The trigger may stay compact,
+   but the open menu must remain readable even when its current value is short. */
+.tx5dr-select-popover,
+body [data-placement]:has([role="listbox"]) {
+  min-width: min(14rem, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+}
+body [role="listbox"] [role="option"] [data-slot="title"],
+body [role="listbox"] [role="option"] .truncate {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+}

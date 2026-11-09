@@ -5,6 +5,7 @@ on:
     branches: [ main ]
     paths-ignore:
       - 'release/official-version.txt'
+      - 'release/official-rebuild.txt'
       - '.github/workflows/official-release-dispatch.yml'
       - '.github/workflows/tx5dr-p9-half-hour-watch.yml'
   pull_request:
@@ -15,6 +16,11 @@ on:
         description: 'Docker image tag (leave empty for auto-generated)'
         required: false
         default: ''
+      replace_existing:
+        description: 'Explicitly replace the published image and release for the same tag'
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   # Keep the latest PR validation; never cancel an official release dispatch.
@@ -271,11 +277,19 @@ jobs:
             - [Docker Hub](https://hub.docker.com/r/${{ steps.tags.outputs.image }})
             - [Desktop App / 桌面应用](https://github.com/${{ github.repository }}/releases/tag/nightly-app)
             - [Linux Server / 服务器版](https://github.com/${{ github.repository }}/releases/tag/nightly-server)
-          allowUpdates: ${{ github.event.inputs.tag == '' }}
+          allowUpdates: ${{ github.event.inputs.tag == '' || github.event.inputs.replace_existing == 'true' }}
           artifacts: ""
           token: ${{ secrets.GITHUB_TOKEN }}
           prerelease: ${{ github.event.inputs.tag == '' || contains(github.event.inputs.tag, '-rc.') }}
           makeLatest: false
+
+      - name: Align rebuilt Docker release tag with source commit
+        if: github.event.inputs.tag != '' && github.event.inputs.replace_existing == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/${{ github.event.inputs.tag }}-docker" -f sha="$GITHUB_SHA" -F force=true
 
       - name: Install ossutil
         if: env.OSS_ACCESS_KEY_ID != '' && env.OSS_ACCESS_KEY_SECRET != '' && env.OSS_BUCKET != '' && env.OSS_ENDPOINT != '' && env.OSS_BASE_URL != ''
