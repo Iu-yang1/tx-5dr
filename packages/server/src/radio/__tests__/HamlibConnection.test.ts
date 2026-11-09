@@ -330,6 +330,52 @@ describe('HamlibConnection', () => {
     expect(rig.sendRaw).not.toHaveBeenCalled();
   });
 
+  describe('FTDX10 signed IF and CW level controls', () => {
+    const setup = () => {
+      const { connection, rig } = createConnectedConnection();
+      const accessor = asTestConnection(connection);
+      accessor.currentConfig = { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } };
+      accessor.supportedLevels = new Set(['IF', 'CWPITCH', 'KEYSPD']);
+      return { connection, rig, accessor };
+    };
+
+    it('reads and writes signed IF shift in Hz, with native readback', async () => {
+      const { connection, rig } = setup();
+      rig.getLevel.mockResolvedValue(-350);
+      await expect(connection.getIFShift()).resolves.toBe(-350);
+      await expect(connection.setIFShift(-350)).resolves.toBeUndefined();
+      expect(rig.setLevel).toHaveBeenCalledWith('IF', -350);
+      await expect(connection.setIFShift(-1201)).rejects.toThrow('between -1200');
+      expect(rig.setLevel).toHaveBeenCalledTimes(1);
+    });
+
+    it('exposes supported CW pitch and key speed without raw CAT frames', async () => {
+      const { connection, rig } = setup();
+      rig.getLevel.mockImplementation(async (level: string) => level === 'CWPITCH' ? 650 : 20);
+      await expect(connection.getCwPitch()).resolves.toBe(650);
+      await expect(connection.getKeySpeed()).resolves.toBe(20);
+      await expect(connection.setCwPitch(650)).resolves.toBeUndefined();
+      await expect(connection.setKeySpeed(20)).resolves.toBeUndefined();
+      expect(rig.setLevel.mock.calls).toEqual([['CWPITCH', 650], ['KEYSPD', 20]]);
+      await expect(connection.setCwPitch(655)).rejects.toThrow('10 Hz steps');
+      await expect(connection.setKeySpeed(100)).rejects.toThrow('6 and 48');
+    });
+
+    it('blocks receiver/CW writes during physical PTT and on unsupported models', async () => {
+      const { connection, rig, accessor } = setup();
+      rig.getPtt.mockResolvedValue(true);
+      await expect(connection.setIFShift(100)).rejects.toThrow('confirmed RX');
+      await expect(connection.setCwPitch(600)).rejects.toThrow('confirmed RX');
+      await expect(connection.setKeySpeed(20)).rejects.toThrow('confirmed RX');
+      expect(rig.setLevel).not.toHaveBeenCalled();
+      rig.getPtt.mockResolvedValue(false);
+      accessor.currentConfig = { type: 'serial', serial: { rigModel: 1035, path: 'COM4' } };
+      await expect(connection.getIFShift()).rejects.toThrow('unavailable');
+      await expect(connection.setKeySpeed(20)).rejects.toThrow('unavailable');
+      expect(rig.setLevel).not.toHaveBeenCalled();
+    });
+  });
+
   describe('FTDX10 guarded manual mode control', () => {
     const prepare = (rigOverrides: Partial<MockRig> = {}) => {
       const { connection, rig } = createConnectedConnection(rigOverrides);
