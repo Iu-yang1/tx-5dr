@@ -18,7 +18,7 @@ describe('FTDX10 dedicated Roofing / Contour CAT registers', () => {
     expect(parseFtdx10ReceiverReply('roofing_filter', Buffer.from('RF07;'))).toBe(2);
     expect(parseFtdx10ReceiverReply('roofing_filter', Buffer.from('RF09;'))).toBe(4);
     expect(parseFtdx10ReceiverReply('roofing_filter', Buffer.from('RF0A;'))).toBe(5);
-    for (const candidate of [0, 3, 6, 12, 500, NaN]) {
+    for (const candidate of [-1, 3, 6, 12, 500, NaN]) {
       expect(() => encodeFtdx10ReceiverWrite('roofing_filter', candidate)).toThrow('not an advertised option');
     }
     expect(parseFtdx10ReceiverReply('roofing_filter', Buffer.from('RF08;'))).toBeNull();
