@@ -45,7 +45,7 @@ export const HAMLIB_OPERATIONS = {
   ...operations(['getFrequency', 'getRFPower', 'getAFGain', 'getRFGain', 'getSQL', 'getMicGain', 'getCompressorLevel', 'getMonitorGain', 'getNBLevel', 'getNRLevel', 'getPreampLevel', 'getAttenuatorLevel', 'getRitOffset', 'getXitOffset', 'getTuningStep', 'getRepeaterOffset', 'getCtcssTone', 'getDcsCode', 'getMaxRit', 'getMaxXit'] as const, empty, number),
   getVfo: { args: empty, result: z.string() },
   setVfo: { args: z.tuple([z.string()]), result: z.void() },
-  ...operations(['setFrequency', 'setRFPower', 'setAFGain', 'setRFGain', 'setSQL', 'setMicGain', 'setCompressorLevel', 'setMonitorGain', 'setNBLevel', 'setNRLevel', 'setPreampLevel', 'setAttenuatorLevel', 'setRitOffset', 'setXitOffset', 'setTuningStep', 'setRepeaterOffset', 'setCtcssTone', 'setDcsCode', 'setSpectrumSpan', 'setSplitFrequency'] as const, z.tuple([number]), z.void()),
+  ...operations(['setFrequency', 'setRFPower', 'setAFGain', 'setSQL', 'setMicGain', 'setCompressorLevel', 'setMonitorGain', 'setNBLevel', 'setNRLevel', 'setPreampLevel', 'setAttenuatorLevel', 'setRitOffset', 'setXitOffset', 'setTuningStep', 'setRepeaterOffset', 'setCtcssTone', 'setDcsCode', 'setSpectrumSpan', 'setSplitFrequency'] as const, z.tuple([number]), z.void()),
   ...operations(['getPTT', 'getDCD', 'getCompressorEnabled', 'getNBEnabled', 'getNREnabled', 'getLockMode', 'getMuteEnabled', 'getVOXEnabled', 'getSplitEnabled', 'startTuning'] as const, empty, z.boolean()),
   ...operations(['setPTT', 'setTuner', 'setCompressorEnabled', 'setNBEnabled', 'setNREnabled', 'setLockMode', 'setMuteEnabled', 'setVOXEnabled', 'setSplitEnabled'] as const, z.tuple([z.boolean()]), z.void()),
   ...operations(['getAgcMode', 'getPowerState', 'getRepeaterShift'] as const, empty, z.string()),
@@ -58,6 +58,8 @@ export const HAMLIB_OPERATIONS = {
   probeResponding: { args: z.tuple([number]), result: z.boolean() },
   setKnownFrequency: { args: z.tuple([number]), result: z.void() },
   sendCWMessage: { args: z.tuple([z.string(), number]), result: z.void() },
+  // RF gain is a normalized receiver level, never an arbitrary native rig value.
+  setRFGain: { args: z.tuple([z.number().finite().min(0).max(1)]), result: z.void() },
   setMode: { args: z.tuple([z.string(), bandwidth.optional(), modeOptions.optional()]), result: z.void() },
   setManualMode: { args: z.tuple([z.string().trim().min(1).max(12)]), result: z.void() },
   getMode: { args: empty, result: z.object({ mode: z.string(), bandwidth: z.union([z.string(), number]) }) },
