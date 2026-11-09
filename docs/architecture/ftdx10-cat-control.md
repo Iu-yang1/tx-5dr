@@ -30,7 +30,7 @@ hardware validation, or announce a release.
 | `cw_pitch` | native `RIG_LEVEL_CWPITCH` | 300–900 Hz, 10 Hz step | exact readback; RX guard |
 | `key_speed` | native `RIG_LEVEL_KEYSPD` | 6–48 WPM | exact readback; RX guard |
 | `apf_enabled` | native `RIG_FUNC_APF` | receiver APF switch; not APF level | exact readback; RX guard |
-| `roofing_filter` | FTDX10 RF0 CAT (Hamlib-owned raw transport) | independent analogue 12 kHz/3 kHz/500 Hz/optional 300 Hz; **not DSP WIDTH** | RX + Split OFF, one pre-read and two post-reads |
+| `roofing_filter` | FTDX10 RF0 CAT (Hamlib-owned raw transport) | AUTO (index 0), 12 kHz (1), 3 kHz (2), 500 Hz (4), optional 300 Hz (5); **not DSP WIDTH** | RX + Split OFF, one pre-read and two post-reads |
 | `contour_enabled` | CO00 CAT | receiver Contour ON/OFF | RX + Split OFF, double readback |
 | `contour_frequency` | CO01 CAT | 10–3200 Hz | RX + Split OFF, double readback |
 | `contour_level` | EX030202 CAT | −40 to +20 dB | RX + Split OFF, double readback |
@@ -39,6 +39,9 @@ hardware validation, or announce a release.
 The dedicated Roofing/Contour API uses the existing native Hamlib rig handle,
 not a second COM reader. It is a **model-specific CAT adapter** (not the native
 Hamlib extended-level API) and cannot claim a transport-level response identity.
+The Hamlib model 1042 roofing table includes AUTO (0) and excludes the unadvertised
+optional 1.2 kHz slot (3). Contour centre frequency is a 1 Hz-step numeric
+parameter in the Hamlib model table, independent of DSP WIDTH.
 Optional 300 Hz Roofing requires an installed hardware filter. Any ambiguous
 raw read or write leaves the shared raw CAT access quarantined until reconnect,
 including the future audio-route code.
@@ -56,11 +59,13 @@ worker calls `shim_rig_send_raw` under the native rig lock. Hamlib
 flushes the serial port. It does **not** associate the response with a unique
 transaction identifier at the API boundary.
 
-A native FTDX10 wrong-register reply detector has been implemented in
+A native FTDX10 wrong-register reply detector and EX/CO/RF no-retry policy have been implemented in
 [`Iu-yang1/Hamlib` PR #1](https://github.com/Iu-yang1/Hamlib/pull/1).
 The native `newcat_get_cmd` pathway checks EX/CO/RF **full register selectors**
 for model 1042, rather than only the first two command letters, and rejects
-contaminated frames without blind retry. A focused standalone native C test
+contaminated frames without blind retry. FTDX10 native EX/CO/RF queries now
+fail immediately on timeout or ambiguous `?;` instead of retrying a
+non-identifiable response. A focused standalone native C test
 covers valid, wrong-slot, incomplete and repeated replies. **This is not
 deployed into the `hamlib@0.7.7` Node addon's native binary used by TX5DR.**
 In addition, matching old same-register replies have no protocol transaction
