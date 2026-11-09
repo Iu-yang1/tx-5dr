@@ -22,6 +22,8 @@ export function EnumCapability({ descriptor, capabilityId, state, interactive, o
         aria-pressed={String(option.value) === selected} isDisabled={!interactive}
         onPress={() => choose(String(option.value))}>{formatCapabilityOption(option, descriptor, t)}</Button>)}
     </ButtonGroup> : <Select size="sm" aria-label={t(descriptor.labelI18nKey)} disallowEmptySelection
+      popoverProps={{ classNames: { base: 'tx5dr-select-popover' } }}
+      listboxProps={{ itemClasses: { title: 'whitespace-normal break-words' } }}
       classNames={{ base: 'cap-select', trigger: 'cap-select-trigger', innerWrapper: 'w-full', value: 'cap-select-value', selectorIcon: 'right-1 w-3 h-3' }}
       style={{ width: `calc(${Math.min(26, Math.max(6, ...options.map(o => formatCapabilityOption(o, descriptor, t).length)))}ch + 34px)` }}
       selectedKeys={current ? [String(current.value)] : []} placeholder="—" isDisabled={!interactive || !options.length}
