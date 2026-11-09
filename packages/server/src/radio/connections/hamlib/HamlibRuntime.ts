@@ -2925,7 +2925,7 @@ export class HamlibRuntime
       if (!provider) return this.txAudioInputSource;
       // Yaesu EX menu banks depend on the radio's *actual* mode. Do not
       // choose one from a stale cached mode after a front-panel change.
-      if (provider.manufacturer === 'Yaesu') await this.performModeRead();
+      if (this.meterRigMetadata?.rigModel === 1042) await this.performModeRead();
       const raw = await this.sendTxAudioRaw(provider);
       const normalized = raw === null ? null : provider.reverseMap[raw] ?? null;
       // An incomplete or unrelated EX reply must not present stale cached
@@ -2948,7 +2948,7 @@ export class HamlibRuntime
       this.checkConnected();
       const provider = this.getTxAudioProvider();
       if (!provider) throw new Error('Hamlib model has no verified TX audio input provider');
-      if (provider.manufacturer === 'Yaesu') await this.performModeRead();
+      if (this.meterRigMetadata?.rigModel === 1042) await this.performModeRead();
       const value = provider.valueMap[source];
       if (value === undefined) throw new Error(`Unsupported TX audio input source for ${this.meterRigMetadata?.modelName ?? 'radio'}: ${source}`);
       await this.sendTxAudioRaw(provider, value);
