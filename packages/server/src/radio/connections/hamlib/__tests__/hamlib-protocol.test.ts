@@ -34,6 +34,9 @@ describe('Hamlib protocol', () => {
     expect(HAMLIB_OPERATIONS.setManualMode.args.safeParse(['']).success).toBe(false);
     expect(HamlibCommandSchema.safeParse(command('getRFGain', [])).success).toBe(true);
     expect(HamlibCommandSchema.safeParse(command('setRFGain', [0.8])).success).toBe(true);
+    expect(HamlibCommandSchema.safeParse(command('getApfEnabled', [])).success).toBe(true);
+    expect(HAMLIB_OPERATIONS.setApfEnabled.args.safeParse([true]).success).toBe(true);
+    expect(HAMLIB_OPERATIONS.setApfEnabled.args.safeParse(['on']).success).toBe(false);
     expect(HAMLIB_OPERATIONS.setManualModeBandwidth.args.safeParse([1800]).success).toBe(true);
     expect(HAMLIB_OPERATIONS.setManualModeBandwidth.args.safeParse([0]).success).toBe(false);
     expect(HAMLIB_OPERATIONS.setManualModeBandwidth.args.safeParse([30000]).success).toBe(false);
