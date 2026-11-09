@@ -1367,11 +1367,11 @@ export class HamlibRuntime
       if (options.length === 0) {
         // Same fallback used by getSupportedModeBandwidths(): no broad range
         // guesswork and no arbitrary passband outside native Hamlib options.
-        const widths = await Promise.all([
-          this.rig!.getPassbandNarrow(mode as any),
-          this.rig!.getPassbandNormal(mode as any),
-          this.rig!.getPassbandWide(mode as any),
-        ]);
+        const widths = [
+          await this.rig!.getPassbandNarrow(mode as any),
+          await this.rig!.getPassbandNormal(mode as any),
+          await this.rig!.getPassbandWide(mode as any),
+        ];
         options = widths.filter((width) => Number.isInteger(width) && width > 0);
       }
       if (!options.includes(bandwidthHz)) {
