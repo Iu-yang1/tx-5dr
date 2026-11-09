@@ -520,6 +520,45 @@ describe('HamlibConnection', () => {
       return { connection, rig, accessor };
     };
 
+    it('locks a confirmed manual mode against conflicting engine and compound writes', async () => {
+      const { connection, rig } = prepare({
+        getMode: vi.fn().mockResolvedValue({ mode: 'PKTUSB', bandwidth: 2400 }),
+      });
+      await expect(connection.getManualModeAutoFollow()).resolves.toBe(true);
+      await connection.setManualMode('PKTUSB');
+      await expect(connection.getManualModeAutoFollow()).resolves.toBe(false);
+      rig.setMode.mockClear();
+      await expect(connection.setMode('USB')).rejects.toThrow('manual mode lock');
+      await expect(connection.applyOperatingState({
+        frequency: 14_074_000, mode: 'USB', bandwidth: 'nochange', tolerateModeFailure: true,
+      })).rejects.toThrow('manual mode lock');
+      expect(rig.setFrequency).not.toHaveBeenCalled();
+      expect(rig.setMode).not.toHaveBeenCalled();
+      await expect(connection.setMode('PKTUSB', 'nochange')).resolves.toBeUndefined();
+      expect(rig.setMode).not.toHaveBeenCalled();
+      await connection.setManualModeAutoFollow(true);
+      await expect(connection.getManualModeAutoFollow()).resolves.toBe(true);
+      await expect(connection.setMode('USB')).resolves.toBeUndefined();
+      expect(rig.setMode).toHaveBeenCalledWith('USB', undefined);
+    });
+
+    it('can explicitly lock the observed RX mode and rejects TX/Split ambiguity', async () => {
+      const { connection, rig } = prepare({
+        getMode: vi.fn().mockResolvedValue({ mode: 'USB', bandwidth: 2400 }),
+      });
+      await connection.setManualModeAutoFollow(false);
+      await expect(connection.getManualModeAutoFollow()).resolves.toBe(false);
+      await expect(connection.setMode('PKTUSB')).rejects.toThrow('manual mode lock');
+
+      await connection.setManualModeAutoFollow(true);
+      rig.getPtt.mockResolvedValue(true);
+      await expect(connection.setManualModeAutoFollow(false)).rejects.toThrow('confirmed RX');
+      rig.getPtt.mockResolvedValue(false);
+      rig.getSplit.mockResolvedValue({ enabled: true });
+      await expect(connection.setManualModeAutoFollow(false)).rejects.toThrow('Split OFF');
+      await expect(connection.getManualModeAutoFollow()).resolves.toBe(true);
+    });
+
     it('changes mode only after confirming native RX and Split OFF, then confirms readback', async () => {
       const { connection, rig } = prepare({
         getMode: vi.fn().mockResolvedValue({ mode: 'PKTUSB', bandwidth: 2400 }),
