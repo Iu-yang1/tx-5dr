@@ -241,9 +241,12 @@ function createIfShiftDefinition(): CapabilityDefinition {
     // The Hamlib adapter currently implements IF Shift for model 1042 only.
     // A generic Hamlib level table alone is not evidence that its reader works
     // on unrelated models. Preserve independently implemented non-Hamlib paths.
-    probeSupport: async (conn) => conn.getType() === RadioConnectionType.HAMLIB
-      && !isFtdx10ManualModeConnection(conn)
-      ? false : base.probeSupport(conn),
+    probeSupport: async (conn) => {
+      if (conn.getType() !== RadioConnectionType.HAMLIB) return base.probeSupport(conn);
+      if (!isFtdx10ManualModeConnection(conn) || !conn.getIFShift) return false;
+      await conn.getIFShift();
+      return { supported: true, source: 'runtime-probe' };
+    },
     resolveDescriptor: async (conn) => isFtdx10ManualModeConnection(conn)
       ? {
           ...base.descriptor,
@@ -261,9 +264,12 @@ function createFtdx10ApfDefinition(): CapabilityDefinition {
   );
   return {
     ...base,
-    probeSupport: async (conn) => conn.getType() === RadioConnectionType.HAMLIB
-      && !isFtdx10ManualModeConnection(conn)
-      ? false : base.probeSupport(conn),
+    probeSupport: async (conn) => {
+      if (conn.getType() !== RadioConnectionType.HAMLIB) return base.probeSupport(conn);
+      if (!isFtdx10ManualModeConnection(conn) || !conn.getApfEnabled) return false;
+      await conn.getApfEnabled();
+      return { supported: true, source: 'runtime-probe' };
+    },
   };
 }
 
