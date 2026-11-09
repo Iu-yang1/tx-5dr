@@ -376,6 +376,55 @@ describe('HamlibConnection', () => {
     });
   });
 
+  describe('FTDX10 guarded manual passband widths', () => {
+    const prepare = (rigOverrides: Partial<MockRig> = {}) => {
+      let width = 2400;
+      const { connection, rig } = createConnectedConnection({
+        getMode: vi.fn(async () => ({ mode: 'USB', bandwidth: width })),
+        setMode: vi.fn(async (_mode: string, requestedWidth: number) => { width = requestedWidth; }),
+        ...rigOverrides,
+      });
+      const accessor = asTestConnection(connection);
+      accessor.currentConfig = { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } };
+      accessor.supportedModes = new Set(['USB', 'LSB']);
+      return { connection, rig, accessor };
+    };
+
+    it('sets only advertised widths and confirms native mode and Hz readback', async () => {
+      const { connection, rig } = prepare();
+      await expect(connection.setManualModeBandwidth(1800)).resolves.toBeUndefined();
+      expect(rig.setMode).toHaveBeenCalledWith('USB', 1800);
+      expect(rig.getMode).toHaveBeenCalledTimes(2);
+      expect(rig.getSplit).toHaveBeenCalledTimes(1);
+      await expect(connection.setManualModeBandwidth(5000)).rejects.toThrow('does not advertise');
+      expect(rig.setMode).toHaveBeenCalledTimes(1);
+    });
+
+    it('blocks TX, unknown PTT and Split ON without mutating the radio', async () => {
+      const { connection, rig } = prepare();
+      rig.getPtt.mockResolvedValue(true);
+      await expect(connection.setManualModeBandwidth(1800)).rejects.toThrow('confirmed RX');
+      rig.getPtt.mockResolvedValue(null);
+      await expect(connection.setManualModeBandwidth(1800)).rejects.toThrow('confirmed RX');
+      rig.getPtt.mockResolvedValue(false);
+      rig.getSplit.mockResolvedValue({ enabled: true });
+      await expect(connection.setManualModeBandwidth(1800)).rejects.toThrow('Split OFF');
+      rig.getSplit.mockResolvedValue(null);
+      await expect(connection.setManualModeBandwidth(1800)).rejects.toThrow('Split OFF');
+      expect(rig.setMode).not.toHaveBeenCalled();
+    });
+
+    it('rejects mismatched readback and fails closed on unsupported radio models', async () => {
+      const { connection, rig, accessor } = prepare({
+        getMode: vi.fn().mockResolvedValue({ mode: 'USB', bandwidth: 2400 }),
+      });
+      await expect(connection.setManualModeBandwidth(1800)).rejects.toThrow('readback mismatch');
+      accessor.currentConfig = { type: 'serial', serial: { rigModel: 1035, path: 'COM5' } };
+      await expect(connection.setManualModeBandwidth(1800)).rejects.toThrow('unavailable');
+      expect(rig.setMode).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('FTDX10 guarded manual mode control', () => {
     const prepare = (rigOverrides: Partial<MockRig> = {}) => {
       const { connection, rig } = createConnectedConnection(rigOverrides);
