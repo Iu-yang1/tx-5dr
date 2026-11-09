@@ -2152,7 +2152,19 @@ export class HamlibRuntime
     await this.runSerializedTask('setRFGain', async () => {
       this.checkConnected();
       if (!this.supportedLevels.has('RF')) throw new Error('RF gain is not supported by this radio');
+      const ftdx10 = this.currentConfig?.type === 'serial' && this.currentConfig.serial?.rigModel === 1042;
+      if (ftdx10 && await this.rig!.getPtt() !== false) {
+        throw new Error('FTDX10 RF gain write requires confirmed RX state');
+      }
       await this.rig!.setLevel('RF', value);
+      if (ftdx10) {
+        const applied = (await this.rig!.getLevel('RF')) as number;
+        // Hamlib models the RF control as a normalized float. Allow small
+        // knob-step quantization, but never claim a large silent clamp.
+        if (!Number.isFinite(applied) || Math.abs(applied - value) > 0.02) {
+          throw new Error(`FTDX10 RF gain readback mismatch: requested ${value}, observed ${applied}`);
+        }
+      }
       this.lastSuccessfulOperation = Date.now();
     }, { critical: true });
   }
