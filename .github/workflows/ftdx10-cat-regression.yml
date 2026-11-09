@@ -1,0 +1,44 @@
+name: FTDX10 CAT Protocol Regression
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'packages/server/src/radio/**'
+      - 'packages/web/src/i18n/locales/**/radio.json'
+      - '.github/workflows/ftdx10-cat-regression.yml'
+  push:
+    branches: ['feature/ftdx10-p2-p3-roofing-contour']
+    paths:
+      - 'packages/server/src/radio/**'
+      - '.github/workflows/ftdx10-cat-regression.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  ftdx10-cat-protocol:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.1'
+      - name: Enable Yarn
+        run: |
+          corepack enable
+          corepack prepare yarn@4.12.0 --activate
+      - name: Install test dependencies without unrelated native postinstall scripts
+        env:
+          YARN_ENABLE_SCRIPTS: 'false'
+          ONNXRUNTIME_NODE_INSTALL: skip
+        run: yarn install --immutable --mode=skip-build
+      - name: Compile and typecheck affected server
+        run: yarn workspace @tx5dr/server exec tsc --noEmit
+      - name: Run typed CAT contract, codec and runtime tests
+        run: |
+          cd packages/server
+          yarn exec vitest run             src/radio/connections/hamlib/__tests__/Ftdx10ReceiverCat.test.ts             src/radio/connections/hamlib/__tests__/YaesuCatReply.test.ts             src/radio/connections/hamlib/__tests__/hamlib-protocol.test.ts             src/radio/__tests__/HamlibConnection.test.ts             src/radio/__tests__/RadioCapabilityManager.test.ts             --maxWorkers=2
+      - name: Verify translation parity
+        run: yarn check:i18n
