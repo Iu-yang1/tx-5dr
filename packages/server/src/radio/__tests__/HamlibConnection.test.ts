@@ -18,6 +18,8 @@ type MockRig = {
   setSplit: ReturnType<typeof vi.fn>;
   getSplitFreq: ReturnType<typeof vi.fn>;
   setSplitFreq: ReturnType<typeof vi.fn>;
+  getSplitMode: ReturnType<typeof vi.fn>;
+  setSplitMode: ReturnType<typeof vi.fn>;
   setMode: ReturnType<typeof vi.fn>;
   getVfo: ReturnType<typeof vi.fn>;
   setVfo: ReturnType<typeof vi.fn>;
@@ -118,6 +120,8 @@ function createConnectedConnection(rigOverrides: Partial<MockRig> = {}): {
     setSplit: vi.fn().mockResolvedValue(0),
     getSplitFreq: vi.fn().mockResolvedValue(null),
     setSplitFreq: vi.fn().mockResolvedValue(0),
+    getSplitMode: vi.fn().mockResolvedValue({ mode: 'USB', width: 2400 }),
+    setSplitMode: vi.fn().mockResolvedValue(0),
     setMode: vi.fn().mockResolvedValue(0),
     getVfo: vi.fn().mockResolvedValue('VFOA'),
     setVfo: vi.fn().mockResolvedValue(0),
@@ -1086,6 +1090,51 @@ describe('HamlibConnection', () => {
     await expect(connection.setSplitFrequency(14_275_000)).resolves.toBeUndefined();
 
     expect(rig.setSplitFreq).toHaveBeenCalledWith(14_275_000, 'VFOB');
+  });
+
+  it('reads the live Split TX mode independently from the RX VFO mode', async () => {
+    const { connection, rig } = createConnectedConnection({
+      getSplit: vi.fn().mockResolvedValue({ enabled: true, txVfo: 'VFOB' }),
+      getSplitMode: vi.fn().mockResolvedValue({ mode: 'CW', width: 500 }),
+      getMode: vi.fn().mockResolvedValue({ mode: 'USB', bandwidth: 2400 }),
+    });
+    await expect(connection.getSplitMode()).resolves.toBe('CW');
+    expect(rig.getSplitMode).toHaveBeenCalledWith('VFOB');
+    expect(rig.getMode).not.toHaveBeenCalled();
+    expect(rig.setMode).not.toHaveBeenCalled();
+  });
+
+  it('sets only the intended Split TX VFO mode and confirms its readback', async () => {
+    const { connection, rig } = createConnectedConnection({
+      getSplit: vi.fn().mockResolvedValue({ enabled: true, txVfo: 'VFOB' }),
+      getSplitMode: vi.fn().mockResolvedValue({ mode: 'PKTUSB', width: 2400 }),
+    });
+    asTestConnection(connection).supportedModes = new Set(['USB', 'PKTUSB']);
+    await expect(connection.setSplitMode('pktusb')).resolves.toBeUndefined();
+    expect(rig.setSplitMode).toHaveBeenCalledExactlyOnceWith('PKTUSB', 'VFOB');
+    expect(rig.getSplitMode).toHaveBeenCalledWith('VFOB');
+    expect(rig.setFrequency).not.toHaveBeenCalled();
+    expect(rig.setMode).not.toHaveBeenCalled();
+  });
+
+  it('never retries a Split TX mode write on another VFO after readback mismatch', async () => {
+    const { connection, rig } = createConnectedConnection({
+      getSplit: vi.fn().mockResolvedValue({ enabled: true, txVfo: 'VFOB' }),
+      getSplitMode: vi.fn().mockResolvedValue({ mode: 'USB', width: 2400 }),
+    });
+    asTestConnection(connection).supportedModes = new Set(['USB', 'CW']);
+    await expect(connection.setSplitMode('CW')).rejects.toThrow('readback mismatch');
+    expect(rig.setSplitMode).toHaveBeenCalledExactlyOnceWith('CW', 'VFOB');
+  });
+
+  it('leaves Split mode selection usable during Split OFF for radio-side preparation', async () => {
+    const { connection, rig } = createConnectedConnection({
+      getSplit: vi.fn().mockResolvedValue({ enabled: false }),
+      getSplitMode: vi.fn().mockResolvedValue({ mode: 'CW', width: 500 }),
+    });
+    await expect(connection.getSplitMode()).resolves.toBeNull();
+    await expect(connection.setSplitMode('CW')).resolves.toBeUndefined();
+    expect(rig.setSplitMode).toHaveBeenCalledWith('CW', 'Other');
   });
 
   it('does not attempt split TX sync when the primary frequency write fails', async () => {
