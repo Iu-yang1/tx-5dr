@@ -42,7 +42,7 @@ function operations<const Names extends readonly string[], Args extends z.ZodTyp
 
 const empty = z.tuple([]);
 export const HAMLIB_OPERATIONS = {
-  ...operations(['getFrequency', 'getRFPower', 'getAFGain', 'getSQL', 'getMicGain', 'getCompressorLevel', 'getMonitorGain', 'getNBLevel', 'getNRLevel', 'getPreampLevel', 'getAttenuatorLevel', 'getRitOffset', 'getXitOffset', 'getTuningStep', 'getRepeaterOffset', 'getCtcssTone', 'getDcsCode', 'getMaxRit', 'getMaxXit'] as const, empty, number),
+  ...operations(['getFrequency', 'getRFPower', 'getAFGain', 'getRFGain', 'getSQL', 'getMicGain', 'getCompressorLevel', 'getMonitorGain', 'getNBLevel', 'getNRLevel', 'getPreampLevel', 'getAttenuatorLevel', 'getRitOffset', 'getXitOffset', 'getTuningStep', 'getRepeaterOffset', 'getCtcssTone', 'getDcsCode', 'getMaxRit', 'getMaxXit'] as const, empty, number),
   getVfo: { args: empty, result: z.string() },
   setVfo: { args: z.tuple([z.string()]), result: z.void() },
   ...operations(['setFrequency', 'setRFPower', 'setAFGain', 'setSQL', 'setMicGain', 'setCompressorLevel', 'setMonitorGain', 'setNBLevel', 'setNRLevel', 'setPreampLevel', 'setAttenuatorLevel', 'setRitOffset', 'setXitOffset', 'setTuningStep', 'setRepeaterOffset', 'setCtcssTone', 'setDcsCode', 'setSpectrumSpan', 'setSplitFrequency'] as const, z.tuple([number]), z.void()),
