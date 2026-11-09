@@ -78,6 +78,8 @@ export const HAMLIB_OPERATIONS = {
   getSpectrumSupportSummary: { args: empty, result: summary },
   getCurrentSpectrumSpan: { args: empty, result: number.nullable() },
   getSplitFrequency: { args: empty, result: number.nullable() },
+  getSplitMode: { args: empty, result: z.string().nullable() },
+  setSplitMode: { args: z.tuple([z.string().min(1)]), result: z.void() },
   setSplitFreqMode: { args: z.tuple([number, z.string(), number]), result: z.void() },
   getSpectrumDisplayState: { args: empty, result: displayState.nullable() },
   configureSpectrumDisplay: { args: z.tuple([displayConfig]), result: z.void() },
