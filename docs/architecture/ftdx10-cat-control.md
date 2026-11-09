@@ -136,6 +136,25 @@ native command association and same-prefix timeout/reconnect fencing must be
 integrated into the **shipped** Node Hamlib addon before declaring P3 passed
 or enabling P4 TX-audio routing.
 
+### Native Node addon compatibility gate
+
+The separate native build job now tests the *real integration dependency*:
+it builds the patched Hamlib source, installs a temporary shared library,
+checks out the pinned `boybook/node-hamlib@0.7.7` source, rebuilds its N-API
+addon, attempts to load `build/Release/hamlib.node`, and inspects the
+resulting link map. The source-level Hamlib native build and C reply test
+already passed.
+
+Upstream node-hamlib's legacy shim directly accesses `RIG.state` and
+`ROT.state`, removed from newer Hamlib. The isolated CI adaptation now
+replaces those accesses with the *public*
+`HAMLIB_STATE(rig)`/`HAMLIB_ROTSTATE(rot)` functions, rather than the
+`IN_HAMLIB`-only internal `STATE`/`ROTSTATE` macros. The adapter build
+and runtime linker check are independent release gates; no production
+`hamlib@0.7.7` binary has yet been replaced. P3 remains incomplete
+until a reproducible distribution for all supported targets uses this
+verified native implementation.
+
 Do not merge to `main`, deploy, or publish a stable Release while any
 **software** safety gate remains unresolved. Keep unrelated CI environment
 failures (including optional native dependency installation) separate from
