@@ -399,6 +399,13 @@ export interface IRadioConnection extends EventEmitter<IRadioConnectionEvents> {
   setManualMode?(mode: string): Promise<void>;
 
   /**
+   * FTDX10 manual receive passband width (Hz). Requires the backend to verify
+   * native RX + Split OFF and confirm the resulting mode/width atomically in
+   * its connection-owned queue, independently from general engine mode writes.
+   */
+  setManualModeBandwidth?(bandwidthHz: number): Promise<void>;
+
+  /**
    * 在一个保守的关键区间内应用工作状态（频率/模式）。
    *
    * 适用于“切台 + 切模式”这类必须避免后台轮询插入的复合操作。
