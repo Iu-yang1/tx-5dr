@@ -321,7 +321,7 @@ function createFtdx10ReceiverDefinitions(): CapabilityDefinition[] {
     )),
     ftdx10OnlyReceiverCapability(createRuntimeNumberDefinition(
       'contour_frequency', 'rf', 'getContourFrequency', 'setContourFrequency',
-      { min: 10, max: 3200, step: 10 }, { mode: 'value', unit: 'Hz', decimals: 0 },
+      { min: 10, max: 3200, step: 1 }, { mode: 'value', unit: 'Hz', decimals: 0 },
     )),
     ftdx10OnlyReceiverCapability(createRuntimeNumberDefinition(
       'contour_level', 'rf', 'getContourLevel', 'setContourLevel',
