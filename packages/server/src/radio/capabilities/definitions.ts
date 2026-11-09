@@ -238,6 +238,12 @@ function createIfShiftDefinition(): CapabilityDefinition {
   const base = createRuntimePercentDefinition('if_shift', 'rf', 'getIFShift', 'setIFShift', 'IF');
   return {
     ...base,
+    // The Hamlib adapter currently implements IF Shift for model 1042 only.
+    // A generic Hamlib level table alone is not evidence that its reader works
+    // on unrelated models. Preserve independently implemented non-Hamlib paths.
+    probeSupport: async (conn) => conn.getType() === RadioConnectionType.HAMLIB
+      && !isFtdx10ManualModeConnection(conn)
+      ? false : base.probeSupport(conn),
     resolveDescriptor: async (conn) => isFtdx10ManualModeConnection(conn)
       ? {
           ...base.descriptor,
@@ -246,6 +252,18 @@ function createIfShiftDefinition(): CapabilityDefinition {
           display: { mode: 'value', unit: 'Hz', decimals: 0 },
           requiresIdle: true,
         } : base.descriptor,
+  };
+}
+
+function createFtdx10ApfDefinition(): CapabilityDefinition {
+  const base = createRuntimeBooleanDefinition(
+    'apf_enabled', 'rf', 'getApfEnabled', 'setApfEnabled', 'APF', { compoundGroup: 'apf' },
+  );
+  return {
+    ...base,
+    probeSupport: async (conn) => conn.getType() === RadioConnectionType.HAMLIB
+      && !isFtdx10ManualModeConnection(conn)
+      ? false : base.probeSupport(conn),
   };
 }
 
@@ -675,9 +693,7 @@ function createDefinitions(): CapabilityDefinition[] {
     createRuntimeBooleanDefinition('monitor_enabled', 'audio', 'getMonitorEnabled', 'setMonitorEnabled', 'MON', {
       compoundGroup: 'monitor',
     }),
-    createRuntimeBooleanDefinition('apf_enabled', 'rf', 'getApfEnabled', 'setApfEnabled', 'APF', {
-      compoundGroup: 'apf',
-    }),
+    createFtdx10ApfDefinition(),
     createRuntimePercentDefinition('apf_level', 'rf', 'getApfLevel', 'setApfLevel', 'APF', {
       compoundGroup: 'apf',
     }),
