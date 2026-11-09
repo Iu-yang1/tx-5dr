@@ -725,6 +725,49 @@ describe('RadioCapabilityManager', () => {
     manager.onDisconnected();
   });
 
+  it('exposes auto-follow only on FTDX10 and dispatches without changing generic engine mode', async () => {
+    const manager = new RadioCapabilityManager();
+    const getManualModeAutoFollow = vi.fn(async () => true);
+    const setManualModeAutoFollow = vi.fn(async (_value: boolean) => undefined);
+    const connection = new MockConnection(RadioConnectionType.HAMLIB, {
+      getConnectionInfo: () => ({
+        type: RadioConnectionType.HAMLIB,
+        state: RadioConnectionState.CONNECTED,
+        config: { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } },
+      }),
+      setManualMode: vi.fn(),
+      getSupportedModes: vi.fn(async () => ['USB']),
+      getManualModeAutoFollow,
+      setManualModeAutoFollow,
+    });
+    await manager.onConnected(connection as never);
+    expect(getDescriptor(manager.getCapabilitySnapshot().descriptors, 'mode_auto_follow')).toMatchObject({
+      writable: true,
+      requiresIdle: true,
+      valueType: 'boolean',
+    });
+    await manager.writeCapability('mode_auto_follow', false);
+    expect(setManualModeAutoFollow).toHaveBeenCalledWith(false);
+    manager.setPTTActive(true);
+    await expect(manager.writeCapability('mode_auto_follow', true)).rejects.toThrow('requires an idle radio');
+    manager.onDisconnected();
+
+    const legacy = new RadioCapabilityManager();
+    await legacy.onConnected(new MockConnection(RadioConnectionType.HAMLIB, {
+      getConnectionInfo: () => ({
+        type: RadioConnectionType.HAMLIB,
+        state: RadioConnectionState.CONNECTED,
+        config: { type: 'serial', serial: { rigModel: 1035, path: 'COM5' } },
+      }),
+      getManualModeAutoFollow,
+      setManualModeAutoFollow,
+    }) as never);
+    expect(getCapability(legacy.getCapabilityStates(), 'mode_auto_follow')).toMatchObject({
+      supported: false,
+    });
+    legacy.onDisconnected();
+  });
+
   it('routes FTDX10 passband widths through guarded native control instead of generic mode writes', async () => {
     const manager = new RadioCapabilityManager();
     const setManualModeBandwidth = vi.fn(async (_hz: number) => undefined);
