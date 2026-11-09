@@ -1279,7 +1279,9 @@ export class HamlibRuntime
         throw new Error('Manual CAT mode change requires confirmed Split OFF');
       }
 
-      await this.performModeWrite(requested, 'nochange');
+      // Do not call performModeWrite() here: its generic engine path may
+      // synchronize the Split TX-VFO mode. This manual operation owns RX only.
+      await this.rig!.setMode(requested, 'nochange');
       const observed = normalizeModeName((await this.performModeRead()).mode);
       if (observed !== requested) {
         throw new Error(`FTDX10 mode readback mismatch: requested ${requested}, observed ${observed}`);
