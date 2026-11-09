@@ -155,6 +155,12 @@ export class HamlibConnection extends EventEmitter<IRadioConnectionEvents> imple
   setAFGain(value: number): ReturnType<HamlibRuntime['setAFGain']> { return this.invoke('setAFGain', [value]) as ReturnType<HamlibRuntime['setAFGain']>; }
   getRFGain(): ReturnType<HamlibRuntime['getRFGain']> { return this.invoke('getRFGain', []) as ReturnType<HamlibRuntime['getRFGain']>; }
   setRFGain(value: number): ReturnType<HamlibRuntime['setRFGain']> { return this.invoke('setRFGain', [value]) as ReturnType<HamlibRuntime['setRFGain']>; }
+  getIFShift(): ReturnType<HamlibRuntime['getIFShift']> { return this.invoke('getIFShift', []) as ReturnType<HamlibRuntime['getIFShift']>; }
+  setIFShift(hz: number): ReturnType<HamlibRuntime['setIFShift']> { return this.invoke('setIFShift', [hz]) as ReturnType<HamlibRuntime['setIFShift']>; }
+  getCwPitch(): ReturnType<HamlibRuntime['getCwPitch']> { return this.invoke('getCwPitch', []) as ReturnType<HamlibRuntime['getCwPitch']>; }
+  setCwPitch(hz: number): ReturnType<HamlibRuntime['setCwPitch']> { return this.invoke('setCwPitch', [hz]) as ReturnType<HamlibRuntime['setCwPitch']>; }
+  getKeySpeed(): ReturnType<HamlibRuntime['getKeySpeed']> { return this.invoke('getKeySpeed', []) as ReturnType<HamlibRuntime['getKeySpeed']>; }
+  setKeySpeed(wpm: number): ReturnType<HamlibRuntime['setKeySpeed']> { return this.invoke('setKeySpeed', [wpm]) as ReturnType<HamlibRuntime['setKeySpeed']>; }
   getSQL(): ReturnType<HamlibRuntime['getSQL']> { return this.invoke('getSQL', []) as ReturnType<HamlibRuntime['getSQL']>; }
   setSQL(value: number): ReturnType<HamlibRuntime['setSQL']> { return this.invoke('setSQL', [value]) as ReturnType<HamlibRuntime['setSQL']>; }
   getDCD(): ReturnType<HamlibRuntime['getDCD']> { return this.invoke('getDCD', []) as ReturnType<HamlibRuntime['getDCD']>; }
