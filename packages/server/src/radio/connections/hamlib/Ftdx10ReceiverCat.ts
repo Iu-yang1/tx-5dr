@@ -27,10 +27,11 @@ const numeric = (min: number, max: number, step = 1) =>
   (value: number) => Number.isInteger(value) && value >= min && value <= max
     && (value - min) % step === 0;
 
-// These are Hamlib FTDX10 indices, not a bandwidth in Hz.
-// RF00 is AUTO. The optional 1.2 kHz slot (index 3) is not advertised.
+// RF is 'RF' + fixed selector P1=0 + P2 choice.
+// Yaesu CAT 2308-F p.19 defines P2={1,2,4,5}; P2=0 is NOT AUTO.
+// Hamlib's internal AUTO index 0 must never be sent as RF00.
 const roofingSetToRead = new Map<number, string>([
-  [0, '0'], [1, '6'], [2, '7'], [4, '9'], [5, 'A'],
+  [1, '6'], [2, '7'], [4, '9'], [5, 'A'],
 ]);
 const roofingReadToSet = new Map<string, number>(
   [...roofingSetToRead].map(([choice, code]) => [code, choice] as const),
