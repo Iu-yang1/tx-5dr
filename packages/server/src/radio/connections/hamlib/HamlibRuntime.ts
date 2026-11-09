@@ -2115,6 +2115,9 @@ export class HamlibRuntime
     }
     await this.runSerializedTask('setIFShift', async () => {
       this.requireFtdx10ConfigLevel('IF');
+      if (await this.rig!.getPtt() !== false) {
+        throw new Error('FTDX10 receiver/CW setting requires confirmed RX state');
+      }
       await this.rig!.setLevel('IF', hz);
       const actual = (await this.rig!.getLevel('IF')) as number;
       if (actual !== hz) throw new Error(`FTDX10 IF shift readback mismatch: expected ${hz} Hz, observed ${actual}`);
@@ -2138,6 +2141,9 @@ export class HamlibRuntime
     }
     await this.runSerializedTask('setCwPitch', async () => {
       this.requireFtdx10ConfigLevel('CWPITCH');
+      if (await this.rig!.getPtt() !== false) {
+        throw new Error('FTDX10 receiver/CW setting requires confirmed RX state');
+      }
       await this.rig!.setLevel('CWPITCH', hz);
       const actual = (await this.rig!.getLevel('CWPITCH')) as number;
       if (actual !== hz) throw new Error(`FTDX10 CW pitch readback mismatch: expected ${hz}, observed ${actual}`);
@@ -2161,6 +2167,9 @@ export class HamlibRuntime
     }
     await this.runSerializedTask('setKeySpeed', async () => {
       this.requireFtdx10ConfigLevel('KEYSPD');
+      if (await this.rig!.getPtt() !== false) {
+        throw new Error('FTDX10 receiver/CW setting requires confirmed RX state');
+      }
       await this.rig!.setLevel('KEYSPD', speed);
       const actual = (await this.rig!.getLevel('KEYSPD')) as number;
       if (actual !== speed) throw new Error(`FTDX10 key speed readback mismatch: expected ${speed}, observed ${actual}`);
