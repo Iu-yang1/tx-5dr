@@ -30,7 +30,7 @@ hardware validation, or announce a release.
 | `cw_pitch` | native `RIG_LEVEL_CWPITCH` | 300–900 Hz, 10 Hz step | exact readback; RX guard |
 | `key_speed` | native `RIG_LEVEL_KEYSPD` | 6–48 WPM | exact readback; RX guard |
 | `apf_enabled` | native `RIG_FUNC_APF` | receiver APF switch; not APF level | exact readback; RX guard |
-| `roofing_filter` | FTDX10 RF0 CAT (Hamlib-owned raw transport) | AUTO (index 0), 12 kHz (1), 3 kHz (2), 500 Hz (4), optional 300 Hz (5); **not DSP WIDTH** | RX + Split OFF, one pre-read and two post-reads |
+| `roofing_filter` | FTDX10 RF0 CAT (Hamlib-owned raw transport) | 12 kHz (1), 3 kHz (2), 500 Hz (4), optional 300 Hz (5); **not DSP WIDTH** | RX + Split OFF, one pre-read and two post-reads |
 | `contour_enabled` | CO00 CAT | receiver Contour ON/OFF | RX + Split OFF, double readback |
 | `contour_frequency` | CO01 CAT | 10–3200 Hz | RX + Split OFF, double readback |
 | `contour_level` | EX030202 CAT | −40 to +20 dB | RX + Split OFF, double readback |
@@ -39,9 +39,12 @@ hardware validation, or announce a release.
 The dedicated Roofing/Contour API uses the existing native Hamlib rig handle,
 not a second COM reader. It is a **model-specific CAT adapter** (not the native
 Hamlib extended-level API) and cannot claim a transport-level response identity.
-The Hamlib model 1042 roofing table includes AUTO (0) and excludes the unadvertised
-optional 1.2 kHz slot (3). Contour centre frequency is a 1 Hz-step numeric
-parameter in the Hamlib model table, independent of DSP WIDTH.
+Yaesu CAT reference 2308-F, p.19, defines RF command P1=0 as a **fixed
+selector**, not an AUTO choice. Valid Roofing P2 selections are 1, 2, 4, 5;
+P2=0 and the reserved 1.2 kHz slot (3) must never be issued. The Hamlib
+backend's internal AUTO combo index 0 cannot safely be mapped to `RF00;`.
+Contour centre frequency is a 1 Hz-step numeric parameter in the Hamlib
+model table, independent of DSP WIDTH.
 Optional 300 Hz Roofing requires an installed hardware filter. Any ambiguous
 raw read or write leaves the shared raw CAT access quarantined until reconnect,
 including the future audio-route code.
