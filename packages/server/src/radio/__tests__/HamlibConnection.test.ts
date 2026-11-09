@@ -747,6 +747,34 @@ describe('HamlibConnection', () => {
     });
   });
 
+  it('quarantines FTDX10 raw CAT after an unrelated EX route read', async () => {
+    const { connection, rig } = createConnectedConnection({
+      sendRaw: vi.fn().mockResolvedValue(Buffer.from('FA014074000;', 'ascii')),
+    });
+    const accessor = asTestConnection(connection);
+    accessor.meterRigMetadata = { rigModel: 1042, mfgName: 'Yaesu', modelName: 'FTDX-10' };
+    accessor.currentConfig = { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } };
+
+    await expect(connection.getTxAudioInputSource!()).rejects.toThrow('incomplete or ambiguous');
+    await expect(connection.getTxAudioInputSource!()).rejects.toThrow('quarantined until reconnect');
+    await expect(connection.getRoofingFilter()).rejects.toThrow('quarantined until reconnect');
+    expect(rig.sendRaw).toHaveBeenCalledTimes(2);
+    expect(rig.sendRawWrite).not.toHaveBeenCalled();
+  });
+
+  it('quarantines FTDX10 receiver CAT after a timed-out EX route read', async () => {
+    const { connection, rig } = createConnectedConnection({
+      sendRaw: vi.fn().mockRejectedValueOnce(new Error('native EX read timeout')),
+    });
+    const accessor = asTestConnection(connection);
+    accessor.meterRigMetadata = { rigModel: 1042, mfgName: 'Yaesu', modelName: 'FTDX-10' };
+    accessor.currentConfig = { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } };
+
+    await expect(connection.getTxAudioInputSource!()).rejects.toThrow('native EX read timeout');
+    await expect(connection.getContourFrequency()).rejects.toThrow('quarantined until reconnect');
+    expect(rig.sendRaw).toHaveBeenCalledTimes(1);
+  });
+
   it('quarantines FTDX10 raw EX routing after an ambiguous write/readback', async () => {
     const { connection, rig } = createConnectedConnection({
       sendRaw: vi.fn().mockResolvedValue(Buffer.from('FA014074000;', 'ascii')),
