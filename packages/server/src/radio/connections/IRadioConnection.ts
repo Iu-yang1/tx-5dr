@@ -398,6 +398,10 @@ export interface IRadioConnection extends EventEmitter<IRadioConnectionEvents> {
    */
   setManualMode?(mode: string): Promise<void>;
 
+  /** FTDX10 session policy: true lets the software engine choose the mode. */
+  getManualModeAutoFollow?(): Promise<boolean>;
+  setManualModeAutoFollow?(enabled: boolean): Promise<void>;
+
   /**
    * FTDX10 manual receive passband width (Hz). Requires the backend to verify
    * native RX + Split OFF and confirm the resulting mode/width atomically in
