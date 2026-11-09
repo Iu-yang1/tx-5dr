@@ -69,8 +69,10 @@ jobs:
               "#include <hamlib/rig_state.h>",
               "#include <hamlib/rig_state.h>\\n#include <hamlib/rot_state.h>"
           )
-          source = source.replace("rig->state.", "STATE(rig)->")
-          source = source.replace("rot->state.", "ROTSTATE(rot)->")
+          # IN_HAMLIB-only STATE/ROTSTATE macros are intentionally not used
+          # by external addons. Use public Hamlib 5 application accessors.
+          source = source.replace("rig->state.", "HAMLIB_STATE(rig)->")
+          source = source.replace("rot->state.", "HAMLIB_ROTSTATE(rot)->")
           shim.write_text(source, encoding="utf-8")
           PY
       - name: Rebuild node-hamlib against patched native Hamlib prefix
