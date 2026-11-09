@@ -1221,6 +1221,10 @@ function createDefinitions(): CapabilityDefinition[] {
         }
       },
     },
+    ftdx10OnlyReceiverCapability(createRuntimeEnumDefinition(
+      'split_tx_mode', 'operation', 'getSplitMode', 'setSplitMode',
+      [...FTDX10_RADIO_MODE_ORDER], 'getSupportedModes',
+    )),
     createRuntimeEnumDefinition(
       'vfo_select',
       'operation',
