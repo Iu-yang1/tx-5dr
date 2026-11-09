@@ -330,6 +330,79 @@ describe('HamlibConnection', () => {
     expect(rig.sendRaw).not.toHaveBeenCalled();
   });
 
+  describe('FTDX10 independent Roofing and Contour receive CAT', () => {
+    const setup = () => {
+      let roofing = '7';
+      let contourEnabled = 0;
+      const { connection, rig } = createConnectedConnection({
+        sendRaw: vi.fn(async (wire: Buffer) => {
+          const command = wire.toString('ascii');
+          if (command === 'RF0;') return Buffer.from(`RF0${roofing};`, 'ascii');
+          if (command === 'CO00;') return Buffer.from(`CO00${String(contourEnabled).padStart(4, '0')};`, 'ascii');
+          if (command === 'CO01;') return Buffer.from('CO010800;', 'ascii');
+          if (command === 'EX030202;') return Buffer.from('EX030202-12;', 'ascii');
+          if (command === 'EX030203;') return Buffer.from('EX03020305;', 'ascii');
+          return Buffer.from('FA014074000;', 'ascii');
+        }),
+        sendRawWrite: vi.fn(async (wire: Buffer) => {
+          if (wire.toString('ascii') === 'RF04;') roofing = '9';
+          if (wire.toString('ascii') === 'CO000001;') contourEnabled = 1;
+        }),
+      });
+      const accessor = asTestConnection(connection);
+      accessor.currentConfig = { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } };
+      return { connection, rig, accessor };
+    };
+
+    it('selects hardware Roofing independently and verifies two native readbacks', async () => {
+      const { connection, rig } = setup();
+      await expect(connection.getRoofingFilter()).resolves.toBe(2);
+      await expect(connection.setRoofingFilter(4)).resolves.toBeUndefined();
+      expect(rig.sendRawWrite).toHaveBeenCalledWith(Buffer.from('RF04;', 'ascii'));
+      expect(rig.sendRaw).toHaveBeenCalledTimes(4);
+      await expect(connection.getRoofingFilter()).resolves.toBe(4);
+    });
+
+    it('independently toggles Contour and reads its frequency, signed level and width', async () => {
+      const { connection, rig } = setup();
+      await expect(connection.setContourEnabled(true)).resolves.toBeUndefined();
+      await expect(connection.getContourEnabled()).resolves.toBe(true);
+      await expect(connection.getContourFrequency()).resolves.toBe(800);
+      await expect(connection.getContourLevel()).resolves.toBe(-12);
+      await expect(connection.getContourWidth()).resolves.toBe(5);
+      expect(rig.sendRawWrite).toHaveBeenCalledWith(Buffer.from('CO000001;', 'ascii'));
+    });
+
+    it('blocks unsupported models, transmit state, Split ON and invalid choices', async () => {
+      const { connection, rig, accessor } = setup();
+      await expect(connection.setRoofingFilter(3)).rejects.toThrow('not an advertised option');
+      rig.getPtt.mockResolvedValue(true);
+      await expect(connection.setRoofingFilter(1)).rejects.toThrow('confirmed RX');
+      rig.getPtt.mockResolvedValue(false);
+      rig.getSplit.mockResolvedValue({ enabled: true });
+      await expect(connection.setContourEnabled(true)).rejects.toThrow('Split OFF');
+      expect(rig.sendRawWrite).not.toHaveBeenCalled();
+      accessor.currentConfig = { type: 'serial', serial: { rigModel: 1035, path: 'COM5' } };
+      await expect(connection.getContourWidth()).rejects.toThrow('not available on this model');
+    });
+
+    it('fails closed on unsolicited native frames and quarantines all raw receiver writes', async () => {
+      const { connection, rig } = setup();
+      rig.sendRaw.mockResolvedValue(Buffer.from('FA014074000;', 'ascii'));
+      await expect(connection.getRoofingFilter()).rejects.toThrow('ambiguous');
+      await expect(connection.setContourEnabled(true)).rejects.toThrow('quarantined until reconnect');
+      expect(rig.sendRawWrite).not.toHaveBeenCalled();
+    });
+
+    it('detects inconsistent post-write Roofing state and blocks retries', async () => {
+      const { connection, rig } = setup();
+      rig.sendRawWrite.mockResolvedValue(undefined);
+      await expect(connection.setRoofingFilter(4)).rejects.toThrow('readback mismatch');
+      await expect(connection.setRoofingFilter(4)).rejects.toThrow('quarantined until reconnect');
+      expect(rig.sendRawWrite).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('FTDX10 RX AGC / IPO / ATT level verification', () => {
     const setup = () => {
       const { connection, rig } = createConnectedConnection();
