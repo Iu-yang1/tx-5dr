@@ -6,7 +6,8 @@ describe('Yaesu CAT EX response validation', () => {
 
   it('accepts only a complete, unique matching EX frame', () => {
     expect(parse('EX0104151;')).toBe(1);
-    expect(parse('FA014074000;EX0104150;')).toBe(0);
+    expect(parse('FA014074000;EX0104150;')).toBeNull();
+    expect(parse('EX0104150;FA014074000;')).toBeNull();
     expect(parse('EX0104151;EX0104150;')).toBeNull();
   });
 
