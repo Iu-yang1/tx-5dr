@@ -300,7 +300,7 @@ function ftdx10OnlyReceiverCapability(base: CapabilityDefinition): CapabilityDef
 
 function createFtdx10ReceiverDefinitions(): CapabilityDefinition[] {
   const roofing = ftdx10OnlyReceiverCapability(createRuntimeEnumDefinition(
-    'roofing_filter', 'rf', 'getRoofingFilter', 'setRoofingFilter', [0, 1, 2, 4, 5],
+    'roofing_filter', 'rf', 'getRoofingFilter', 'setRoofingFilter', [1, 2, 4, 5],
   ));
   return [
     {
