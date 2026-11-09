@@ -927,6 +927,7 @@
       "label": "Roofing Filter",
       "description": "Independent analogue roofing selection, not DSP WIDTH. 300 Hz requires the optional filter.",
       "options": {
+        "auto": "Auto",
         "12khz": "12 kHz",
         "3khz": "3 kHz",
         "500hz": "500 Hz",
