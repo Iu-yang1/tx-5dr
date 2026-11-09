@@ -230,6 +230,25 @@ function createRuntimePercentDefinition(
   };
 }
 
+/**
+ * Hamlib's FTDX10 RIG_LEVEL_IF is an integer IF shift in Hz (±1200),
+ * unlike percentage-style IF controls provided by other connections.
+ */
+function createIfShiftDefinition(): CapabilityDefinition {
+  const base = createRuntimePercentDefinition('if_shift', 'rf', 'getIFShift', 'setIFShift', 'IF');
+  return {
+    ...base,
+    resolveDescriptor: async (conn) => isFtdx10ManualModeConnection(conn)
+      ? {
+          ...base.descriptor,
+          valueType: 'number',
+          range: { min: -1200, max: 1200, step: 10 },
+          display: { mode: 'value', unit: 'Hz', decimals: 0 },
+          requiresIdle: true,
+        } : base.descriptor,
+  };
+}
+
 function createRuntimeNumberDefinition(
   id: string,
   category: CapabilityDefinition['descriptor']['category'],
@@ -765,7 +784,7 @@ function createDefinitions(): CapabilityDefinition[] {
       write: (conn, value) => conn.setNRLevel!(value as number),
     },
     createRuntimePercentDefinition('rf_gain', 'rf', 'getRFGain', 'setRFGain', 'RF'),
-    createRuntimePercentDefinition('if_shift', 'rf', 'getIFShift', 'setIFShift', 'IF'),
+    createIfShiftDefinition(),
     createRuntimePercentDefinition('pbt_in', 'rf', 'getPbtIn', 'setPbtIn', 'PBT_IN'),
     createRuntimePercentDefinition('pbt_out', 'rf', 'getPbtOut', 'setPbtOut', 'PBT_OUT'),
     createRuntimeNumberDefinition(
