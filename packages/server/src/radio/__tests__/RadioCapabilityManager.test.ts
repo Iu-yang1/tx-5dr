@@ -67,17 +67,44 @@ function getDescriptor(snapshot: CapabilityDescriptor[], id: string): Capability
   return descriptor;
 }
 
-describe('FTDX10 P3/P4 CAT safety gate', () => {
-  it('retains the TX audio route capability quarantine until native correlation is proven', () => {
+describe('FTDX10 P4 TX audio route capability', () => {
+  it('exposes declared source options without a global feature quarantine', async () => {
     const definition = CAPABILITY_DEFINITION_MAP.get('tx_audio_input_source');
     expect(definition).toBeDefined();
     expect(definition!.descriptor).toMatchObject({
-      readable: false,
-      writable: false,
-      options: [],
+      readable: true,
+      writable: true,
     });
-    expect(definition!.write).toBeUndefined();
-    expect(definition!.read).toBeUndefined();
+    expect(definition!.descriptor.options?.length).toBeGreaterThan(0);
+    expect(definition!.read).toBeTypeOf('function');
+    expect(definition!.write).toBeTypeOf('function');
+
+    const getSupportedTxAudioInputSources = vi.fn(async () => ['mic', 'usb', 'accessory']);
+    const getTxAudioInputSource = vi.fn(async () => 'mic');
+    const setTxAudioInputSource = vi.fn(async (source: string) => ({
+      requested: source, applied: source, outcome: 'applied', acknowledgement: 'readback',
+    }));
+    const connection = new MockConnection(RadioConnectionType.HAMLIB, {
+      getSupportedTxAudioInputSources, getTxAudioInputSource, setTxAudioInputSource,
+    });
+    await expect(definition!.probeSupport(connection as never)).resolves.toMatchObject({
+      supported: true, source: 'backend-declared',
+    });
+    await expect(definition!.read!(connection as never)).resolves.toBe('mic');
+    await definition!.write!(connection as never, 'usb');
+    expect(setTxAudioInputSource).toHaveBeenCalledWith('usb');
+  });
+
+  it('does not advertise the source capability for a radio with no provider', async () => {
+    const definition = CAPABILITY_DEFINITION_MAP.get('tx_audio_input_source')!;
+    const connection = new MockConnection(RadioConnectionType.HAMLIB, {
+      getSupportedTxAudioInputSources: vi.fn(async () => []),
+      getTxAudioInputSource: vi.fn(async () => null),
+      setTxAudioInputSource: vi.fn(),
+    });
+    await expect(definition.probeSupport(connection as never)).resolves.toMatchObject({
+      supported: false,
+    });
   });
 });
 
