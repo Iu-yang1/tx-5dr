@@ -65,6 +65,7 @@ export const HAMLIB_OPERATIONS = {
   setKeySpeed: { args: z.tuple([z.number().int().min(6).max(48)]), result: z.void() },
   setMode: { args: z.tuple([z.string(), bandwidth.optional(), modeOptions.optional()]), result: z.void() },
   setManualMode: { args: z.tuple([z.string().trim().min(1).max(12)]), result: z.void() },
+  setManualModeBandwidth: { args: z.tuple([z.number().int().min(50).max(15000)]), result: z.void() },
   getMode: { args: empty, result: z.object({ mode: z.string(), bandwidth: z.union([z.string(), number]) }) },
   getModeBandwidth: { args: empty, result: z.union([z.string(), number]) },
   setModeBandwidth: { args: z.tuple([bandwidth]), result: z.void() },
