@@ -393,6 +393,12 @@ export interface IRadioConnection extends EventEmitter<IRadioConnectionEvents> {
   setMode(mode: string, bandwidth?: RadioModeBandwidth, options?: SetRadioModeOptions): Promise<void>;
 
   /**
+   * Manual RX mode change with a connection-owned PTT/Split check and exact
+   * readback. Only exposed by backends that can enforce these guards atomically.
+   */
+  setManualMode?(mode: string): Promise<void>;
+
+  /**
    * 在一个保守的关键区间内应用工作状态（频率/模式）。
    *
    * 适用于“切台 + 切模式”这类必须避免后台轮询插入的复合操作。
