@@ -2315,7 +2315,7 @@ export class HamlibRuntime
     return value;
   }
 
-  async getFtdx10ReceiverControl(control: Ftdx10ReceiverControl): Promise<number> {
+  private async getFtdx10ReceiverControl(control: Ftdx10ReceiverControl): Promise<number> {
     return this.runSerializedTask('getFtdx10ReceiverControl', async () => {
       this.assertFtdx10ReceiverCatAvailable();
       try {
@@ -2329,7 +2329,7 @@ export class HamlibRuntime
     }, { id: `getFtdx10ReceiverControl:${control}` });
   }
 
-  async setFtdx10ReceiverControl(control: Ftdx10ReceiverControl, value: number): Promise<void> {
+  private async setFtdx10ReceiverControl(control: Ftdx10ReceiverControl, value: number): Promise<void> {
     // Validation before queueing prevents accidental serial writes from
     // malformed or out-of-range IPC values.
     const command = encodeFtdx10ReceiverWrite(control, value);
