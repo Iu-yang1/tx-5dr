@@ -2746,12 +2746,31 @@ export class HamlibRuntime
     });
   }
 
+  private async requireFtdx10ReceiverWrite(): Promise<boolean> {
+    if (this.currentConfig?.type !== 'serial' || this.currentConfig.serial?.rigModel !== 1042) return false;
+    if (await this.rig!.getPtt() !== false) {
+      throw new Error('FTDX10 receiver control requires confirmed RX state');
+    }
+    return true;
+  }
+
   async setAgcMode(mode: string): Promise<void> {
     await this.runSerializedTask('setAgcMode', async () => {
       this.checkConnected();
       const normalized = normalizeAgcModeName(mode);
       try {
-        await this.rig!.setLevel('AGC', HAMLIB_AGC_MODE_TO_CODE[normalized]);
+        const ftdx10 = await this.requireFtdx10ReceiverWrite();
+        const code = HAMLIB_AGC_MODE_TO_CODE[normalized];
+        if (ftdx10 && !(await this.rig!.getAgcLevels()).includes(code)) {
+          throw new Error(`FTDX10 does not support AGC mode ${normalized}`);
+        }
+        await this.rig!.setLevel('AGC', code);
+        if (ftdx10) {
+          const actual = Math.round((await this.rig!.getLevel('AGC')) as number);
+          if (actual !== code) {
+            throw new Error(`FTDX10 AGC readback mismatch: requested ${code}, observed ${actual}`);
+          }
+        }
         this.lastSuccessfulOperation = Date.now();
         logger.debug('AGC mode set', { mode: normalized });
       } catch (error) {
@@ -2795,7 +2814,20 @@ export class HamlibRuntime
     await this.runSerializedTask('setPreampLevel', async () => {
       this.checkConnected();
       try {
+        const ftdx10 = await this.requireFtdx10ReceiverWrite();
+        if (ftdx10) {
+          const choices = [0, ...(await this.rig!.getPreampValues()).filter((level) => Number.isFinite(level))];
+          if (!Number.isFinite(value) || !choices.includes(value)) {
+            throw new Error(`FTDX10 PREAMP/IPO selection ${value} is not a reported option`);
+          }
+        }
         await this.rig!.setLevel('PREAMP', value);
+        if (ftdx10) {
+          const actual = (await this.rig!.getLevel('PREAMP')) as number;
+          if (!Number.isFinite(actual) || Math.round(actual) !== value) {
+            throw new Error(`FTDX10 PREAMP readback mismatch: requested ${value}, observed ${actual}`);
+          }
+        }
         this.lastSuccessfulOperation = Date.now();
         logger.debug('Preamp level set', { value });
       } catch (error) {
@@ -2838,7 +2870,20 @@ export class HamlibRuntime
     await this.runSerializedTask('setAttenuatorLevel', async () => {
       this.checkConnected();
       try {
+        const ftdx10 = await this.requireFtdx10ReceiverWrite();
+        if (ftdx10) {
+          const choices = [0, ...(await this.rig!.getAttenuatorValues()).filter((level) => Number.isFinite(level))];
+          if (!Number.isFinite(value) || !choices.includes(value)) {
+            throw new Error(`FTDX10 ATT selection ${value} is not a reported option`);
+          }
+        }
         await this.rig!.setLevel('ATT', value);
+        if (ftdx10) {
+          const actual = (await this.rig!.getLevel('ATT')) as number;
+          if (!Number.isFinite(actual) || Math.round(actual) !== value) {
+            throw new Error(`FTDX10 ATT readback mismatch: requested ${value}, observed ${actual}`);
+          }
+        }
         this.lastSuccessfulOperation = Date.now();
         logger.debug('Attenuator level set', { value });
       } catch (error) {
