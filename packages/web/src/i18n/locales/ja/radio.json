@@ -883,6 +883,7 @@
       "label": "ルーフィングフィルター",
       "description": "DSP WIDTH とは独立したアナログルーフィングフィルターです。300 Hz はオプションです。",
       "options": {
+        "auto": "自動",
         "12khz": "12 kHz",
         "3khz": "3 kHz",
         "500hz": "500 Hz",
