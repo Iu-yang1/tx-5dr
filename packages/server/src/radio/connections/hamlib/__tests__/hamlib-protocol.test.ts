@@ -34,6 +34,12 @@ describe('Hamlib protocol', () => {
     expect(HAMLIB_OPERATIONS.setManualMode.args.safeParse(['']).success).toBe(false);
     expect(HamlibCommandSchema.safeParse(command('getRFGain', [])).success).toBe(true);
     expect(HamlibCommandSchema.safeParse(command('setRFGain', [0.8])).success).toBe(true);
+    expect(HamlibCommandSchema.safeParse(command('getSplitMode', [])).success).toBe(true);
+    expect(HamlibCommandSchema.safeParse(command('setSplitMode', ['PKTUSB'])).success).toBe(true);
+    expect(HamlibCommandSchema.safeParse(command('setSplitMode', [''])).success).toBe(false);
+    expect(HamlibCommandSchema.safeParse(command('setSplitMode', [123])).success).toBe(false);
+    expect(HAMLIB_OPERATIONS.getSplitMode.result.safeParse(null).success).toBe(true);
+    expect(HAMLIB_OPERATIONS.getSplitMode.result.safeParse('CW').success).toBe(true);
     expect(HamlibCommandSchema.safeParse(command('getApfEnabled', [])).success).toBe(true);
     expect(HamlibCommandSchema.safeParse(command('getRoofingFilter', [])).success).toBe(true);
     expect(HamlibCommandSchema.safeParse(command('getContourLevel', [])).success).toBe(true);
