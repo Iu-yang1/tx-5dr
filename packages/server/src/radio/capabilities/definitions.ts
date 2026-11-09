@@ -43,6 +43,21 @@ type DynamicConnectionMethod = (...args: unknown[]) => unknown;
 
 const VOICE_RADIO_MODE_ORDER = ['USB', 'LSB', 'FM', 'AM', 'WFM'] as const;
 const VOICE_RADIO_MODE_SET = new Set<string>(VOICE_RADIO_MODE_ORDER);
+// Yaesu DATA-U is exposed by Hamlib as PKTUSB; CWR is Yaesu CW-L.
+const FTDX10_RADIO_MODE_ORDER = [
+  ...VOICE_RADIO_MODE_ORDER, 'CW', 'CWR', 'PKTUSB', 'PKTLSB', 'RTTY', 'RTTYR', 'PKTFM',
+] as const;
+const FTDX10_RADIO_MODE_SET = new Set<string>(FTDX10_RADIO_MODE_ORDER);
+
+function isFtdx10ManualModeConnection(
+  conn: Parameters<CapabilityDefinition['probeSupport']>[0],
+): boolean {
+  const info = conn.getConnectionInfo?.();
+  return conn.getType() === RadioConnectionType.HAMLIB
+    && info?.config?.type === 'serial'
+    && info.config.serial?.rigModel === 1042
+    && typeof conn.setManualMode === 'function';
+}
 
 function getDynamicMethod(
   conn: Parameters<CapabilityDefinition['probeSupport']>[0],
@@ -80,24 +95,29 @@ function normalizeRadioModeName(value: unknown): string | null {
   return normalized.length > 0 ? normalized : null;
 }
 
-async function getSupportedVoiceRadioModes(
+async function getSupportedRadioModes(
   conn: Parameters<CapabilityDefinition['probeSupport']>[0],
 ): Promise<string[]> {
   if (!conn.getSupportedModes) return [];
 
+  const ftdx10 = isFtdx10ManualModeConnection(conn);
+  const allowed = ftdx10 ? FTDX10_RADIO_MODE_SET : VOICE_RADIO_MODE_SET;
+  const order = ftdx10 ? FTDX10_RADIO_MODE_ORDER : VOICE_RADIO_MODE_ORDER;
   const supportedModes = await conn.getSupportedModes();
   const normalizedModes = new Set(
     supportedModes
       .map(normalizeRadioModeName)
       .filter((mode): mode is string => Boolean(mode))
-      .filter((mode) => VOICE_RADIO_MODE_SET.has(mode)),
+      .filter((mode) => allowed.has(mode)),
   );
 
-  return VOICE_RADIO_MODE_ORDER.filter((mode) => normalizedModes.has(mode));
+  return order.filter((mode) => normalizedModes.has(mode));
 }
 
-function buildVoiceRadioModeOptions(modes: string[]) {
-  return modes.map((mode) => createOption(mode, `voice:radioMode.${mode.toLowerCase()}`));
+function buildRadioModeOptions(modes: string[]) {
+  return modes.map((mode) => VOICE_RADIO_MODE_SET.has(mode)
+    ? createOption(mode, `voice:radioMode.${mode.toLowerCase()}`)
+    : createOption(mode));
 }
 
 function getHamlibConfigType(conn: Parameters<CapabilityDefinition['probeSupport']>[0]): string | undefined {
@@ -987,6 +1007,7 @@ function createDefinitions(): CapabilityDefinition[] {
         options: [],
         readable: true,
         writable: false,
+        requiresIdle: true,
         updateMode: 'polling',
         pollIntervalMs: 2000,
         labelI18nKey: 'radio:capability.radio_mode.label',
@@ -997,9 +1018,10 @@ function createDefinitions(): CapabilityDefinition[] {
         id: 'radio_mode',
         category: 'operation',
         valueType: 'enum',
-        options: buildVoiceRadioModeOptions(await getSupportedVoiceRadioModes(conn)),
+        options: buildRadioModeOptions(await getSupportedRadioModes(conn)),
         readable: true,
-        writable: false,
+        writable: isFtdx10ManualModeConnection(conn),
+        requiresIdle: true,
         updateMode: 'polling',
         pollIntervalMs: 2000,
         labelI18nKey: 'radio:capability.radio_mode.label',
@@ -1007,14 +1029,21 @@ function createDefinitions(): CapabilityDefinition[] {
         hasSurfaceControl: false,
       }),
       probeSupport: async (conn) => {
-        const modes = await getSupportedVoiceRadioModes(conn);
-        if (modes.length === 0) {
-          return false;
-        }
+        const modes = await getSupportedRadioModes(conn);
+        if (modes.length === 0) return false;
         await conn.getMode();
         return { supported: true, source: 'runtime-probe' };
       },
       read: async (conn) => normalizeRadioModeName((await conn.getMode()).mode),
+      write: async (conn, value) => {
+        if (!isFtdx10ManualModeConnection(conn)) throw new Error('Manual CAT mode control is unavailable');
+        const mode = normalizeRadioModeName(value);
+        if (!mode || !(await getSupportedRadioModes(conn)).includes(mode)) {
+          throw new Error('Unsupported FTDX10 radio mode');
+        }
+        await conn.setManualMode!(mode);
+        return { value: mode, meta: { acknowledgement: 'readback' } };
+      },
     },
     {
       id: 'mode_bandwidth',
