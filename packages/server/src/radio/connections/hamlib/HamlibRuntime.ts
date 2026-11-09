@@ -1192,6 +1192,42 @@ export class HamlibRuntime
     }, { critical: true });
   }
 
+  /**
+   * FTDX10 manual-mode capability: keep the PTT/Split checks, mode write and
+   * readback in one serialized task. The normal engine setMode operation
+   * deliberately retains its existing behavior.
+   */
+  async setManualMode(mode: string): Promise<void> {
+    await this.runSerializedTask('setManualMode', async () => {
+      this.checkConnected();
+      if (this.currentConfig?.type !== 'serial' || this.currentConfig.serial?.rigModel !== 1042) {
+        throw new Error('Manual CAT mode control is not enabled for this radio model');
+      }
+
+      const requested = normalizeModeName(mode);
+      if (!this.supportedModes.has(requested)) {
+        throw new Error(`Unsupported FTDX10 manual mode: ${requested}`);
+      }
+
+      // A fail-open check here could change TX VFO while the radio is keyed.
+      // Check the native rig in the same CAT critical section as the write.
+      const transmitting = await this.rig!.getPtt();
+      if (transmitting !== false) {
+        throw new Error('Manual CAT mode change requires confirmed RX state');
+      }
+      const split = await this.rig!.getSplit();
+      if (!split || split.enabled !== false) {
+        throw new Error('Manual CAT mode change requires confirmed Split OFF');
+      }
+
+      await this.performModeWrite(requested, 'nochange');
+      const observed = normalizeModeName((await this.performModeRead()).mode);
+      if (observed !== requested) {
+        throw new Error(`FTDX10 mode readback mismatch: requested ${requested}, observed ${observed}`);
+      }
+    }, { critical: true });
+  }
+
   async applyOperatingState(request: ApplyOperatingStateRequest): Promise<ApplyOperatingStateResult> {
     return this.runSerializedTask('applyOperatingState', async () => {
       this.checkConnected();
