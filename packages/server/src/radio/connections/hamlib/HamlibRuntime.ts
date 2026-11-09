@@ -34,6 +34,7 @@ import {
 } from '../../serialPortPath.js';
 import { RADIO_IO_SKIPPED, RadioIoQueue, type RadioIoTaskContext, type RadioIoTaskOptions } from '../RadioIoQueue.js';
 import { HamlibNativeMonitor } from './HamlibNativeMonitor.js';
+import { parseSingleYaesuNumericReply } from './YaesuCatReply.js';
 import { serializeHamlibError, type HamlibSnapshot } from './hamlib-protocol.js';
 import {
   type ApplyOperatingStateRequest,
@@ -2835,11 +2836,9 @@ export class HamlibRuntime
       if (value === undefined) {
         const modReply = await send(commands.modSource);
         const rearReply = await send(commands.rearSelect);
-        const mod = modReply.toString('ascii').match(new RegExp(`${commands.modSource}(\\d);`));
-        const rear = rearReply.toString('ascii').match(new RegExp(`${commands.rearSelect}(\\d);`));
-        if (!mod || !rear) return null;
-        const modValue = Number(mod[1]);
-        const rearValue = Number(rear[1]);
+        const modValue = parseSingleYaesuNumericReply(modReply, commands.modSource);
+        const rearValue = parseSingleYaesuNumericReply(rearReply, commands.rearSelect);
+        if (modValue === null || rearValue === null) return null;
         const match = Object.entries(routeValues ?? {}).find(([, pair]) => pair?.[0] === modValue && pair?.[1] === rearValue);
         return match ? provider.valueMap[match[0] as TxAudioInputSource] ?? null : null;
       }
