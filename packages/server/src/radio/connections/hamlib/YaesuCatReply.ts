@@ -10,11 +10,12 @@ export function parseSingleYaesuNumericReply(reply: Buffer, prefix: string): num
   const wire = reply.toString('ascii').replace(/\x00+$/g, '');
   if (!wire.endsWith(';')) return null;
 
+  // A reply containing any other frame is not an unambiguous acknowledgement.
+  // Never fish the expected EX response out of a contaminated native read.
   const frames = wire.slice(0, -1).split(';');
-  const matches = frames.filter(frame => frame.startsWith(prefix));
-  if (matches.length !== 1) return null;
+  if (frames.length !== 1 || !frames[0]!.startsWith(prefix)) return null;
 
-  const suffix = matches[0]!.slice(prefix.length);
+  const suffix = frames[0]!.slice(prefix.length);
   if (!/^[0-9]$/.test(suffix)) return null;
   return Number(suffix);
 }
