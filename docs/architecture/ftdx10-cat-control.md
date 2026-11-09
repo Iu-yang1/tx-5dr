@@ -29,9 +29,10 @@ hardware validation, or announce a release.
 | `if_shift` | native `RIG_LEVEL_IF` | signed integer Hz, ±1200 | exact readback; RX guard |
 | `cw_pitch` | native `RIG_LEVEL_CWPITCH` | 300–900 Hz, 10 Hz step | exact readback; RX guard |
 | `key_speed` | native `RIG_LEVEL_KEYSPD` | 6–48 WPM | exact readback; RX guard |
+| `apf_enabled` | native `RIG_FUNC_APF` | receiver APF switch; not APF level | exact readback; RX guard |
 
 These controls do not implement a native FTDX10 roofing-filter selector,
-Contour, APF adjustment, or full VFO/Split state machine. Existing Hamlib
+Contour, APF *level* adjustment, or full VFO/Split state machine. Existing Hamlib
 AGC/PREAMP/ATT capabilities must continue to be advertised only after their
 own supported-value discovery and read probes.
 
