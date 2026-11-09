@@ -234,6 +234,22 @@ function createRuntimePercentDefinition(
  * Hamlib's FTDX10 RIG_LEVEL_IF is an integer IF shift in Hz (±1200),
  * unlike percentage-style IF controls provided by other connections.
  */
+function createFtdx10ModeAutoFollowDefinition(): CapabilityDefinition {
+  const base = createRuntimeBooleanDefinition(
+    'mode_auto_follow', 'operation', 'getManualModeAutoFollow', 'setManualModeAutoFollow',
+    undefined, { requiresIdle: true },
+  );
+  return {
+    ...base,
+    probeSupport: async (conn) => {
+      if (!isFtdx10ManualModeConnection(conn) || !conn.getManualModeAutoFollow
+        || !conn.setManualModeAutoFollow) return false;
+      await conn.getManualModeAutoFollow();
+      return { supported: true, source: 'runtime-probe' };
+    },
+  };
+}
+
 function createIfShiftDefinition(): CapabilityDefinition {
   const base = createRuntimePercentDefinition('if_shift', 'rf', 'getIFShift', 'setIFShift', 'IF');
   return {
@@ -1039,6 +1055,7 @@ function createDefinitions(): CapabilityDefinition[] {
       read: (conn) => conn.getAttenuatorLevel!(),
       write: (conn, value) => conn.setAttenuatorLevel!(value as number),
     },
+    createFtdx10ModeAutoFollowDefinition(),
     {
       id: 'radio_mode',
       descriptor: {
