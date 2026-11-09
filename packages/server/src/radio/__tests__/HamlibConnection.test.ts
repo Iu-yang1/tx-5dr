@@ -330,6 +330,54 @@ describe('HamlibConnection', () => {
     expect(rig.sendRaw).not.toHaveBeenCalled();
   });
 
+  describe('FTDX10 RX AGC / IPO / ATT level verification', () => {
+    const setup = () => {
+      const { connection, rig } = createConnectedConnection();
+      const accessor = asTestConnection(connection);
+      accessor.currentConfig = { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } };
+      accessor.supportedLevels = new Set(['AGC', 'PREAMP', 'ATT']);
+      rig.getAgcLevels.mockResolvedValue([1, 2, 3]);
+      rig.getPreampValues.mockResolvedValue([10, 20]);
+      rig.getAttenuatorValues.mockResolvedValue([6, 12, 18]);
+      return { connection, rig, accessor };
+    };
+
+    it('prevents unsupported PREAMP/ATT options, verifies readback and supports IPO/OFF', async () => {
+      const { connection, rig } = setup();
+      rig.getLevel.mockImplementation(async (level: string) => level === 'PREAMP' ? 0 : 12);
+      await expect(connection.setPreampLevel(0)).resolves.toBeUndefined();
+      await expect(connection.setAttenuatorLevel(12)).resolves.toBeUndefined();
+      expect(rig.setLevel.mock.calls).toEqual([['PREAMP', 0], ['ATT', 12]]);
+      await expect(connection.setPreampLevel(15)).rejects.toThrow('not a reported option');
+      await expect(connection.setAttenuatorLevel(9)).rejects.toThrow('not a reported option');
+      expect(rig.setLevel).toHaveBeenCalledTimes(2);
+    });
+
+    it('rejects receiver controls while transmitting and rejects mismatched readback', async () => {
+      const { connection, rig } = setup();
+      rig.getPtt.mockResolvedValue(true);
+      await expect(connection.setPreampLevel(10)).rejects.toThrow('confirmed RX');
+      await expect(connection.setAttenuatorLevel(12)).rejects.toThrow('confirmed RX');
+      await expect(connection.setAgcMode('slow')).rejects.toThrow('confirmed RX');
+      expect(rig.setLevel).not.toHaveBeenCalled();
+
+      rig.getPtt.mockResolvedValue(false);
+      rig.getLevel.mockResolvedValue(99);
+      await expect(connection.setPreampLevel(10)).rejects.toThrow('readback mismatch');
+      await expect(connection.setAttenuatorLevel(12)).rejects.toThrow('readback mismatch');
+    });
+
+    it('preserves existing legacy Hamlib write path for FT-991A', async () => {
+      const { connection, rig, accessor } = setup();
+      accessor.currentConfig = { type: 'serial', serial: { rigModel: 1035, path: 'COM5' } };
+      await expect(connection.setPreampLevel(13)).resolves.toBeUndefined();
+      await expect(connection.setAttenuatorLevel(7)).resolves.toBeUndefined();
+      expect(rig.getPtt).not.toHaveBeenCalled();
+      expect(rig.getPreampValues).not.toHaveBeenCalled();
+      expect(rig.getAttenuatorValues).not.toHaveBeenCalled();
+    });
+  });
+
   describe('FTDX10 native APF on/off', () => {
     const prepare = () => {
       const { connection, rig } = createConnectedConnection();
