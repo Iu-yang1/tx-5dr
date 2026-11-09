@@ -289,6 +289,50 @@ function createFtdx10ApfDefinition(): CapabilityDefinition {
   };
 }
 
+function ftdx10OnlyReceiverCapability(base: CapabilityDefinition): CapabilityDefinition {
+  return {
+    ...base,
+    descriptor: { ...base.descriptor, requiresIdle: true },
+    probeSupport: async (conn) => isFtdx10ManualModeConnection(conn)
+      ? base.probeSupport(conn) : false,
+  };
+}
+
+function createFtdx10ReceiverDefinitions(): CapabilityDefinition[] {
+  const roofing = ftdx10OnlyReceiverCapability(createRuntimeEnumDefinition(
+    'roofing_filter', 'rf', 'getRoofingFilter', 'setRoofingFilter', [1, 2, 4, 5],
+  ));
+  return [
+    {
+      ...roofing,
+      descriptor: {
+        ...roofing.descriptor,
+        options: [
+          createOption(1, 'radio:capability.roofing_filter.options.12khz'),
+          createOption(2, 'radio:capability.roofing_filter.options.3khz'),
+          createOption(4, 'radio:capability.roofing_filter.options.500hz'),
+          createOption(5, 'radio:capability.roofing_filter.options.300hz'),
+        ],
+      },
+    },
+    ftdx10OnlyReceiverCapability(createRuntimeBooleanDefinition(
+      'contour_enabled', 'rf', 'getContourEnabled', 'setContourEnabled',
+    )),
+    ftdx10OnlyReceiverCapability(createRuntimeNumberDefinition(
+      'contour_frequency', 'rf', 'getContourFrequency', 'setContourFrequency',
+      { min: 10, max: 3200, step: 10 }, { mode: 'value', unit: 'Hz', decimals: 0 },
+    )),
+    ftdx10OnlyReceiverCapability(createRuntimeNumberDefinition(
+      'contour_level', 'rf', 'getContourLevel', 'setContourLevel',
+      { min: -40, max: 20, step: 1 }, { mode: 'value', unit: 'dB', decimals: 0 },
+    )),
+    ftdx10OnlyReceiverCapability(createRuntimeNumberDefinition(
+      'contour_width', 'rf', 'getContourWidth', 'setContourWidth',
+      { min: 1, max: 11, step: 1 }, { mode: 'value', decimals: 0 },
+    )),
+  ];
+}
+
 function createRuntimeNumberDefinition(
   id: string,
   category: CapabilityDefinition['descriptor']['category'],
@@ -1055,6 +1099,7 @@ function createDefinitions(): CapabilityDefinition[] {
       read: (conn) => conn.getAttenuatorLevel!(),
       write: (conn, value) => conn.setAttenuatorLevel!(value as number),
     },
+    ...createFtdx10ReceiverDefinitions(),
     createFtdx10ModeAutoFollowDefinition(),
     {
       id: 'radio_mode',
