@@ -71,11 +71,26 @@ they must not be represented as atomic until this is solved and tested.
 6. **P5:** test CW keyer speed/pitch, VFO A/B and Split frequency+mode
    independently, APF/Contour, and spectrum settings.
 7. **P6:** run targeted unit/IPC tests, native worker/reconnect tests,
-   typecheck/build/i18n, aislop quality gate, and operator-supervised
-   **FTDX10 physical tests** with RF output terminated safely as required.
-   A successful Dummy or mock test is not hardware acceptance.
+   typecheck/build/i18n, aislop quality gate, packaging and release/rollback
+   checks. **Physical FTDX10 tests are excluded from the software release gate
+   at the operator's explicit request**; the operator performs them after
+   publication. Release notes must identify CAT/device compatibility as
+   software-only validation, never as real-radio acceptance.
+
+## Dependency investigation: native Hamlib extended controls
+
+The official FTDX10 CAT manual documents RF (roofing filter), SH (DSP WIDTH),
+PA (IPO), RA (attenuator), CO (Contour/APF), ST (Split), and EX menu commands.
+The checked Hamlib FTDX10 backend exposes extended tokens
+`ROOFINGFILTER`, `KEYER`, `APF_FREQ`, `APF_WIDTH`, `CONTOUR`,
+`CONTOUR_FREQ`, `CONTOUR_LEVEL`, and `CONTOUR_WIDTH`.
+However the current npm `hamlib@0.7.7` Node binding exposes ordinary
+`getLevel` / `setLevel` and raw `sendRaw`, but **not** Hamlib's extended
+level getter/setter. The implementation must extend the owning native
+binding (and preserve its queue/lock) before advertising these capabilities,
+rather than treating raw RF/EX/CO commands as safely isolated.
 
 Do not merge to `main`, deploy, or publish a stable Release while any
-applicable safety gate remains unresolved. Keep unrelated CI environment
+**software** safety gate remains unresolved. Keep unrelated CI environment
 failures (including optional native dependency installation) separate from
 radio-control correctness failures.
