@@ -701,6 +701,39 @@ describe('RadioCapabilityManager', () => {
     manager.onDisconnected();
   });
 
+  it('routes FTDX10 passband widths through guarded native control instead of generic mode writes', async () => {
+    const manager = new RadioCapabilityManager();
+    const setManualModeBandwidth = vi.fn(async (_hz: number) => undefined);
+    const setModeBandwidth = vi.fn(async (_value: number) => undefined);
+    const connection = new MockConnection(RadioConnectionType.HAMLIB, {
+      getConnectionInfo: () => ({
+        type: RadioConnectionType.HAMLIB,
+        state: RadioConnectionState.CONNECTED,
+        config: { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } },
+      }),
+      setManualMode: vi.fn(),
+      getSupportedModeBandwidths: vi.fn(async () => [1800, 2400, 3000]),
+      getModeBandwidth: vi.fn(async () => 2400),
+      setModeBandwidth,
+      setManualModeBandwidth,
+    });
+    let snapshot = manager.getCapabilitySnapshot();
+    manager.on('capabilityList', latest => { snapshot = latest; });
+    await manager.onConnected(connection as never);
+    expect(getDescriptor(snapshot.descriptors, 'mode_bandwidth')).toMatchObject({
+      writable: true,
+      requiresIdle: true,
+      options: [{ value: 1800 }, { value: 2400 }, { value: 3000 }],
+    });
+    await manager.writeCapability('mode_bandwidth', 1800);
+    expect(setManualModeBandwidth).toHaveBeenCalledWith(1800);
+    expect(setModeBandwidth).not.toHaveBeenCalled();
+    manager.setPTTActive(true);
+    await expect(manager.writeCapability('mode_bandwidth', 2400)).rejects.toThrow('requires an idle radio');
+    expect(setManualModeBandwidth).toHaveBeenCalledTimes(1);
+    manager.onDisconnected();
+  });
+
   it('presents FTDX10 IF shift as signed Hz while preserving generic descriptors', async () => {
     const manager = new RadioCapabilityManager();
     const setIFShift = vi.fn(async (_hz: number) => undefined);
