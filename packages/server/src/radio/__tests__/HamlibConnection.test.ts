@@ -346,6 +346,7 @@ describe('HamlibConnection', () => {
         }),
         sendRawWrite: vi.fn(async (wire: Buffer) => {
           if (wire.toString('ascii') === 'RF04;') roofing = '9';
+          if (wire.toString('ascii') === 'RF00;') roofing = '0';
           if (wire.toString('ascii') === 'CO000001;') contourEnabled = 1;
         }),
       });
@@ -361,6 +362,14 @@ describe('HamlibConnection', () => {
       expect(rig.sendRawWrite).toHaveBeenCalledWith(Buffer.from('RF04;', 'ascii'));
       expect(rig.sendRaw).toHaveBeenCalledTimes(4);
       await expect(connection.getRoofingFilter()).resolves.toBe(4);
+    });
+
+    it('can select and confirm hardware AUTO Roofing without changing DSP WIDTH', async () => {
+      const { connection, rig } = setup();
+      await expect(connection.setRoofingFilter(0)).resolves.toBeUndefined();
+      await expect(connection.getRoofingFilter()).resolves.toBe(0);
+      expect(rig.sendRawWrite).toHaveBeenCalledWith(Buffer.from('RF00;', 'ascii'));
+      expect(rig.setMode).not.toHaveBeenCalled();
     });
 
     it('independently toggles Contour and reads its frequency, signed level and width', async () => {
