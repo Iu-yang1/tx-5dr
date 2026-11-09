@@ -957,6 +957,10 @@
       "label": "电台模式",
       "description": "显示当前连接电台报告的语音可用调制模式。"
     },
+    "split_tx_mode": {
+      "label": "Split TX 模式",
+      "description": "独立设置 Split 发射 VFO 的工作模式，不改变接收 VFO 模式或 Split 发射频率；操作后读取实际 TX 模式确认。"
+    },
     "mode_bandwidth": {
       "label": "模式频宽",
       "description": "读取并切换当前工作模式的滤波频宽。语音频谱矩形会优先根据这里对应的真实频宽显示。"
