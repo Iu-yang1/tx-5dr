@@ -8,6 +8,8 @@ import {
 describe('FTDX10 dedicated Roofing / Contour CAT registers', () => {
   it('keeps the Roofing relay independent of digital mode WIDTH', () => {
     expect(FTDX10_RECEIVER_REGISTERS.roofing_filter.query).toBe('RF0;');
+    expect(encodeFtdx10ReceiverWrite('roofing_filter', 0)).toBe('RF00;');
+    expect(parseFtdx10ReceiverReply('roofing_filter', Buffer.from('RF00;'))).toBe(0);
     expect(encodeFtdx10ReceiverWrite('roofing_filter', 1)).toBe('RF01;');
     expect(encodeFtdx10ReceiverWrite('roofing_filter', 2)).toBe('RF02;');
     expect(encodeFtdx10ReceiverWrite('roofing_filter', 4)).toBe('RF04;');
