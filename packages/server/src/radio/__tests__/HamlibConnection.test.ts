@@ -18,6 +18,8 @@ type MockRig = {
   setSplit: ReturnType<typeof vi.fn>;
   getSplitFreq: ReturnType<typeof vi.fn>;
   setSplitFreq: ReturnType<typeof vi.fn>;
+  getSplitMode: ReturnType<typeof vi.fn>;
+  setSplitMode: ReturnType<typeof vi.fn>;
   setMode: ReturnType<typeof vi.fn>;
   getVfo: ReturnType<typeof vi.fn>;
   setVfo: ReturnType<typeof vi.fn>;
@@ -118,6 +120,8 @@ function createConnectedConnection(rigOverrides: Partial<MockRig> = {}): {
     setSplit: vi.fn().mockResolvedValue(0),
     getSplitFreq: vi.fn().mockResolvedValue(null),
     setSplitFreq: vi.fn().mockResolvedValue(0),
+    getSplitMode: vi.fn().mockResolvedValue({ mode: 'USB', width: 2400 }),
+    setSplitMode: vi.fn().mockResolvedValue(0),
     setMode: vi.fn().mockResolvedValue(0),
     getVfo: vi.fn().mockResolvedValue('VFOA'),
     setVfo: vi.fn().mockResolvedValue(0),
@@ -328,6 +332,530 @@ describe('HamlibConnection', () => {
     await expect(connection.getSupportedTxAudioInputSources!()).resolves.toEqual([]);
     await expect(connection.setTxAudioInputSource!('usb')).rejects.toThrow(/no verified TX audio input provider/i);
     expect(rig.sendRaw).not.toHaveBeenCalled();
+  });
+
+  describe('FTDX10 independent Roofing and Contour receive CAT', () => {
+    const setup = () => {
+      let roofing = '7';
+      let contourEnabled = 0;
+      const { connection, rig } = createConnectedConnection({
+        sendRaw: vi.fn(async (wire: Buffer) => {
+          const command = wire.toString('ascii');
+          if (command === 'RF0;') return Buffer.from(`RF0${roofing};`, 'ascii');
+          if (command === 'CO00;') return Buffer.from(`CO00${String(contourEnabled).padStart(4, '0')};`, 'ascii');
+          if (command === 'CO01;') return Buffer.from('CO010800;', 'ascii');
+          if (command === 'EX030202;') return Buffer.from('EX030202-12;', 'ascii');
+          if (command === 'EX030203;') return Buffer.from('EX03020305;', 'ascii');
+          return Buffer.from('FA014074000;', 'ascii');
+        }),
+        sendRawWrite: vi.fn(async (wire: Buffer) => {
+          if (wire.toString('ascii') === 'RF04;') roofing = '9';
+          if (wire.toString('ascii') === 'CO000001;') contourEnabled = 1;
+        }),
+      });
+      const accessor = asTestConnection(connection);
+      accessor.currentConfig = { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } };
+      return { connection, rig, accessor };
+    };
+
+    it('selects hardware Roofing independently and verifies two native readbacks', async () => {
+      const { connection, rig } = setup();
+      await expect(connection.getRoofingFilter()).resolves.toBe(2);
+      await expect(connection.setRoofingFilter(4)).resolves.toBeUndefined();
+      expect(rig.sendRawWrite).toHaveBeenCalledWith(Buffer.from('RF04;', 'ascii'));
+      expect(rig.sendRaw).toHaveBeenCalledTimes(4);
+      await expect(connection.getRoofingFilter()).resolves.toBe(4);
+    });
+
+    it('rejects RF00 as an invalid filter choice, not an automatic mode', async () => {
+      const { connection, rig } = setup();
+      await expect(connection.setRoofingFilter(0)).rejects.toThrow('not an advertised option');
+      expect(rig.sendRawWrite).not.toHaveBeenCalled();
+    });
+
+    it('independently toggles Contour and reads its frequency, signed level and width', async () => {
+      const { connection, rig } = setup();
+      await expect(connection.setContourEnabled(true)).resolves.toBeUndefined();
+      await expect(connection.getContourEnabled()).resolves.toBe(true);
+      await expect(connection.getContourFrequency()).resolves.toBe(800);
+      await expect(connection.getContourLevel()).resolves.toBe(-12);
+      await expect(connection.getContourWidth()).resolves.toBe(5);
+      expect(rig.sendRawWrite).toHaveBeenCalledWith(Buffer.from('CO000001;', 'ascii'));
+    });
+
+    it('blocks unsupported models, transmit state, Split ON and invalid choices', async () => {
+      const { connection, rig, accessor } = setup();
+      await expect(connection.setRoofingFilter(3)).rejects.toThrow('not an advertised option');
+      rig.getPtt.mockResolvedValue(true);
+      await expect(connection.setRoofingFilter(1)).rejects.toThrow('confirmed RX');
+      rig.getPtt.mockResolvedValue(false);
+      rig.getSplit.mockResolvedValue({ enabled: true });
+      await expect(connection.setContourEnabled(true)).rejects.toThrow('Split OFF');
+      expect(rig.sendRawWrite).not.toHaveBeenCalled();
+      accessor.currentConfig = { type: 'serial', serial: { rigModel: 1035, path: 'COM5' } };
+      await expect(connection.getContourWidth()).rejects.toThrow('not available on this model');
+    });
+
+    it('fails closed on unsolicited native frames and quarantines all raw receiver writes', async () => {
+      const { connection, rig } = setup();
+      rig.sendRaw.mockResolvedValue(Buffer.from('FA014074000;', 'ascii'));
+      await expect(connection.getRoofingFilter()).rejects.toThrow('ambiguous');
+      await expect(connection.setContourEnabled(true)).rejects.toThrow('quarantined until reconnect');
+      expect(rig.sendRawWrite).not.toHaveBeenCalled();
+    });
+
+    it('quarantines the native CAT session after a timed-out receiver query', async () => {
+      const { connection, rig } = setup();
+      rig.sendRaw.mockRejectedValueOnce(new Error('native CAT read timeout'));
+      await expect(connection.getContourFrequency()).rejects.toThrow('native CAT read timeout');
+      await expect(connection.getRoofingFilter()).rejects.toThrow('quarantined until reconnect');
+      await expect(connection.setContourLevel(-12)).rejects.toThrow('quarantined until reconnect');
+      expect(rig.sendRaw).toHaveBeenCalledTimes(1);
+      expect(rig.sendRawWrite).not.toHaveBeenCalled();
+    });
+
+    it('detects inconsistent post-write Roofing state and blocks retries', async () => {
+      const { connection, rig } = setup();
+      rig.sendRawWrite.mockResolvedValue(undefined);
+      await expect(connection.setRoofingFilter(4)).rejects.toThrow('readback mismatch');
+      await expect(connection.setRoofingFilter(4)).rejects.toThrow('quarantined until reconnect');
+      expect(rig.sendRawWrite).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('FTDX10 RX AGC / IPO / ATT level verification', () => {
+    const setup = () => {
+      const { connection, rig } = createConnectedConnection();
+      const accessor = asTestConnection(connection);
+      accessor.currentConfig = { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } };
+      accessor.supportedLevels = new Set(['AGC', 'PREAMP', 'ATT']);
+      rig.getAgcLevels.mockResolvedValue([1, 2, 3]);
+      rig.getPreampValues.mockResolvedValue([10, 20]);
+      rig.getAttenuatorValues.mockResolvedValue([6, 12, 18]);
+      return { connection, rig, accessor };
+    };
+
+    it('prevents unsupported PREAMP/ATT options, verifies readback and supports IPO/OFF', async () => {
+      const { connection, rig } = setup();
+      rig.getLevel.mockImplementation(async (level: string) => level === 'PREAMP' ? 0 : 12);
+      await expect(connection.setPreampLevel(0)).resolves.toBeUndefined();
+      await expect(connection.setAttenuatorLevel(12)).resolves.toBeUndefined();
+      expect(rig.setLevel.mock.calls).toEqual([['PREAMP', 0], ['ATT', 12]]);
+      await expect(connection.setPreampLevel(15)).rejects.toThrow('not a reported option');
+      await expect(connection.setAttenuatorLevel(9)).rejects.toThrow('not a reported option');
+      expect(rig.setLevel).toHaveBeenCalledTimes(2);
+    });
+
+    it('rejects receiver controls while transmitting and rejects mismatched readback', async () => {
+      const { connection, rig } = setup();
+      rig.getPtt.mockResolvedValue(true);
+      await expect(connection.setPreampLevel(10)).rejects.toThrow('confirmed RX');
+      await expect(connection.setAttenuatorLevel(12)).rejects.toThrow('confirmed RX');
+      await expect(connection.setAgcMode('slow')).rejects.toThrow('confirmed RX');
+      expect(rig.setLevel).not.toHaveBeenCalled();
+
+      rig.getPtt.mockResolvedValue(false);
+      rig.getLevel.mockResolvedValue(99);
+      await expect(connection.setPreampLevel(10)).rejects.toThrow('readback mismatch');
+      await expect(connection.setAttenuatorLevel(12)).rejects.toThrow('readback mismatch');
+    });
+
+    it('preserves existing legacy Hamlib write path for FT-991A', async () => {
+      const { connection, rig, accessor } = setup();
+      accessor.currentConfig = { type: 'serial', serial: { rigModel: 1035, path: 'COM5' } };
+      await expect(connection.setPreampLevel(13)).resolves.toBeUndefined();
+      await expect(connection.setAttenuatorLevel(7)).resolves.toBeUndefined();
+      expect(rig.getPtt).not.toHaveBeenCalled();
+      expect(rig.getPreampValues).not.toHaveBeenCalled();
+      expect(rig.getAttenuatorValues).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('FTDX10 native APF on/off', () => {
+    const prepare = () => {
+      const { connection, rig } = createConnectedConnection();
+      const accessor = asTestConnection(connection);
+      accessor.currentConfig = { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } };
+      accessor.supportedFunctions = new Set(['APF']);
+      return { connection, rig, accessor };
+    };
+
+    it('uses native APF and verifies physical readback', async () => {
+      const { connection, rig } = prepare();
+      rig.getFunction.mockResolvedValue(true);
+      await expect(connection.getApfEnabled()).resolves.toBe(true);
+      await expect(connection.setApfEnabled(true)).resolves.toBeUndefined();
+      expect(rig.setFunction).toHaveBeenCalledWith('APF', true);
+      expect(rig.getPtt).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects TX, mismatched readback, unsupported function and other rigs', async () => {
+      const { connection, rig, accessor } = prepare();
+      rig.getPtt.mockResolvedValue(true);
+      await expect(connection.setApfEnabled(true)).rejects.toThrow('confirmed RX');
+      expect(rig.setFunction).not.toHaveBeenCalled();
+
+      rig.getPtt.mockResolvedValue(false);
+      rig.getFunction.mockResolvedValue(false);
+      await expect(connection.setApfEnabled(true)).rejects.toThrow('readback mismatch');
+      accessor.supportedFunctions = new Set();
+      await expect(connection.getApfEnabled()).rejects.toThrow('not available');
+      accessor.supportedFunctions = new Set(['APF']);
+      accessor.currentConfig = { type: 'serial', serial: { rigModel: 1035, path: 'COM5' } };
+      await expect(connection.setApfEnabled(false)).rejects.toThrow('not available');
+    });
+  });
+
+  describe('FTDX10 RF gain acknowledgement', () => {
+    const prepare = () => {
+      const { connection, rig } = createConnectedConnection();
+      const accessor = asTestConnection(connection);
+      accessor.currentConfig = { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } };
+      accessor.supportedLevels = new Set(['RF']);
+      return { connection, rig, accessor };
+    };
+
+    it('confirms physical RX and accepts small float quantization', async () => {
+      const { connection, rig } = prepare();
+      rig.getLevel.mockResolvedValue(0.505);
+      await expect(connection.setRFGain(0.5)).resolves.toBeUndefined();
+      expect(rig.setLevel).toHaveBeenCalledWith('RF', 0.5);
+      expect(rig.getLevel).toHaveBeenCalledWith('RF');
+    });
+
+    it('fails closed on TX state or inconsistent RF gain readback', async () => {
+      const { connection, rig } = prepare();
+      rig.getPtt.mockResolvedValue(true);
+      await expect(connection.setRFGain(0.7)).rejects.toThrow('confirmed RX');
+      expect(rig.setLevel).not.toHaveBeenCalled();
+      rig.getPtt.mockResolvedValue(false);
+      rig.getLevel.mockResolvedValue(0.1);
+      await expect(connection.setRFGain(0.7)).rejects.toThrow('readback mismatch');
+    });
+
+    it('retains generic RF level behavior for other radios', async () => {
+      const { connection, rig, accessor } = prepare();
+      accessor.currentConfig = { type: 'serial', serial: { rigModel: 1035, path: 'COM5' } };
+      await expect(connection.setRFGain(0.4)).resolves.toBeUndefined();
+      expect(rig.getPtt).not.toHaveBeenCalled();
+      expect(rig.getLevel).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('FTDX10 signed IF and CW level controls', () => {
+    const setup = () => {
+      const { connection, rig } = createConnectedConnection();
+      const accessor = asTestConnection(connection);
+      accessor.currentConfig = { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } };
+      accessor.supportedLevels = new Set(['IF', 'CWPITCH', 'KEYSPD']);
+      return { connection, rig, accessor };
+    };
+
+    it('reads and writes signed IF shift in Hz, with native readback', async () => {
+      const { connection, rig } = setup();
+      rig.getLevel.mockResolvedValue(-350);
+      await expect(connection.getIFShift()).resolves.toBe(-350);
+      await expect(connection.setIFShift(-350)).resolves.toBeUndefined();
+      expect(rig.setLevel).toHaveBeenCalledWith('IF', -350);
+      await expect(connection.setIFShift(-1201)).rejects.toThrow('between -1200');
+      expect(rig.setLevel).toHaveBeenCalledTimes(1);
+    });
+
+    it('exposes supported CW pitch and key speed without raw CAT frames', async () => {
+      const { connection, rig } = setup();
+      rig.getLevel.mockImplementation(async (level: string) => level === 'CWPITCH' ? 650 : 20);
+      await expect(connection.getCwPitch()).resolves.toBe(650);
+      await expect(connection.getKeySpeed()).resolves.toBe(20);
+      await expect(connection.setCwPitch(650)).resolves.toBeUndefined();
+      await expect(connection.setKeySpeed(20)).resolves.toBeUndefined();
+      expect(rig.setLevel.mock.calls).toEqual([['CWPITCH', 650], ['KEYSPD', 20]]);
+      await expect(connection.setCwPitch(655)).rejects.toThrow('10 Hz steps');
+      await expect(connection.setKeySpeed(100)).rejects.toThrow('6 and 48');
+    });
+
+    it('blocks receiver/CW writes during physical PTT and on unsupported models', async () => {
+      const { connection, rig, accessor } = setup();
+      rig.getPtt.mockResolvedValue(true);
+      await expect(connection.setIFShift(100)).rejects.toThrow('confirmed RX');
+      await expect(connection.setCwPitch(600)).rejects.toThrow('confirmed RX');
+      await expect(connection.setKeySpeed(20)).rejects.toThrow('confirmed RX');
+      expect(rig.setLevel).not.toHaveBeenCalled();
+      rig.getPtt.mockResolvedValue(false);
+      accessor.currentConfig = { type: 'serial', serial: { rigModel: 1035, path: 'COM4' } };
+      await expect(connection.getIFShift()).rejects.toThrow('unavailable');
+      await expect(connection.setKeySpeed(20)).rejects.toThrow('unavailable');
+      expect(rig.setLevel).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('FTDX10 guarded manual passband widths', () => {
+    const prepare = (rigOverrides: Partial<MockRig> = {}) => {
+      let width = 2400;
+      const { connection, rig } = createConnectedConnection({
+        getMode: vi.fn(async () => ({ mode: 'USB', bandwidth: width })),
+        setMode: vi.fn(async (_mode: string, requestedWidth: number) => { width = requestedWidth; }),
+        ...rigOverrides,
+      });
+      const accessor = asTestConnection(connection);
+      accessor.currentConfig = { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } };
+      accessor.supportedModes = new Set(['USB', 'LSB']);
+      return { connection, rig, accessor };
+    };
+
+    it('sets only advertised widths and confirms native mode and Hz readback', async () => {
+      const { connection, rig } = prepare();
+      await expect(connection.setManualModeBandwidth(1800)).resolves.toBeUndefined();
+      expect(rig.setMode).toHaveBeenCalledWith('USB', 1800);
+      expect(rig.getMode).toHaveBeenCalledTimes(2);
+      expect(rig.getSplit).toHaveBeenCalledTimes(1);
+      await expect(connection.setManualModeBandwidth(5000)).rejects.toThrow('does not advertise');
+      expect(rig.setMode).toHaveBeenCalledTimes(1);
+    });
+
+    it('uses generic SSB filter metadata or Hamlib fallback widths without arbitrary guesses', async () => {
+      const generic = prepare({
+        getFilterList: vi.fn().mockResolvedValue([{ modes: ['SSB'], width: 1800 }]),
+      });
+      await expect(generic.connection.setManualModeBandwidth(1800)).resolves.toBeUndefined();
+      expect(generic.rig.setMode).toHaveBeenCalledWith('USB', 1800);
+
+      const fallback = prepare({
+        getFilterList: vi.fn().mockRejectedValue(new Error('filter table unavailable')),
+      });
+      await expect(fallback.connection.setManualModeBandwidth(1800)).resolves.toBeUndefined();
+      await expect(fallback.connection.setManualModeBandwidth(2000)).rejects.toThrow('does not advertise');
+      expect(fallback.rig.setMode).toHaveBeenCalledTimes(1);
+    });
+
+    it('blocks TX, unknown PTT and Split ON without mutating the radio', async () => {
+      const { connection, rig } = prepare();
+      rig.getPtt.mockResolvedValue(true);
+      await expect(connection.setManualModeBandwidth(1800)).rejects.toThrow('confirmed RX');
+      rig.getPtt.mockResolvedValue(null);
+      await expect(connection.setManualModeBandwidth(1800)).rejects.toThrow('confirmed RX');
+      rig.getPtt.mockResolvedValue(false);
+      rig.getSplit.mockResolvedValue({ enabled: true });
+      await expect(connection.setManualModeBandwidth(1800)).rejects.toThrow('Split OFF');
+      rig.getSplit.mockResolvedValue(null);
+      await expect(connection.setManualModeBandwidth(1800)).rejects.toThrow('Split OFF');
+      expect(rig.setMode).not.toHaveBeenCalled();
+    });
+
+    it('rejects mismatched readback and fails closed on unsupported radio models', async () => {
+      const { connection, rig, accessor } = prepare({
+        getMode: vi.fn().mockResolvedValue({ mode: 'USB', bandwidth: 2400 }),
+      });
+      await expect(connection.setManualModeBandwidth(1800)).rejects.toThrow('readback mismatch');
+      accessor.currentConfig = { type: 'serial', serial: { rigModel: 1035, path: 'COM5' } };
+      await expect(connection.setManualModeBandwidth(1800)).rejects.toThrow('unavailable');
+      expect(rig.setMode).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('FTDX10 guarded manual mode control', () => {
+    const prepare = (rigOverrides: Partial<MockRig> = {}) => {
+      const { connection, rig } = createConnectedConnection(rigOverrides);
+      const accessor = asTestConnection(connection);
+      accessor.currentConfig = { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } };
+      accessor.supportedModes = new Set(['USB', 'PKTUSB']);
+      return { connection, rig, accessor };
+    };
+
+    it('locks a confirmed manual mode against conflicting engine and compound writes', async () => {
+      const { connection, rig } = prepare({
+        getMode: vi.fn().mockResolvedValue({ mode: 'PKTUSB', bandwidth: 2400 }),
+      });
+      await expect(connection.getManualModeAutoFollow()).resolves.toBe(true);
+      await connection.setManualMode('PKTUSB');
+      await expect(connection.getManualModeAutoFollow()).resolves.toBe(false);
+      rig.setMode.mockClear();
+      await expect(connection.setMode('USB')).rejects.toThrow('manual mode lock');
+      await expect(connection.applyOperatingState({
+        frequency: 14_074_000, mode: 'USB', bandwidth: 'nochange', tolerateModeFailure: true,
+      })).rejects.toThrow('manual mode lock');
+      expect(rig.setFrequency).not.toHaveBeenCalled();
+      expect(rig.setMode).not.toHaveBeenCalled();
+      await expect(connection.setMode('PKTUSB', 'nochange')).resolves.toBeUndefined();
+      expect(rig.setMode).not.toHaveBeenCalled();
+      await connection.setManualModeAutoFollow(true);
+      await expect(connection.getManualModeAutoFollow()).resolves.toBe(true);
+      await expect(connection.setMode('USB')).resolves.toBeUndefined();
+      expect(rig.setMode).toHaveBeenCalledWith('USB', undefined);
+    });
+
+    it('applies a compatible manually locked operating state without reapplying mode or dial twice', async () => {
+      const { connection, rig } = prepare({
+        getMode: vi.fn().mockResolvedValue({ mode: 'PKTUSB', bandwidth: 2400 }),
+      });
+      await connection.setManualMode('PKTUSB');
+      rig.setMode.mockClear();
+      rig.setFrequency.mockClear();
+      const result = await connection.applyOperatingState({
+        frequency: 14_074_000, mode: 'PKTUSB', bandwidth: 'nochange', tolerateModeFailure: true,
+      });
+      expect(result).toMatchObject({ frequencyApplied: true, modeApplied: true });
+      expect(rig.setFrequency).toHaveBeenCalledTimes(1);
+      expect(rig.setMode).not.toHaveBeenCalled();
+    });
+
+    it('can explicitly lock the observed RX mode and rejects TX/Split ambiguity', async () => {
+      const { connection, rig } = prepare({
+        getMode: vi.fn().mockResolvedValue({ mode: 'USB', bandwidth: 2400 }),
+      });
+      await connection.setManualModeAutoFollow(false);
+      await expect(connection.getManualModeAutoFollow()).resolves.toBe(false);
+      await expect(connection.setMode('PKTUSB')).rejects.toThrow('manual mode lock');
+
+      await connection.setManualModeAutoFollow(true);
+      rig.getPtt.mockResolvedValue(true);
+      await expect(connection.setManualModeAutoFollow(false)).rejects.toThrow('confirmed RX');
+      rig.getPtt.mockResolvedValue(false);
+      rig.getSplit.mockResolvedValue({ enabled: true });
+      await expect(connection.setManualModeAutoFollow(false)).rejects.toThrow('Split OFF');
+      await expect(connection.getManualModeAutoFollow()).resolves.toBe(true);
+    });
+
+    it('changes mode only after confirming native RX and Split OFF, then confirms readback', async () => {
+      const { connection, rig } = prepare({
+        getMode: vi.fn().mockResolvedValue({ mode: 'PKTUSB', bandwidth: 2400 }),
+      });
+      await expect(connection.setManualMode('PKTUSB')).resolves.toBeUndefined();
+      expect(rig.getPtt).toHaveBeenCalledTimes(1);
+      expect(rig.getSplit).toHaveBeenCalled();
+      expect(rig.setMode).toHaveBeenCalledWith('PKTUSB', 'nochange');
+      expect(rig.getMode).toHaveBeenCalled();
+    });
+
+    it('rejects native transmit and unknown PTT states before sending a mode write', async () => {
+      const { connection, rig } = prepare({ getPtt: vi.fn().mockResolvedValue(true) });
+      await expect(connection.setManualMode('PKTUSB')).rejects.toThrow('confirmed RX');
+      rig.getPtt.mockResolvedValue(null);
+      await expect(connection.setManualMode('PKTUSB')).rejects.toThrow('confirmed RX');
+      expect(rig.setMode).not.toHaveBeenCalled();
+    });
+
+    it('rejects Split ON and unconfirmed Split state before sending a mode write', async () => {
+      const { connection, rig } = prepare({ getSplit: vi.fn().mockResolvedValue({ enabled: true }) });
+      await expect(connection.setManualMode('PKTUSB')).rejects.toThrow('Split OFF');
+      rig.getSplit.mockResolvedValue(null);
+      await expect(connection.setManualMode('PKTUSB')).rejects.toThrow('Split OFF');
+      expect(rig.setMode).not.toHaveBeenCalled();
+    });
+
+    it('fails closed when the mode readback differs and is unavailable for other models', async () => {
+      const { connection, rig, accessor } = prepare();
+      await expect(connection.setManualMode('PKTUSB')).rejects.toThrow('readback mismatch');
+      accessor.currentConfig = { type: 'serial', serial: { rigModel: 1035, path: 'COM4' } };
+      await expect(connection.setManualMode('PKTUSB')).rejects.toThrow('not available on this model');
+      expect(rig.setMode).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('quarantines FTDX10 raw CAT after an unrelated EX route read', async () => {
+    const { connection, rig } = createConnectedConnection({
+      sendRaw: vi.fn().mockResolvedValue(Buffer.from('FA014074000;', 'ascii')),
+    });
+    const accessor = asTestConnection(connection);
+    accessor.meterRigMetadata = { rigModel: 1042, mfgName: 'Yaesu', modelName: 'FTDX-10' };
+    accessor.currentConfig = { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } };
+
+    await expect(connection.getTxAudioInputSource!()).rejects.toThrow('incomplete or ambiguous');
+    await expect(connection.getTxAudioInputSource!()).rejects.toThrow('quarantined until reconnect');
+    await expect(connection.getRoofingFilter()).rejects.toThrow('quarantined until reconnect');
+    expect(rig.sendRaw).toHaveBeenCalledTimes(2);
+    expect(rig.sendRawWrite).not.toHaveBeenCalled();
+  });
+
+  it('quarantines FTDX10 receiver CAT after a timed-out EX route read', async () => {
+    const { connection, rig } = createConnectedConnection({
+      sendRaw: vi.fn().mockRejectedValueOnce(new Error('native EX read timeout')),
+    });
+    const accessor = asTestConnection(connection);
+    accessor.meterRigMetadata = { rigModel: 1042, mfgName: 'Yaesu', modelName: 'FTDX-10' };
+    accessor.currentConfig = { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } };
+
+    await expect(connection.getTxAudioInputSource!()).rejects.toThrow('native EX read timeout');
+    await expect(connection.getContourFrequency()).rejects.toThrow('quarantined until reconnect');
+    expect(rig.sendRaw).toHaveBeenCalledTimes(1);
+  });
+
+  it('quarantines FTDX10 raw EX routing after an ambiguous write/readback', async () => {
+    const { connection, rig } = createConnectedConnection({
+      sendRaw: vi.fn().mockResolvedValue(Buffer.from('FA014074000;', 'ascii')),
+    });
+    const accessor = asTestConnection(connection);
+    accessor.meterRigMetadata = { rigModel: 1042, mfgName: 'Yaesu', modelName: 'FTDX-10' };
+    accessor.currentConfig = { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } };
+    await expect(connection.setTxAudioInputSource!('usb')).rejects.toThrow('readback mismatch');
+    expect(rig.sendRawWrite).toHaveBeenCalledTimes(2);
+    await expect(connection.setTxAudioInputSource!('usb')).rejects.toThrow('quarantined until reconnect');
+    await expect(connection.getTxAudioInputSource!()).rejects.toThrow('quarantined until reconnect');
+    expect(rig.sendRawWrite).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not change FTDX10 audio routing while the physical transmitter is keyed', async () => {
+    const { connection, rig } = createConnectedConnection();
+    const accessor = asTestConnection(connection);
+    accessor.meterRigMetadata = { rigModel: 1042, mfgName: 'Yaesu', modelName: 'FTDX-10' };
+    accessor.currentConfig = { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } };
+    rig.getPtt.mockResolvedValue(true);
+    await expect(connection.setTxAudioInputSource!('usb')).rejects.toThrow('confirmed RX');
+    expect(rig.sendRawWrite).not.toHaveBeenCalled();
+  });
+
+  it('allows FTDX10 audio routing during Split using the live TX VFO DATA bank', async () => {
+    const mod = 'EX010415', rear = 'EX010416';
+    const { connection, rig } = createConnectedConnection({
+      getMode: vi.fn().mockResolvedValue({ mode: 'USB', bandwidth: 2400 }),
+      getSplit: vi.fn().mockResolvedValue({ enabled: true, txVfo: 'VFOB' }),
+      getSplitMode: vi.fn().mockResolvedValue({ mode: 'PKTUSB', width: 2400 }),
+      sendRaw: vi.fn(async (wire: Buffer) => {
+        const query = wire.toString('ascii');
+        if (query === `${mod};`) return Buffer.from(`${mod}1;`, 'ascii');
+        if (query === `${rear};`) return Buffer.from(`${rear}1;`, 'ascii');
+        return Buffer.from('FA014074000;', 'ascii');
+      }),
+    });
+    const accessor = asTestConnection(connection);
+    accessor.meterRigMetadata = { rigModel: 1042, mfgName: 'Yaesu', modelName: 'FTDX-10' };
+    accessor.currentConfig = { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } };
+    await expect(connection.setTxAudioInputSource!('usb')).resolves.toMatchObject({ applied: 'usb' });
+    expect(rig.getSplitMode).toHaveBeenCalledWith('VFOB');
+    expect(rig.sendRawWrite.mock.calls.map((args) => args[0].toString('ascii'))).toEqual([
+      `${mod}1;`, `${rear}1;`,
+    ]);
+    expect(rig.setMode).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['USB', 'EX010113', 'EX010114'],
+    ['AM', 'EX010213', 'EX010215'],
+    ['FM', 'EX010313', 'EX010314'],
+    ['PKTUSB', 'EX010415', 'EX010416'],
+  ] as const)('writes and reads %s TX audio source using its live CAT menu bank', async (mode, modSource, rearSelect) => {
+    const { connection, rig } = createConnectedConnection({
+      getMode: vi.fn().mockResolvedValue({ mode, bandwidth: 2400 }),
+      sendRaw: vi.fn(async (wire: Buffer) => {
+        const query = wire.toString('ascii');
+        if (query === `${modSource};`) return Buffer.from(`${modSource}1;`, 'ascii');
+        if (query === `${rearSelect};`) return Buffer.from(`${rearSelect}1;`, 'ascii');
+        return Buffer.from('FA014074000;', 'ascii');
+      }),
+    });
+    const accessor = asTestConnection(connection);
+    accessor.meterRigMetadata = { rigModel: 1042, mfgName: 'Yaesu', modelName: 'FTDX-10' };
+    accessor.currentConfig = { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } };
+    accessor.currentRadioMode = 'LSB'; // deliberately stale: physical mode owns menu bank
+
+    await expect(connection.setTxAudioInputSource!('usb')).resolves.toMatchObject({
+      applied: 'usb', acknowledgement: 'readback',
+    });
+    expect(rig.sendRawWrite.mock.calls.map((args) => args[0].toString('ascii'))).toEqual([
+      `${modSource}1;`, `${rearSelect}1;`,
+    ]);
+    expect(rig.sendRaw.mock.calls.map((args) => args[0].toString('ascii'))).toEqual([
+      `${modSource};`, `${rearSelect};`,
+    ]);
   });
 
   it('writes FTDX10 USB as an ordered MOD SOURCE + REAR SELECT transaction', async () => {
@@ -614,6 +1142,51 @@ describe('HamlibConnection', () => {
     await expect(connection.setSplitFrequency(14_275_000)).resolves.toBeUndefined();
 
     expect(rig.setSplitFreq).toHaveBeenCalledWith(14_275_000, 'VFOB');
+  });
+
+  it('reads the live Split TX mode independently from the RX VFO mode', async () => {
+    const { connection, rig } = createConnectedConnection({
+      getSplit: vi.fn().mockResolvedValue({ enabled: true, txVfo: 'VFOB' }),
+      getSplitMode: vi.fn().mockResolvedValue({ mode: 'CW', width: 500 }),
+      getMode: vi.fn().mockResolvedValue({ mode: 'USB', bandwidth: 2400 }),
+    });
+    await expect(connection.getSplitMode()).resolves.toBe('CW');
+    expect(rig.getSplitMode).toHaveBeenCalledWith('VFOB');
+    expect(rig.getMode).not.toHaveBeenCalled();
+    expect(rig.setMode).not.toHaveBeenCalled();
+  });
+
+  it('sets only the intended Split TX VFO mode and confirms its readback', async () => {
+    const { connection, rig } = createConnectedConnection({
+      getSplit: vi.fn().mockResolvedValue({ enabled: true, txVfo: 'VFOB' }),
+      getSplitMode: vi.fn().mockResolvedValue({ mode: 'PKTUSB', width: 2400 }),
+    });
+    asTestConnection(connection).supportedModes = new Set(['USB', 'PKTUSB']);
+    await expect(connection.setSplitMode('pktusb')).resolves.toBeUndefined();
+    expect(rig.setSplitMode).toHaveBeenCalledExactlyOnceWith('PKTUSB', 'VFOB');
+    expect(rig.getSplitMode).toHaveBeenCalledWith('VFOB');
+    expect(rig.setFrequency).not.toHaveBeenCalled();
+    expect(rig.setMode).not.toHaveBeenCalled();
+  });
+
+  it('never retries a Split TX mode write on another VFO after readback mismatch', async () => {
+    const { connection, rig } = createConnectedConnection({
+      getSplit: vi.fn().mockResolvedValue({ enabled: true, txVfo: 'VFOB' }),
+      getSplitMode: vi.fn().mockResolvedValue({ mode: 'USB', width: 2400 }),
+    });
+    asTestConnection(connection).supportedModes = new Set(['USB', 'CW']);
+    await expect(connection.setSplitMode('CW')).rejects.toThrow('readback mismatch');
+    expect(rig.setSplitMode).toHaveBeenCalledExactlyOnceWith('CW', 'VFOB');
+  });
+
+  it('leaves Split mode selection usable during Split OFF for radio-side preparation', async () => {
+    const { connection, rig } = createConnectedConnection({
+      getSplit: vi.fn().mockResolvedValue({ enabled: false }),
+      getSplitMode: vi.fn().mockResolvedValue({ mode: 'CW', width: 500 }),
+    });
+    await expect(connection.getSplitMode()).resolves.toBeNull();
+    await expect(connection.setSplitMode('CW')).resolves.toBeUndefined();
+    expect(rig.setSplitMode).toHaveBeenCalledWith('CW', 'Other');
   });
 
   it('does not attempt split TX sync when the primary frequency write fails', async () => {

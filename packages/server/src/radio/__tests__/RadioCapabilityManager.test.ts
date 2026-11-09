@@ -2,6 +2,7 @@ import { EventEmitter } from 'eventemitter3';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CapabilityDescriptor, CapabilityState, HamlibConfig } from '@tx5dr/contracts';
 import { RadioCapabilityManager } from '../RadioCapabilityManager.js';
+import { CAPABILITY_DEFINITION_MAP } from '../capabilities/definitions.js';
 import {
   RadioConnectionState,
   RadioConnectionType,
@@ -65,6 +66,47 @@ function getDescriptor(snapshot: CapabilityDescriptor[], id: string): Capability
   }
   return descriptor;
 }
+
+describe('FTDX10 P4 TX audio route capability', () => {
+  it('exposes declared source options without a global feature quarantine', async () => {
+    const definition = CAPABILITY_DEFINITION_MAP.get('tx_audio_input_source');
+    expect(definition).toBeDefined();
+    expect(definition!.descriptor).toMatchObject({
+      readable: true,
+      writable: true,
+    });
+    expect(definition!.descriptor.options?.length).toBeGreaterThan(0);
+    expect(definition!.read).toBeTypeOf('function');
+    expect(definition!.write).toBeTypeOf('function');
+
+    const getSupportedTxAudioInputSources = vi.fn(async () => ['mic', 'usb', 'accessory']);
+    const getTxAudioInputSource = vi.fn(async () => 'mic');
+    const setTxAudioInputSource = vi.fn(async (source: string) => ({
+      requested: source, applied: source, outcome: 'applied', acknowledgement: 'readback',
+    }));
+    const connection = new MockConnection(RadioConnectionType.HAMLIB, {
+      getSupportedTxAudioInputSources, getTxAudioInputSource, setTxAudioInputSource,
+    });
+    await expect(definition!.probeSupport(connection as never)).resolves.toMatchObject({
+      supported: true, source: 'backend-declared',
+    });
+    await expect(definition!.read!(connection as never)).resolves.toBe('mic');
+    await definition!.write!(connection as never, 'usb');
+    expect(setTxAudioInputSource).toHaveBeenCalledWith('usb');
+  });
+
+  it('does not advertise the source capability for a radio with no provider', async () => {
+    const definition = CAPABILITY_DEFINITION_MAP.get('tx_audio_input_source')!;
+    const connection = new MockConnection(RadioConnectionType.HAMLIB, {
+      getSupportedTxAudioInputSources: vi.fn(async () => []),
+      getTxAudioInputSource: vi.fn(async () => null),
+      setTxAudioInputSource: vi.fn(),
+    });
+    await expect(definition.probeSupport(connection as never)).resolves.toMatchObject({
+      supported: false,
+    });
+  });
+});
 
 describe('RadioCapabilityManager', () => {
   afterEach(() => {
@@ -698,6 +740,277 @@ describe('RadioCapabilityManager', () => {
     await expect(manager.writeCapability('mode_bandwidth', 10000)).resolves.toBeUndefined();
     expect(setModeBandwidth).toHaveBeenCalledWith(10000);
 
+    manager.onDisconnected();
+  });
+
+  it('exposes FTDX10 analogue roofing and Contour controls independently from DSP mode WIDTH', async () => {
+    const manager = new RadioCapabilityManager();
+    let roofing = 2;
+    let contourEnabled = false;
+    let contourFrequency = 800;
+    const setRoofingFilter = vi.fn(async (index: number) => { roofing = index; });
+    const setContourEnabled = vi.fn(async (value: boolean) => { contourEnabled = value; });
+    const setContourFrequency = vi.fn(async (hz: number) => { contourFrequency = hz; });
+    const conn = new MockConnection(RadioConnectionType.HAMLIB, {
+      getConnectionInfo: () => ({
+        type: RadioConnectionType.HAMLIB,
+        state: RadioConnectionState.CONNECTED,
+        config: { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } },
+      }),
+      setManualMode: vi.fn(),
+      getRoofingFilter: vi.fn(async () => roofing),
+      setRoofingFilter,
+      getContourEnabled: vi.fn(async () => contourEnabled),
+      setContourEnabled,
+      getContourFrequency: vi.fn(async () => contourFrequency),
+      setContourFrequency,
+      getContourLevel: vi.fn(async () => -12),
+      setContourLevel: vi.fn(async (_value: number) => undefined),
+      getContourWidth: vi.fn(async () => 5),
+      setContourWidth: vi.fn(async (_value: number) => undefined),
+    });
+    await manager.onConnected(conn as never);
+    const descriptors = manager.getCapabilitySnapshot().descriptors;
+    expect(getDescriptor(descriptors, 'roofing_filter')).toMatchObject({
+      valueType: 'enum',
+      writable: true,
+      requiresIdle: true,
+      options: [
+        { value: 1 }, { value: 2 }, { value: 4 }, { value: 5 },
+      ],
+    });
+    expect(getDescriptor(descriptors, 'contour_enabled')).toMatchObject({
+      valueType: 'boolean', writable: true, requiresIdle: true,
+    });
+    expect(getDescriptor(descriptors, 'contour_frequency')).toMatchObject({
+      valueType: 'number', writable: true, requiresIdle: true,
+      range: { min: 10, max: 3200, step: 1 },
+    });
+    expect(getCapability(manager.getCapabilityStates(), 'roofing_filter')).toMatchObject({
+      supported: true, value: 2,
+    });
+    await manager.writeCapability('roofing_filter', 4);
+    expect(setRoofingFilter).toHaveBeenCalledWith(4);
+    expect(getCapability(manager.getCapabilityStates(), 'roofing_filter').value).toBe(4);
+    await manager.writeCapability('contour_enabled', true);
+    expect(setContourEnabled).toHaveBeenCalledWith(true);
+    await manager.writeCapability('contour_frequency', 950);
+    expect(setContourFrequency).toHaveBeenCalledWith(950);
+    await expect(manager.writeCapability('roofing_filter', 3)).rejects.toThrow('unsupported enum value');
+    manager.setPTTActive(true);
+    await expect(manager.writeCapability('contour_enabled', false)).rejects.toThrow('requires an idle radio');
+    manager.onDisconnected();
+  });
+
+  it('never advertises FTDX10 Roofing/Contour on another Hamlib model', async () => {
+    const manager = new RadioCapabilityManager();
+    const getRoofingFilter = vi.fn(async () => 2);
+    const getContourFrequency = vi.fn(async () => 800);
+    await manager.onConnected(new MockConnection(RadioConnectionType.HAMLIB, {
+      getConnectionInfo: () => ({
+        type: RadioConnectionType.HAMLIB,
+        state: RadioConnectionState.CONNECTED,
+        config: { type: 'serial', serial: { rigModel: 1035, path: 'COM5' } },
+      }),
+      setManualMode: vi.fn(),
+      getRoofingFilter,
+      getContourFrequency,
+    }) as never);
+    for (const id of ['roofing_filter', 'contour_enabled', 'contour_frequency', 'contour_level', 'contour_width']) {
+      expect(getCapability(manager.getCapabilityStates(), id)).toMatchObject({ supported: false });
+    }
+    expect(getRoofingFilter).not.toHaveBeenCalled();
+    expect(getContourFrequency).not.toHaveBeenCalled();
+    manager.onDisconnected();
+  });
+
+  it('does not falsely advertise FTDX10-only IF Shift or APF on another Hamlib model', async () => {
+    const manager = new RadioCapabilityManager();
+    const getIFShift = vi.fn().mockResolvedValue(0);
+    const getApfEnabled = vi.fn().mockResolvedValue(false);
+    const connection = new MockConnection(RadioConnectionType.HAMLIB, {
+      getConnectionInfo: () => ({
+        type: RadioConnectionType.HAMLIB,
+        state: RadioConnectionState.CONNECTED,
+        config: { type: 'serial', serial: { rigModel: 1035, path: 'COM5' } },
+      }),
+      setManualMode: vi.fn(),
+      isSupportedLevel: vi.fn((name: string) => name === 'IF'),
+      isSupportedFunction: vi.fn((name: string) => name === 'APF'),
+      getIFShift,
+      getApfEnabled,
+    });
+    await manager.onConnected(connection as never);
+    expect(getCapability(manager.getCapabilityStates(), 'if_shift')).toMatchObject({ supported: false });
+    expect(getCapability(manager.getCapabilityStates(), 'apf_enabled')).toMatchObject({ supported: false });
+    expect(getIFShift).not.toHaveBeenCalled();
+    expect(getApfEnabled).not.toHaveBeenCalled();
+    manager.onDisconnected();
+  });
+
+  it('exposes auto-follow only on FTDX10 and dispatches without changing generic engine mode', async () => {
+    const manager = new RadioCapabilityManager();
+    const getManualModeAutoFollow = vi.fn(async () => true);
+    const setManualModeAutoFollow = vi.fn(async (_value: boolean) => undefined);
+    const connection = new MockConnection(RadioConnectionType.HAMLIB, {
+      getConnectionInfo: () => ({
+        type: RadioConnectionType.HAMLIB,
+        state: RadioConnectionState.CONNECTED,
+        config: { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } },
+      }),
+      setManualMode: vi.fn(),
+      getSupportedModes: vi.fn(async () => ['USB']),
+      getManualModeAutoFollow,
+      setManualModeAutoFollow,
+    });
+    await manager.onConnected(connection as never);
+    expect(getDescriptor(manager.getCapabilitySnapshot().descriptors, 'mode_auto_follow')).toMatchObject({
+      writable: true,
+      requiresIdle: true,
+      valueType: 'boolean',
+    });
+    await manager.writeCapability('mode_auto_follow', false);
+    expect(setManualModeAutoFollow).toHaveBeenCalledWith(false);
+    manager.setPTTActive(true);
+    await expect(manager.writeCapability('mode_auto_follow', true)).rejects.toThrow('requires an idle radio');
+    manager.onDisconnected();
+
+    const legacy = new RadioCapabilityManager();
+    await legacy.onConnected(new MockConnection(RadioConnectionType.HAMLIB, {
+      getConnectionInfo: () => ({
+        type: RadioConnectionType.HAMLIB,
+        state: RadioConnectionState.CONNECTED,
+        config: { type: 'serial', serial: { rigModel: 1035, path: 'COM5' } },
+      }),
+      getManualModeAutoFollow,
+      setManualModeAutoFollow,
+    }) as never);
+    expect(getCapability(legacy.getCapabilityStates(), 'mode_auto_follow')).toMatchObject({
+      supported: false,
+    });
+    legacy.onDisconnected();
+  });
+
+  it('routes FTDX10 passband widths through guarded native control instead of generic mode writes', async () => {
+    const manager = new RadioCapabilityManager();
+    const setManualModeBandwidth = vi.fn(async (_hz: number) => undefined);
+    const setModeBandwidth = vi.fn(async (_value: number) => undefined);
+    const connection = new MockConnection(RadioConnectionType.HAMLIB, {
+      getConnectionInfo: () => ({
+        type: RadioConnectionType.HAMLIB,
+        state: RadioConnectionState.CONNECTED,
+        config: { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } },
+      }),
+      setManualMode: vi.fn(),
+      getSupportedModeBandwidths: vi.fn(async () => [1800, 2400, 3000]),
+      getModeBandwidth: vi.fn(async () => 2400),
+      setModeBandwidth,
+      setManualModeBandwidth,
+    });
+    let snapshot = manager.getCapabilitySnapshot();
+    manager.on('capabilityList', latest => { snapshot = latest; });
+    await manager.onConnected(connection as never);
+    expect(getDescriptor(snapshot.descriptors, 'mode_bandwidth')).toMatchObject({
+      writable: true,
+      requiresIdle: true,
+      options: [{ value: 1800 }, { value: 2400 }, { value: 3000 }],
+    });
+    await manager.writeCapability('mode_bandwidth', 1800);
+    expect(setManualModeBandwidth).toHaveBeenCalledWith(1800);
+    expect(setModeBandwidth).not.toHaveBeenCalled();
+    manager.setPTTActive(true);
+    await expect(manager.writeCapability('mode_bandwidth', 2400)).rejects.toThrow('requires an idle radio');
+    expect(setManualModeBandwidth).toHaveBeenCalledTimes(1);
+    manager.onDisconnected();
+  });
+
+  it('presents FTDX10 IF shift as signed Hz while preserving generic descriptors', async () => {
+    const manager = new RadioCapabilityManager();
+    const setIFShift = vi.fn(async (_hz: number) => undefined);
+    const connection = new MockConnection(RadioConnectionType.HAMLIB, {
+      getConnectionInfo: () => ({
+        type: RadioConnectionType.HAMLIB,
+        state: RadioConnectionState.CONNECTED,
+        config: { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } },
+      }),
+      setManualMode: vi.fn(),
+      isSupportedLevel: vi.fn((level: string) => level === 'IF'),
+      getIFShift: vi.fn(async () => -250),
+      setIFShift,
+    });
+
+    let latestSnapshot = manager.getCapabilitySnapshot();
+    manager.on('capabilityList', snapshot => { latestSnapshot = snapshot; });
+    await manager.onConnected(connection as never);
+    expect(getDescriptor(latestSnapshot.descriptors, 'if_shift')).toMatchObject({
+      valueType: 'number', range: { min: -1200, max: 1200, step: 10 }, requiresIdle: true,
+      display: { mode: 'value', unit: 'Hz', decimals: 0 },
+    });
+    await expect(manager.writeCapability('if_shift', -250)).resolves.toBeUndefined();
+    expect(setIFShift).toHaveBeenCalledWith(-250);
+    manager.onDisconnected();
+  });
+
+  it('exposes FTDX10 DATA/CW modes and writes through the guarded manual operation', async () => {
+    const manager = new RadioCapabilityManager();
+    let currentMode = 'USB';
+    const setManualMode = vi.fn(async (mode: string) => { currentMode = mode; });
+    const connection = new MockConnection(RadioConnectionType.HAMLIB, {
+      getConnectionInfo: () => ({
+        type: RadioConnectionType.HAMLIB,
+        state: RadioConnectionState.CONNECTED,
+        config: { type: 'serial', serial: { path: 'COM4', rigModel: 1042 } },
+      }),
+      getSupportedModes: vi.fn(async () => ['USB', 'LSB', 'CW', 'CWR', 'PKTUSB', 'PKTLSB', 'FM', 'UNKNOWN']),
+      getMode: vi.fn(async () => ({ mode: currentMode, bandwidth: 'wide' })),
+      setManualMode,
+    });
+
+    let latestSnapshot = manager.getCapabilitySnapshot();
+    manager.on('capabilityList', snapshot => { latestSnapshot = snapshot; });
+    await manager.onConnected(connection as never);
+
+    expect(getDescriptor(latestSnapshot.descriptors, 'radio_mode')).toMatchObject({
+      writable: true,
+      requiresIdle: true,
+      options: [
+        { value: 'USB' }, { value: 'LSB' }, { value: 'FM' },
+        { value: 'CW' }, { value: 'CWR' }, { value: 'PKTUSB' }, { value: 'PKTLSB' },
+      ],
+    });
+    await manager.writeCapability('radio_mode', 'PKTUSB');
+    expect(setManualMode).toHaveBeenCalledWith('PKTUSB');
+    expect(getCapability(manager.getCapabilityStates(), 'radio_mode').value).toBe('PKTUSB');
+
+    await expect(manager.writeCapability('radio_mode', 'UNKNOWN')).rejects.toThrow('unsupported enum value');
+    expect(setManualMode).toHaveBeenCalledTimes(1);
+
+    manager.setPTTActive(true);
+    await expect(manager.writeCapability('radio_mode', 'USB')).rejects.toThrow('requires an idle radio');
+    expect(setManualMode).toHaveBeenCalledTimes(1);
+    manager.onDisconnected();
+  });
+
+  it('does not expose writable radio modes on unrelated Hamlib models', async () => {
+    const manager = new RadioCapabilityManager();
+    const connection = new MockConnection(RadioConnectionType.HAMLIB, {
+      getConnectionInfo: () => ({
+        type: RadioConnectionType.HAMLIB,
+        state: RadioConnectionState.CONNECTED,
+        config: { type: 'serial', serial: { path: 'COM5', rigModel: 1035 } },
+      }),
+      getSupportedModes: vi.fn(async () => ['USB', 'CW', 'PKTUSB']),
+      getMode: vi.fn(async () => ({ mode: 'USB', bandwidth: 'wide' })),
+      setManualMode: vi.fn(),
+    });
+    let latestSnapshot = manager.getCapabilitySnapshot();
+    manager.on('capabilityList', snapshot => { latestSnapshot = snapshot; });
+    await manager.onConnected(connection as never);
+    expect(getDescriptor(latestSnapshot.descriptors, 'radio_mode').writable).toBe(false);
+    expect(getDescriptor(latestSnapshot.descriptors, 'radio_mode').options).toEqual([
+      { value: 'USB', labelI18nKey: 'voice:radioMode.usb' },
+    ]);
+    await expect(manager.writeCapability('radio_mode', 'USB')).rejects.toThrow('read-only');
     manager.onDisconnected();
   });
 

@@ -23,17 +23,11 @@ import type { CapabilityValue } from '@tx5dr/contracts';
 import { TX_AUDIO_INPUT_SOURCE_OPTIONS } from '../txAudioInput/TxAudioInputProvider.js';
 
 /**
- * Temporary safety quarantine for the TX audio input route capability.
- *
- * Hamlib/CI-V models can leave asynchronous spectrum frames and raw CAT
- * replies interleaved on the same serial stream. Until the binding-level
- * transaction boundary is fixed, this capability must not be advertised or
- * dispatched for any radio model. The implementation remains in place for a
- * later re-enable after protocol-level validation.
+ * Feature availability is derived from each live radio's declared providers.
+ * There are no blanket capability bans: unsupported routes remain absent
+ * from the reported options, while protocol errors are handled by their owner.
  */
-const TEMPORARILY_DISABLED_CAPABILITIES: ReadonlySet<string> = new Set<string>([
-  'tx_audio_input_source',
-]);
+const TEMPORARILY_DISABLED_CAPABILITIES: ReadonlySet<string> = new Set();
 
 export function isCapabilityTemporarilyDisabled(id: string): boolean {
   return TEMPORARILY_DISABLED_CAPABILITIES.has(id);
@@ -43,6 +37,21 @@ type DynamicConnectionMethod = (...args: unknown[]) => unknown;
 
 const VOICE_RADIO_MODE_ORDER = ['USB', 'LSB', 'FM', 'AM', 'WFM'] as const;
 const VOICE_RADIO_MODE_SET = new Set<string>(VOICE_RADIO_MODE_ORDER);
+// Yaesu DATA-U is exposed by Hamlib as PKTUSB; CWR is Yaesu CW-L.
+const FTDX10_RADIO_MODE_ORDER = [
+  ...VOICE_RADIO_MODE_ORDER, 'CW', 'CWR', 'PKTUSB', 'PKTLSB', 'RTTY', 'RTTYR', 'PKTFM',
+] as const;
+const FTDX10_RADIO_MODE_SET = new Set<string>(FTDX10_RADIO_MODE_ORDER);
+
+function isFtdx10ManualModeConnection(
+  conn: Parameters<CapabilityDefinition['probeSupport']>[0],
+): boolean {
+  const info = conn.getConnectionInfo?.();
+  return conn.getType() === RadioConnectionType.HAMLIB
+    && info?.config?.type === 'serial'
+    && info.config.serial?.rigModel === 1042
+    && typeof conn.setManualMode === 'function';
+}
 
 function getDynamicMethod(
   conn: Parameters<CapabilityDefinition['probeSupport']>[0],
@@ -80,24 +89,29 @@ function normalizeRadioModeName(value: unknown): string | null {
   return normalized.length > 0 ? normalized : null;
 }
 
-async function getSupportedVoiceRadioModes(
+async function getSupportedRadioModes(
   conn: Parameters<CapabilityDefinition['probeSupport']>[0],
 ): Promise<string[]> {
   if (!conn.getSupportedModes) return [];
 
+  const ftdx10 = isFtdx10ManualModeConnection(conn);
+  const allowed = ftdx10 ? FTDX10_RADIO_MODE_SET : VOICE_RADIO_MODE_SET;
+  const order = ftdx10 ? FTDX10_RADIO_MODE_ORDER : VOICE_RADIO_MODE_ORDER;
   const supportedModes = await conn.getSupportedModes();
   const normalizedModes = new Set(
     supportedModes
       .map(normalizeRadioModeName)
       .filter((mode): mode is string => Boolean(mode))
-      .filter((mode) => VOICE_RADIO_MODE_SET.has(mode)),
+      .filter((mode) => allowed.has(mode)),
   );
 
-  return VOICE_RADIO_MODE_ORDER.filter((mode) => normalizedModes.has(mode));
+  return order.filter((mode) => normalizedModes.has(mode));
 }
 
-function buildVoiceRadioModeOptions(modes: string[]) {
-  return modes.map((mode) => createOption(mode, `voice:radioMode.${mode.toLowerCase()}`));
+function buildRadioModeOptions(modes: string[]) {
+  return modes.map((mode) => VOICE_RADIO_MODE_SET.has(mode)
+    ? createOption(mode, `voice:radioMode.${mode.toLowerCase()}`)
+    : createOption(mode));
 }
 
 function getHamlibConfigType(conn: Parameters<CapabilityDefinition['probeSupport']>[0]): string | undefined {
@@ -208,6 +222,109 @@ function createRuntimePercentDefinition(
       await requireDynamicMethod(conn, writeMethod).call(conn, value as number);
     },
   };
+}
+
+/**
+ * Hamlib's FTDX10 RIG_LEVEL_IF is an integer IF shift in Hz (±1200),
+ * unlike percentage-style IF controls provided by other connections.
+ */
+function createFtdx10ModeAutoFollowDefinition(): CapabilityDefinition {
+  const base = createRuntimeBooleanDefinition(
+    'mode_auto_follow', 'operation', 'getManualModeAutoFollow', 'setManualModeAutoFollow',
+    undefined, { requiresIdle: true },
+  );
+  return {
+    ...base,
+    probeSupport: async (conn) => {
+      if (!isFtdx10ManualModeConnection(conn) || !conn.getManualModeAutoFollow
+        || !conn.setManualModeAutoFollow) return false;
+      await conn.getManualModeAutoFollow();
+      return { supported: true, source: 'runtime-probe' };
+    },
+  };
+}
+
+function createIfShiftDefinition(): CapabilityDefinition {
+  const base = createRuntimePercentDefinition('if_shift', 'rf', 'getIFShift', 'setIFShift', 'IF');
+  return {
+    ...base,
+    // The Hamlib adapter currently implements IF Shift for model 1042 only.
+    // A generic Hamlib level table alone is not evidence that its reader works
+    // on unrelated models. Preserve independently implemented non-Hamlib paths.
+    probeSupport: async (conn) => {
+      if (conn.getType() !== RadioConnectionType.HAMLIB) return base.probeSupport(conn);
+      if (!isFtdx10ManualModeConnection(conn) || !conn.getIFShift) return false;
+      await conn.getIFShift();
+      return { supported: true, source: 'runtime-probe' };
+    },
+    resolveDescriptor: async (conn) => isFtdx10ManualModeConnection(conn)
+      ? {
+          ...base.descriptor,
+          valueType: 'number',
+          range: { min: -1200, max: 1200, step: 10 },
+          display: { mode: 'value', unit: 'Hz', decimals: 0 },
+          requiresIdle: true,
+        } : base.descriptor,
+  };
+}
+
+function createFtdx10ApfDefinition(): CapabilityDefinition {
+  const base = createRuntimeBooleanDefinition(
+    'apf_enabled', 'rf', 'getApfEnabled', 'setApfEnabled', 'APF', { compoundGroup: 'apf' },
+  );
+  return {
+    ...base,
+    probeSupport: async (conn) => {
+      if (conn.getType() !== RadioConnectionType.HAMLIB) return base.probeSupport(conn);
+      if (!isFtdx10ManualModeConnection(conn) || !conn.getApfEnabled) return false;
+      await conn.getApfEnabled();
+      return { supported: true, source: 'runtime-probe' };
+    },
+  };
+}
+
+function ftdx10OnlyReceiverCapability(base: CapabilityDefinition): CapabilityDefinition {
+  return {
+    ...base,
+    descriptor: { ...base.descriptor, requiresIdle: true },
+    probeSupport: async (conn) => isFtdx10ManualModeConnection(conn)
+      ? base.probeSupport(conn) : false,
+  };
+}
+
+function createFtdx10ReceiverDefinitions(): CapabilityDefinition[] {
+  const roofing = ftdx10OnlyReceiverCapability(createRuntimeEnumDefinition(
+    'roofing_filter', 'rf', 'getRoofingFilter', 'setRoofingFilter', [1, 2, 4, 5],
+  ));
+  return [
+    {
+      ...roofing,
+      descriptor: {
+        ...roofing.descriptor,
+        options: [
+          createOption(1, 'radio:capability.roofing_filter.options.12khz'),
+          createOption(2, 'radio:capability.roofing_filter.options.3khz'),
+          createOption(4, 'radio:capability.roofing_filter.options.500hz'),
+          createOption(5, 'radio:capability.roofing_filter.options.300hz'),
+        ],
+      },
+    },
+    ftdx10OnlyReceiverCapability(createRuntimeBooleanDefinition(
+      'contour_enabled', 'rf', 'getContourEnabled', 'setContourEnabled',
+    )),
+    ftdx10OnlyReceiverCapability(createRuntimeNumberDefinition(
+      'contour_frequency', 'rf', 'getContourFrequency', 'setContourFrequency',
+      { min: 10, max: 3200, step: 1 }, { mode: 'value', unit: 'Hz', decimals: 0 },
+    )),
+    ftdx10OnlyReceiverCapability(createRuntimeNumberDefinition(
+      'contour_level', 'rf', 'getContourLevel', 'setContourLevel',
+      { min: -40, max: 20, step: 1 }, { mode: 'value', unit: 'dB', decimals: 0 },
+    )),
+    ftdx10OnlyReceiverCapability(createRuntimeNumberDefinition(
+      'contour_width', 'rf', 'getContourWidth', 'setContourWidth',
+      { min: 1, max: 11, step: 1 }, { mode: 'value', decimals: 0 },
+    )),
+  ];
 }
 
 function createRuntimeNumberDefinition(
@@ -636,9 +753,7 @@ function createDefinitions(): CapabilityDefinition[] {
     createRuntimeBooleanDefinition('monitor_enabled', 'audio', 'getMonitorEnabled', 'setMonitorEnabled', 'MON', {
       compoundGroup: 'monitor',
     }),
-    createRuntimeBooleanDefinition('apf_enabled', 'rf', 'getApfEnabled', 'setApfEnabled', 'APF', {
-      compoundGroup: 'apf',
-    }),
+    createFtdx10ApfDefinition(),
     createRuntimePercentDefinition('apf_level', 'rf', 'getApfLevel', 'setApfLevel', 'APF', {
       compoundGroup: 'apf',
     }),
@@ -745,7 +860,7 @@ function createDefinitions(): CapabilityDefinition[] {
       write: (conn, value) => conn.setNRLevel!(value as number),
     },
     createRuntimePercentDefinition('rf_gain', 'rf', 'getRFGain', 'setRFGain', 'RF'),
-    createRuntimePercentDefinition('if_shift', 'rf', 'getIFShift', 'setIFShift', 'IF'),
+    createIfShiftDefinition(),
     createRuntimePercentDefinition('pbt_in', 'rf', 'getPbtIn', 'setPbtIn', 'PBT_IN'),
     createRuntimePercentDefinition('pbt_out', 'rf', 'getPbtOut', 'setPbtOut', 'PBT_OUT'),
     createRuntimeNumberDefinition(
@@ -978,6 +1093,8 @@ function createDefinitions(): CapabilityDefinition[] {
       read: (conn) => conn.getAttenuatorLevel!(),
       write: (conn, value) => conn.setAttenuatorLevel!(value as number),
     },
+    ...createFtdx10ReceiverDefinitions(),
+    createFtdx10ModeAutoFollowDefinition(),
     {
       id: 'radio_mode',
       descriptor: {
@@ -987,6 +1104,7 @@ function createDefinitions(): CapabilityDefinition[] {
         options: [],
         readable: true,
         writable: false,
+        requiresIdle: true,
         updateMode: 'polling',
         pollIntervalMs: 2000,
         labelI18nKey: 'radio:capability.radio_mode.label',
@@ -997,9 +1115,10 @@ function createDefinitions(): CapabilityDefinition[] {
         id: 'radio_mode',
         category: 'operation',
         valueType: 'enum',
-        options: buildVoiceRadioModeOptions(await getSupportedVoiceRadioModes(conn)),
+        options: buildRadioModeOptions(await getSupportedRadioModes(conn)),
         readable: true,
-        writable: false,
+        writable: isFtdx10ManualModeConnection(conn),
+        requiresIdle: true,
         updateMode: 'polling',
         pollIntervalMs: 2000,
         labelI18nKey: 'radio:capability.radio_mode.label',
@@ -1007,14 +1126,21 @@ function createDefinitions(): CapabilityDefinition[] {
         hasSurfaceControl: false,
       }),
       probeSupport: async (conn) => {
-        const modes = await getSupportedVoiceRadioModes(conn);
-        if (modes.length === 0) {
-          return false;
-        }
+        const modes = await getSupportedRadioModes(conn);
+        if (modes.length === 0) return false;
         await conn.getMode();
         return { supported: true, source: 'runtime-probe' };
       },
       read: async (conn) => normalizeRadioModeName((await conn.getMode()).mode),
+      write: async (conn, value) => {
+        if (!isFtdx10ManualModeConnection(conn)) throw new Error('Manual CAT mode control is unavailable');
+        const mode = normalizeRadioModeName(value);
+        if (!mode || !(await getSupportedRadioModes(conn)).includes(mode)) {
+          throw new Error('Unsupported FTDX10 radio mode');
+        }
+        await conn.setManualMode!(mode);
+        return { value: mode, meta: { acknowledgement: 'readback' } };
+      },
     },
     {
       id: 'mode_bandwidth',
@@ -1041,6 +1167,7 @@ function createDefinitions(): CapabilityDefinition[] {
         ),
         readable: true,
         writable: true,
+        requiresIdle: isFtdx10ManualModeConnection(conn) && typeof conn.setManualModeBandwidth === 'function',
         updateMode: 'polling',
         pollIntervalMs: 2000,
         labelI18nKey: 'radio:capability.mode_bandwidth.label',
@@ -1057,7 +1184,16 @@ function createDefinitions(): CapabilityDefinition[] {
         return { supported: bandwidths.length > 0, source: 'runtime-probe' };
       },
       read: (conn) => conn.getModeBandwidth!(),
-      write: (conn, value) => conn.setModeBandwidth!(value as RadioModeBandwidth),
+      write: async (conn, value) => {
+        if (isFtdx10ManualModeConnection(conn)) {
+          if (!conn.setManualModeBandwidth || typeof value !== 'number') {
+            throw new Error('FTDX10 manual passband control requires a numeric Hz value');
+          }
+          await conn.setManualModeBandwidth(value);
+          return { value, meta: { acknowledgement: 'readback' } };
+        }
+        await conn.setModeBandwidth!(value as RadioModeBandwidth);
+      },
     },
     {
       ...createRuntimeBooleanDefinition('split_enabled', 'operation', 'getSplitEnabled', 'setSplitEnabled', undefined, {
@@ -1085,6 +1221,10 @@ function createDefinitions(): CapabilityDefinition[] {
         }
       },
     },
+    ftdx10OnlyReceiverCapability(createRuntimeEnumDefinition(
+      'split_tx_mode', 'operation', 'getSplitMode', 'setSplitMode',
+      [...FTDX10_RADIO_MODE_ORDER], 'getSupportedModes',
+    )),
     createRuntimeEnumDefinition(
       'vfo_select',
       'operation',

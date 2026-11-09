@@ -130,6 +130,10 @@ export class HamlibConnection extends EventEmitter<IRadioConnectionEvents> imple
   stopCWMessage(): ReturnType<HamlibRuntime['stopCWMessage']> { return this.invoke('stopCWMessage', []) as ReturnType<HamlibRuntime['stopCWMessage']>; }
   getPTT(): ReturnType<HamlibRuntime['getPTT']> { return this.invoke('getPTT', []) as ReturnType<HamlibRuntime['getPTT']>; }
   setMode(mode: string, bandwidth?: RadioModeBandwidth, options?: SetRadioModeOptions): ReturnType<HamlibRuntime['setMode']> { return this.invoke('setMode', [mode, bandwidth, options]) as ReturnType<HamlibRuntime['setMode']>; }
+  setManualMode(mode: string): ReturnType<HamlibRuntime['setManualMode']> { return this.invoke('setManualMode', [mode]) as ReturnType<HamlibRuntime['setManualMode']>; }
+  getManualModeAutoFollow(): ReturnType<HamlibRuntime['getManualModeAutoFollow']> { return this.invoke('getManualModeAutoFollow', []) as ReturnType<HamlibRuntime['getManualModeAutoFollow']>; }
+  setManualModeAutoFollow(enabled: boolean): ReturnType<HamlibRuntime['setManualModeAutoFollow']> { return this.invoke('setManualModeAutoFollow', [enabled]) as ReturnType<HamlibRuntime['setManualModeAutoFollow']>; }
+  setManualModeBandwidth(bandwidthHz: number): ReturnType<HamlibRuntime['setManualModeBandwidth']> { return this.invoke('setManualModeBandwidth', [bandwidthHz]) as ReturnType<HamlibRuntime['setManualModeBandwidth']>; }
   applyOperatingState(request: ApplyOperatingStateRequest): ReturnType<HamlibRuntime['applyOperatingState']> { return this.invoke('applyOperatingState', [request]) as ReturnType<HamlibRuntime['applyOperatingState']>; }
   getMode(): ReturnType<HamlibRuntime['getMode']> { return this.invoke('getMode', []) as ReturnType<HamlibRuntime['getMode']>; }
   getModeBandwidth(): ReturnType<HamlibRuntime['getModeBandwidth']> { return this.invoke('getModeBandwidth', []) as ReturnType<HamlibRuntime['getModeBandwidth']>; }
@@ -152,6 +156,14 @@ export class HamlibConnection extends EventEmitter<IRadioConnectionEvents> imple
   getSupportedRFPowerSteps(): ReturnType<HamlibRuntime['getSupportedRFPowerSteps']> { return this.invoke('getSupportedRFPowerSteps', []) as ReturnType<HamlibRuntime['getSupportedRFPowerSteps']>; }
   getAFGain(): ReturnType<HamlibRuntime['getAFGain']> { return this.invoke('getAFGain', []) as ReturnType<HamlibRuntime['getAFGain']>; }
   setAFGain(value: number): ReturnType<HamlibRuntime['setAFGain']> { return this.invoke('setAFGain', [value]) as ReturnType<HamlibRuntime['setAFGain']>; }
+  getRFGain(): ReturnType<HamlibRuntime['getRFGain']> { return this.invoke('getRFGain', []) as ReturnType<HamlibRuntime['getRFGain']>; }
+  setRFGain(value: number): ReturnType<HamlibRuntime['setRFGain']> { return this.invoke('setRFGain', [value]) as ReturnType<HamlibRuntime['setRFGain']>; }
+  getIFShift(): ReturnType<HamlibRuntime['getIFShift']> { return this.invoke('getIFShift', []) as ReturnType<HamlibRuntime['getIFShift']>; }
+  setIFShift(hz: number): ReturnType<HamlibRuntime['setIFShift']> { return this.invoke('setIFShift', [hz]) as ReturnType<HamlibRuntime['setIFShift']>; }
+  getCwPitch(): ReturnType<HamlibRuntime['getCwPitch']> { return this.invoke('getCwPitch', []) as ReturnType<HamlibRuntime['getCwPitch']>; }
+  setCwPitch(hz: number): ReturnType<HamlibRuntime['setCwPitch']> { return this.invoke('setCwPitch', [hz]) as ReturnType<HamlibRuntime['setCwPitch']>; }
+  getKeySpeed(): ReturnType<HamlibRuntime['getKeySpeed']> { return this.invoke('getKeySpeed', []) as ReturnType<HamlibRuntime['getKeySpeed']>; }
+  setKeySpeed(wpm: number): ReturnType<HamlibRuntime['setKeySpeed']> { return this.invoke('setKeySpeed', [wpm]) as ReturnType<HamlibRuntime['setKeySpeed']>; }
   getSQL(): ReturnType<HamlibRuntime['getSQL']> { return this.invoke('getSQL', []) as ReturnType<HamlibRuntime['getSQL']>; }
   setSQL(value: number): ReturnType<HamlibRuntime['setSQL']> { return this.invoke('setSQL', [value]) as ReturnType<HamlibRuntime['setSQL']>; }
   getDCD(): ReturnType<HamlibRuntime['getDCD']> { return this.invoke('getDCD', []) as ReturnType<HamlibRuntime['getDCD']>; }
@@ -177,6 +189,18 @@ export class HamlibConnection extends EventEmitter<IRadioConnectionEvents> imple
   setMuteEnabled(enabled: boolean): ReturnType<HamlibRuntime['setMuteEnabled']> { return this.invoke('setMuteEnabled', [enabled]) as ReturnType<HamlibRuntime['setMuteEnabled']>; }
   getVOXEnabled(): ReturnType<HamlibRuntime['getVOXEnabled']> { return this.invoke('getVOXEnabled', []) as ReturnType<HamlibRuntime['getVOXEnabled']>; }
   setVOXEnabled(enabled: boolean): ReturnType<HamlibRuntime['setVOXEnabled']> { return this.invoke('setVOXEnabled', [enabled]) as ReturnType<HamlibRuntime['setVOXEnabled']>; }
+  getRoofingFilter(): ReturnType<HamlibRuntime['getRoofingFilter']> { return this.invoke('getRoofingFilter', []) as ReturnType<HamlibRuntime['getRoofingFilter']>; }
+  setRoofingFilter(index: number): ReturnType<HamlibRuntime['setRoofingFilter']> { return this.invoke('setRoofingFilter', [index]) as ReturnType<HamlibRuntime['setRoofingFilter']>; }
+  getContourEnabled(): ReturnType<HamlibRuntime['getContourEnabled']> { return this.invoke('getContourEnabled', []) as ReturnType<HamlibRuntime['getContourEnabled']>; }
+  setContourEnabled(enabled: boolean): ReturnType<HamlibRuntime['setContourEnabled']> { return this.invoke('setContourEnabled', [enabled]) as ReturnType<HamlibRuntime['setContourEnabled']>; }
+  getContourFrequency(): ReturnType<HamlibRuntime['getContourFrequency']> { return this.invoke('getContourFrequency', []) as ReturnType<HamlibRuntime['getContourFrequency']>; }
+  setContourFrequency(value: number): ReturnType<HamlibRuntime['setContourFrequency']> { return this.invoke('setContourFrequency', [value]) as ReturnType<HamlibRuntime['setContourFrequency']>; }
+  getContourLevel(): ReturnType<HamlibRuntime['getContourLevel']> { return this.invoke('getContourLevel', []) as ReturnType<HamlibRuntime['getContourLevel']>; }
+  setContourLevel(value: number): ReturnType<HamlibRuntime['setContourLevel']> { return this.invoke('setContourLevel', [value]) as ReturnType<HamlibRuntime['setContourLevel']>; }
+  getContourWidth(): ReturnType<HamlibRuntime['getContourWidth']> { return this.invoke('getContourWidth', []) as ReturnType<HamlibRuntime['getContourWidth']>; }
+  setContourWidth(value: number): ReturnType<HamlibRuntime['setContourWidth']> { return this.invoke('setContourWidth', [value]) as ReturnType<HamlibRuntime['setContourWidth']>; }
+  getApfEnabled(): ReturnType<HamlibRuntime['getApfEnabled']> { return this.invoke('getApfEnabled', []) as ReturnType<HamlibRuntime['getApfEnabled']>; }
+  setApfEnabled(enabled: boolean): ReturnType<HamlibRuntime['setApfEnabled']> { return this.invoke('setApfEnabled', [enabled]) as ReturnType<HamlibRuntime['setApfEnabled']>; }
   getAgcMode(): ReturnType<HamlibRuntime['getAgcMode']> { return this.invoke('getAgcMode', []) as ReturnType<HamlibRuntime['getAgcMode']>; }
   setAgcMode(mode: string): ReturnType<HamlibRuntime['setAgcMode']> { return this.invoke('setAgcMode', [mode]) as ReturnType<HamlibRuntime['setAgcMode']>; }
   getSupportedAgcModes(): ReturnType<HamlibRuntime['getSupportedAgcModes']> { return this.invoke('getSupportedAgcModes', []) as ReturnType<HamlibRuntime['getSupportedAgcModes']>; }
@@ -214,5 +238,7 @@ export class HamlibConnection extends EventEmitter<IRadioConnectionEvents> imple
   setSplitEnabled(enabled: boolean): ReturnType<HamlibRuntime['setSplitEnabled']> { return this.invoke('setSplitEnabled', [enabled]) as ReturnType<HamlibRuntime['setSplitEnabled']>; }
   getSplitFrequency(): ReturnType<HamlibRuntime['getSplitFrequency']> { return this.invoke('getSplitFrequency', []) as ReturnType<HamlibRuntime['getSplitFrequency']>; }
   setSplitFrequency(txFrequency: number): ReturnType<HamlibRuntime['setSplitFrequency']> { return this.invoke('setSplitFrequency', [txFrequency]) as ReturnType<HamlibRuntime['setSplitFrequency']>; }
+  getSplitMode(): ReturnType<HamlibRuntime['getSplitMode']> { return this.invoke('getSplitMode', []) as ReturnType<HamlibRuntime['getSplitMode']>; }
+  setSplitMode(txMode: string): ReturnType<HamlibRuntime['setSplitMode']> { return this.invoke('setSplitMode', [txMode]) as ReturnType<HamlibRuntime['setSplitMode']>; }
   setSplitFreqMode(txFrequency: number, txMode: string, txWidth: number): ReturnType<HamlibRuntime['setSplitFreqMode']> { return this.invoke('setSplitFreqMode', [txFrequency, txMode, txWidth]) as ReturnType<HamlibRuntime['setSplitFreqMode']>; }
 }

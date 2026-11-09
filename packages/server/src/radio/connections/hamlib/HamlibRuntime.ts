@@ -34,6 +34,8 @@ import {
 } from '../../serialPortPath.js';
 import { RADIO_IO_SKIPPED, RadioIoQueue, type RadioIoTaskContext, type RadioIoTaskOptions } from '../RadioIoQueue.js';
 import { HamlibNativeMonitor } from './HamlibNativeMonitor.js';
+import { parseSingleYaesuNumericReply } from './YaesuCatReply.js';
+import { FTDX10_RECEIVER_REGISTERS, encodeFtdx10ReceiverWrite, parseFtdx10ReceiverReply, type Ftdx10ReceiverControl } from './Ftdx10ReceiverCat.js';
 import { serializeHamlibError, type HamlibSnapshot } from './hamlib-protocol.js';
 import {
   type ApplyOperatingStateRequest,
@@ -623,6 +625,9 @@ export class HamlibRuntime
    */
   private currentRadioMode: string | null = null;
 
+  /** FTDX10 session-local manual RX mode selection; null means automatic engine following. */
+  private ftdx10ManualModeLock: string | null = null;
+
   /**
    * 当前工作频率（Hz），由 PhysicalRadioManager 通过 setKnownFrequency 更新
    * 用于选择正确的 S 表标准（HF: S9=-73dBm vs VHF/UHF: S9=-93dBm）
@@ -642,6 +647,8 @@ export class HamlibRuntime
 
   /** Last successfully read TX audio route for the active model provider. */
   private txAudioInputSource: TxAudioInputSource | null = null;
+  /** A failed FTDX10 EX route write poisons further raw routing until reconnect. */
+  private ftdx10RawRouteQuarantined = false;
 
   constructor() {
     super();
@@ -754,6 +761,8 @@ export class HamlibRuntime
 
     // 保存配置
     this.currentConfig = effectiveConfig;
+    this.ftdx10ManualModeLock = null;
+    this.ftdx10RawRouteQuarantined = false;
     this.ioSessionId += 1;
     this.backgroundTasksStarted = false;
 
@@ -1025,6 +1034,8 @@ export class HamlibRuntime
     this.supportedVfoOps.clear();
     this.txFrequencyRanges = [];
     this.currentRadioMode = null;
+    this.ftdx10ManualModeLock = null;
+    this.ftdx10RawRouteQuarantined = false;
 
     // 清理资源
     await this.cleanup();
@@ -1186,9 +1197,103 @@ export class HamlibRuntime
   /**
    * 设置模式
    */
+  /**
+   * Engine mode writes cannot silently overwrite a manually selected FTDX10
+   * receive mode. A conflict is an error (never a fake successful no-op),
+   * including digital TX preparation. Another model stays on the legacy path.
+   */
   async setMode(mode: string, bandwidth?: RadioModeBandwidth, options?: SetRadioModeOptions): Promise<void> {
     await this.runSerializedTask('setMode', async () => {
-      await this.performModeWrite(mode, bandwidth, options);
+      await this.assertFtdx10EngineModeCompatible(mode, bandwidth);
+      if (this.ftdx10ManualModeLock === null) {
+        await this.performModeWrite(mode, bandwidth, options);
+      }
+    }, { critical: true });
+  }
+
+  private async assertFtdx10EngineModeCompatible(mode: string, bandwidth?: RadioModeBandwidth): Promise<void> {
+    if (this.currentConfig?.type !== 'serial' || this.currentConfig.serial?.rigModel !== 1042
+      || this.ftdx10ManualModeLock === null) return;
+    const observed = await this.performModeRead();
+    const physicalMode = normalizeModeName(observed.mode);
+    const requestedMode = normalizeModeName(mode);
+    if (physicalMode !== this.ftdx10ManualModeLock || requestedMode !== this.ftdx10ManualModeLock
+      || (typeof bandwidth === 'number' && bandwidth !== observed.bandwidth)) {
+      throw new Error(`FTDX10 manual mode lock requires ${this.ftdx10ManualModeLock}; physical ${physicalMode}, engine requested ${requestedMode}. Enable automatic mode following before changing modes.`);
+    }
+  }
+
+  async getManualModeAutoFollow(): Promise<boolean> {
+    return this.runSerializedTask('getManualModeAutoFollow', async () => {
+      this.requireFtdx10ManualMode();
+      return this.ftdx10ManualModeLock === null;
+    }, { id: 'getManualModeAutoFollow' });
+  }
+
+  async setManualModeAutoFollow(enabled: boolean): Promise<void> {
+    await this.runSerializedTask('setManualModeAutoFollow', async () => {
+      this.requireFtdx10ManualMode();
+      if (enabled) {
+        this.ftdx10ManualModeLock = null;
+        return;
+      }
+      if (await this.rig!.getPtt() !== false) {
+        throw new Error('FTDX10 manual mode lock requires confirmed RX state');
+      }
+      const split = await this.rig!.getSplit();
+      if (!split || split.enabled !== false) {
+        throw new Error('FTDX10 manual mode lock requires confirmed Split OFF');
+      }
+      const actual = normalizeModeName((await this.performModeRead()).mode);
+      if (!this.supportedModes.has(actual)) {
+        throw new Error('FTDX10 current mode is not available for manual locking');
+      }
+      this.ftdx10ManualModeLock = actual;
+    }, { critical: true });
+  }
+
+  private requireFtdx10ManualMode(): void {
+    this.checkConnected();
+    if (this.currentConfig?.type !== 'serial' || this.currentConfig.serial?.rigModel !== 1042) {
+      throw new Error('FTDX10 manual-mode policy is not available on this model');
+    }
+  }
+
+  /**
+   * FTDX10 manual-mode capability: keep the PTT/Split checks, mode write and
+   * readback in one serialized task. The normal engine setMode operation
+   * deliberately retains its existing behavior.
+   */
+  async setManualMode(mode: string): Promise<void> {
+    await this.runSerializedTask('setManualMode', async () => {
+      this.requireFtdx10ManualMode();
+
+      const requested = normalizeModeName(mode);
+      if (!this.supportedModes.has(requested)) {
+        throw new Error(`Unsupported FTDX10 manual mode: ${requested}`);
+      }
+
+      // A fail-open check here could change TX VFO while the radio is keyed.
+      // Check the native rig in the same CAT critical section as the write.
+      const transmitting = await this.rig!.getPtt();
+      if (transmitting !== false) {
+        throw new Error('Manual CAT mode change requires confirmed RX state');
+      }
+      const split = await this.rig!.getSplit();
+      if (!split || split.enabled !== false) {
+        throw new Error('Manual CAT mode change requires confirmed Split OFF');
+      }
+
+      // Do not call performModeWrite() here: its generic engine path may
+      // synchronize the Split TX-VFO mode. This manual operation owns RX only.
+      await this.rig!.setMode(requested, 'nochange');
+      const observed = normalizeModeName((await this.performModeRead()).mode);
+      if (observed !== requested) {
+        throw new Error(`FTDX10 mode readback mismatch: requested ${requested}, observed ${observed}`);
+      }
+      // Only a confirmed manual write changes session policy. Failed writes
+      // never poison subsequent digital/voice mode ownership.
+      this.ftdx10ManualModeLock = requested;
     }, { critical: true });
   }
 
@@ -1196,6 +1301,12 @@ export class HamlibRuntime
     return this.runSerializedTask('applyOperatingState', async () => {
       this.checkConnected();
 
+      // Refuse a conflicting automatic mode before touching RX or TX frequency.
+      // Otherwise a failed mode change could leave a digital TX running with
+      // an incompatible manually selected mode, even with tolerateModeFailure.
+      if (request.mode) {
+        await this.assertFtdx10EngineModeCompatible(request.mode, request.bandwidth);
+      }
       // Keep the legacy current-VFO path untouched unless Hamlib explicitly
       // identifies a Yaesu backend as dual-VFO and can report the live A/B VFO.
       const targetVfo = await this.resolveYaesuTargetVfoForCorrelation();
@@ -1210,10 +1321,16 @@ export class HamlibRuntime
 
       if (request.mode) {
         try {
-          await this.performModeWrite(request.mode, request.bandwidth, request.options, targetVfo);
+          if (this.ftdx10ManualModeLock === null) {
+            await this.performModeWrite(request.mode, request.bandwidth, request.options, targetVfo);
+          }
+
           modeApplied = true;
 
-          if (request.frequency !== undefined) {
+          // Reassert the dial only if a native mode write might have changed
+          // it. A compatible manually locked mode is readback-only and must
+          // not send the same frequency twice.
+          if (request.frequency !== undefined && this.ftdx10ManualModeLock === null) {
             await this.performFrequencyWrite(request.frequency, targetVfo);
           }
         } catch (error) {
@@ -1280,8 +1397,79 @@ export class HamlibRuntime
 
   async setModeBandwidth(bandwidth: RadioModeBandwidth): Promise<void> {
     await this.runSerializedTask('setModeBandwidth', async () => {
+      if (this.ftdx10ManualModeLock !== null) {
+        throw new Error('FTDX10 manually locked passband must use the guarded manual bandwidth capability');
+      }
       const modeInfo = await this.performModeRead();
       await this.performModeWrite(modeInfo.mode, bandwidth);
+    }, { critical: true });
+  }
+
+  /**
+   * Manual FTDX10 RX passband control (not the roofing-filter selector).
+   * Unlike the generic engine operation, this path refuses unknown TX/Split
+   * state, validates against the live mode's published filter widths, and
+   * checks both mode and width after the native write. Everything runs in
+   * the same radio-I/O critical section without a second CAT reader.
+   */
+  async setManualModeBandwidth(bandwidthHz: number): Promise<void> {
+    if (!Number.isInteger(bandwidthHz) || bandwidthHz < 50 || bandwidthHz > 15000) {
+      throw new Error('FTDX10 passband width must be an integer from 50 to 15000 Hz');
+    }
+    await this.runSerializedTask('setManualModeBandwidth', async () => {
+      this.checkConnected();
+      if (this.currentConfig?.type !== 'serial' || this.currentConfig.serial?.rigModel !== 1042) {
+        throw new Error('Manual FTDX10 passband control is unavailable for this radio');
+      }
+      if (await this.rig!.getPtt() !== false) {
+        throw new Error('Manual FTDX10 passband control requires confirmed RX state');
+      }
+      const split = await this.rig!.getSplit();
+      if (!split || split.enabled !== false) {
+        throw new Error('Manual FTDX10 passband control requires confirmed Split OFF');
+      }
+
+      const before = await this.performModeRead();
+      const mode = normalizeModeName(before.mode);
+      if (!this.supportedModes.has(mode)) {
+        throw new Error('Current FTDX10 mode is not reported as supported');
+      }
+      const candidates = this.getRangeMatchModeCandidates(mode);
+      // Hamlib rigs often expose SSB filters generically, even while the
+      // actual dial mode is USB or LSB.
+      if (mode === 'USB' || mode === 'LSB') candidates.push('SSB');
+      let options: number[] = [];
+      try {
+        options = (await this.rig!.getFilterList())
+          .filter((filter) => filter.modes.some((m) => candidates.includes(normalizeModeName(m))))
+          .map((filter) => filter.width)
+          .filter((width) => Number.isInteger(width) && width > 0);
+      } catch (error) {
+        logger.debug('FTDX10 passband filter table unavailable; probing Hamlib passband helpers', error);
+      }
+      if (options.length === 0) {
+        // Same fallback used by getSupportedModeBandwidths(): no broad range
+        // guesswork and no arbitrary passband outside native Hamlib options.
+        const widths = [
+          await this.rig!.getPassbandNarrow(mode as any),
+          await this.rig!.getPassbandNormal(mode as any),
+          await this.rig!.getPassbandWide(mode as any),
+        ];
+        options = widths.filter((width) => Number.isInteger(width) && width > 0);
+      }
+      if (!options.includes(bandwidthHz)) {
+        throw new Error(`FTDX10 mode ${mode} does not advertise passband width ${bandwidthHz} Hz`);
+      }
+      // Native write via the same Hamlib handle. Do not invoke the generic
+      // performModeWrite() here, which may synchronize a Split TX-VFO mode.
+      await this.rig!.setMode(mode, bandwidthHz);
+      const after = await this.performModeRead();
+      if (normalizeModeName(after.mode) !== mode || after.bandwidth !== bandwidthHz) {
+        throw new Error(
+          `FTDX10 passband readback mismatch: expected ${mode}/${bandwidthHz}, observed ${after.mode}/${after.bandwidth}`,
+        );
+      }
+      this.lastSuccessfulOperation = Date.now();
     }, { critical: true });
   }
 
@@ -2024,6 +2212,261 @@ export class HamlibRuntime
   }
 
   /**
+   * Hamlib RF level represents normalized receiver RF gain, not RF output
+   * power. Only models explicitly advertising RF support expose this value.
+   */
+  async getRFGain(): Promise<number> {
+    return this.runSerializedTask('getRFGain', async () => {
+      this.checkConnected();
+      if (!this.supportedLevels.has('RF')) throw new Error('RF gain is not supported by this radio');
+      const gain = (await this.rig!.getLevel('RF')) as number;
+      if (!Number.isFinite(gain) || gain < 0 || gain > 1) {
+        throw new Error('Invalid normalized Hamlib RF gain readback');
+      }
+      this.lastSuccessfulOperation = Date.now();
+      return gain;
+    }, { id: 'getRFGain' });
+  }
+
+  async setRFGain(value: number): Promise<void> {
+    if (!Number.isFinite(value) || value < 0 || value > 1) {
+      throw new Error('RF gain must be a finite normalized value between 0 and 1');
+    }
+    await this.runSerializedTask('setRFGain', async () => {
+      this.checkConnected();
+      if (!this.supportedLevels.has('RF')) throw new Error('RF gain is not supported by this radio');
+      const ftdx10 = this.currentConfig?.type === 'serial' && this.currentConfig.serial?.rigModel === 1042;
+      if (ftdx10 && await this.rig!.getPtt() !== false) {
+        throw new Error('FTDX10 RF gain write requires confirmed RX state');
+      }
+      await this.rig!.setLevel('RF', value);
+      if (ftdx10) {
+        const applied = (await this.rig!.getLevel('RF')) as number;
+        // Hamlib models the RF control as a normalized float. Allow small
+        // knob-step quantization, but never claim a large silent clamp.
+        if (!Number.isFinite(applied) || Math.abs(applied - value) > 0.02) {
+          throw new Error(`FTDX10 RF gain readback mismatch: requested ${value}, observed ${applied}`);
+        }
+      }
+      this.lastSuccessfulOperation = Date.now();
+    }, { critical: true });
+  }
+
+  /**
+   * FTDX10 APF switch uses RIG_FUNC_APF. The upstream backend advertises
+   * this function; APF level is a separate feature and is not implied.
+   */
+  async getApfEnabled(): Promise<boolean> {
+    return this.runSerializedTask('getApfEnabled', async () => {
+      this.checkConnected();
+      if (this.currentConfig?.type !== 'serial' || this.currentConfig.serial?.rigModel !== 1042
+        || !this.supportedFunctions.has('APF')) {
+        throw new Error('FTDX10 APF is not available');
+      }
+      const value = await this.rig!.getFunction('APF');
+      if (typeof value !== 'boolean') throw new Error('Invalid FTDX10 APF state');
+      this.lastSuccessfulOperation = Date.now();
+      return value;
+    }, { id: 'getApfEnabled' });
+  }
+
+  async setApfEnabled(enabled: boolean): Promise<void> {
+    await this.runSerializedTask('setApfEnabled', async () => {
+      this.checkConnected();
+      if (this.currentConfig?.type !== 'serial' || this.currentConfig.serial?.rigModel !== 1042
+        || !this.supportedFunctions.has('APF')) {
+        throw new Error('FTDX10 APF is not available');
+      }
+      if (await this.rig!.getPtt() !== false) {
+        throw new Error('FTDX10 APF control requires confirmed RX state');
+      }
+      await this.rig!.setFunction('APF', enabled);
+      const observed = await this.rig!.getFunction('APF');
+      if (observed !== enabled) {
+        throw new Error(`FTDX10 APF readback mismatch: requested ${enabled}, observed ${observed}`);
+      }
+      this.lastSuccessfulOperation = Date.now();
+    }, { critical: true });
+  }
+
+  /**
+   * Dedicated FTDX10 RX analogue/DSP controls. All raw commands still travel
+   * through the sole Hamlib rig handle, within the owning serialized task.
+   * Hamlib rig_send_raw does not offer a request identifier; a questionable
+   * frame poisons this connection's raw CAT state until reconnect.
+   */
+  private assertFtdx10ReceiverCatAvailable(): void {
+    this.checkConnected();
+    if (this.currentConfig?.type !== 'serial' || this.currentConfig.serial?.rigModel !== 1042) {
+      throw new Error('FTDX10 receiver CAT controls are not available on this model');
+    }
+    if (this.ftdx10RawRouteQuarantined) {
+      throw new Error('FTDX10 raw CAT is quarantined until reconnect');
+    }
+  }
+
+  private async queryFtdx10ReceiverCat(control: Ftdx10ReceiverControl): Promise<number> {
+    const command = FTDX10_RECEIVER_REGISTERS[control].query;
+    const reply = await this.rig!.sendRaw(Buffer.from(command, 'ascii'), 64, Buffer.from(';'));
+    const value = parseFtdx10ReceiverReply(control, reply);
+    if (value === null) {
+      throw new Error(`FTDX10 ${control} CAT reply was incomplete, unrelated or ambiguous`);
+    }
+    return value;
+  }
+
+  private async getFtdx10ReceiverControl(control: Ftdx10ReceiverControl): Promise<number> {
+    return this.runSerializedTask('getFtdx10ReceiverControl', async () => {
+      this.assertFtdx10ReceiverCatAvailable();
+      try {
+        const value = await this.queryFtdx10ReceiverCat(control);
+        this.lastSuccessfulOperation = Date.now();
+        return value;
+      } catch (error) {
+        this.ftdx10RawRouteQuarantined = true;
+        throw error;
+      }
+    }, { id: `getFtdx10ReceiverControl:${control}` });
+  }
+
+  private async setFtdx10ReceiverControl(control: Ftdx10ReceiverControl, value: number): Promise<void> {
+    // Validation before queueing prevents accidental serial writes from
+    // malformed or out-of-range IPC values.
+    const command = encodeFtdx10ReceiverWrite(control, value);
+    await this.runSerializedTask('setFtdx10ReceiverControl', async () => {
+      this.assertFtdx10ReceiverCatAvailable();
+      if (await this.rig!.getPtt() !== false) {
+        throw new Error('FTDX10 receiver CAT controls require confirmed RX');
+      }
+      const split = await this.rig!.getSplit();
+      if (!split || split.enabled !== false) {
+        throw new Error('FTDX10 receiver CAT controls require confirmed Split OFF');
+      }
+      try {
+        // Verify query/response association as far as this native Hamlib API
+        // permits. A same-prefix late response is inherently indistinguishable
+        // and therefore P3 cannot be declared fully complete on this transport.
+        await this.queryFtdx10ReceiverCat(control);
+        await this.rig!.sendRawWrite(Buffer.from(command, 'ascii'));
+        const first = await this.queryFtdx10ReceiverCat(control);
+        const confirmed = await this.queryFtdx10ReceiverCat(control);
+        if (first !== value || confirmed !== value) {
+          throw new Error(`FTDX10 ${control} readback mismatch: expected ${value}, observed ${first}/${confirmed}`);
+        }
+        this.lastSuccessfulOperation = Date.now();
+      } catch (error) {
+        this.ftdx10RawRouteQuarantined = true;
+        throw error;
+      }
+    }, { critical: true });
+  }
+
+  getRoofingFilter(): Promise<number> { return this.getFtdx10ReceiverControl('roofing_filter'); }
+  setRoofingFilter(value: number): Promise<void> { return this.setFtdx10ReceiverControl('roofing_filter', value); }
+
+  async getContourEnabled(): Promise<boolean> {
+    return (await this.getFtdx10ReceiverControl('contour_enabled')) === 1;
+  }
+  setContourEnabled(enabled: boolean): Promise<void> {
+    return this.setFtdx10ReceiverControl('contour_enabled', enabled ? 1 : 0);
+  }
+
+  getContourFrequency(): Promise<number> { return this.getFtdx10ReceiverControl('contour_frequency'); }
+  setContourFrequency(value: number): Promise<void> { return this.setFtdx10ReceiverControl('contour_frequency', value); }
+  getContourLevel(): Promise<number> { return this.getFtdx10ReceiverControl('contour_level'); }
+  setContourLevel(value: number): Promise<void> { return this.setFtdx10ReceiverControl('contour_level', value); }
+  getContourWidth(): Promise<number> { return this.getFtdx10ReceiverControl('contour_width'); }
+  setContourWidth(value: number): Promise<void> { return this.setFtdx10ReceiverControl('contour_width', value); }
+
+  private requireFtdx10ConfigLevel(level: 'IF' | 'CWPITCH' | 'KEYSPD'): void {
+    this.checkConnected();
+    if (this.currentConfig?.type !== 'serial' || this.currentConfig.serial?.rigModel !== 1042
+      || !this.supportedLevels.has(level)) {
+      throw new Error(`FTDX10 Hamlib level ${level} is unavailable`);
+    }
+  }
+
+  async getIFShift(): Promise<number> {
+    return this.runSerializedTask('getIFShift', async () => {
+      this.requireFtdx10ConfigLevel('IF');
+      const hz = (await this.rig!.getLevel('IF')) as number;
+      if (!Number.isInteger(hz) || hz < -1200 || hz > 1200) {
+        throw new Error('FTDX10 IF shift readback is outside the supported Hz range');
+      }
+      this.lastSuccessfulOperation = Date.now();
+      return hz;
+    }, { id: 'getIFShift' });
+  }
+
+  async setIFShift(hz: number): Promise<void> {
+    if (!Number.isInteger(hz) || hz < -1200 || hz > 1200) {
+      throw new Error('FTDX10 IF shift must be an integer between -1200 and +1200 Hz');
+    }
+    await this.runSerializedTask('setIFShift', async () => {
+      this.requireFtdx10ConfigLevel('IF');
+      if (await this.rig!.getPtt() !== false) {
+        throw new Error('FTDX10 receiver/CW setting requires confirmed RX state');
+      }
+      await this.rig!.setLevel('IF', hz);
+      const actual = (await this.rig!.getLevel('IF')) as number;
+      if (actual !== hz) throw new Error(`FTDX10 IF shift readback mismatch: expected ${hz} Hz, observed ${actual}`);
+      this.lastSuccessfulOperation = Date.now();
+    }, { critical: true });
+  }
+
+  async getCwPitch(): Promise<number> {
+    return this.runSerializedTask('getCwPitch', async () => {
+      this.requireFtdx10ConfigLevel('CWPITCH');
+      const hz = (await this.rig!.getLevel('CWPITCH')) as number;
+      if (!Number.isFinite(hz)) throw new Error('Invalid FTDX10 CW pitch readback');
+      this.lastSuccessfulOperation = Date.now();
+      return hz;
+    }, { id: 'getCwPitch' });
+  }
+
+  async setCwPitch(hz: number): Promise<void> {
+    if (!Number.isInteger(hz) || hz < 300 || hz > 900 || hz % 10 !== 0) {
+      throw new Error('FTDX10 CW pitch must be 300–900 Hz in 10 Hz steps');
+    }
+    await this.runSerializedTask('setCwPitch', async () => {
+      this.requireFtdx10ConfigLevel('CWPITCH');
+      if (await this.rig!.getPtt() !== false) {
+        throw new Error('FTDX10 receiver/CW setting requires confirmed RX state');
+      }
+      await this.rig!.setLevel('CWPITCH', hz);
+      const actual = (await this.rig!.getLevel('CWPITCH')) as number;
+      if (actual !== hz) throw new Error(`FTDX10 CW pitch readback mismatch: expected ${hz}, observed ${actual}`);
+      this.lastSuccessfulOperation = Date.now();
+    }, { critical: true });
+  }
+
+  async getKeySpeed(): Promise<number> {
+    return this.runSerializedTask('getKeySpeed', async () => {
+      this.requireFtdx10ConfigLevel('KEYSPD');
+      const speed = (await this.rig!.getLevel('KEYSPD')) as number;
+      if (!Number.isFinite(speed)) throw new Error('Invalid FTDX10 CW key speed readback');
+      this.lastSuccessfulOperation = Date.now();
+      return speed;
+    }, { id: 'getKeySpeed' });
+  }
+
+  async setKeySpeed(speed: number): Promise<void> {
+    if (!Number.isInteger(speed) || speed < 6 || speed > 48) {
+      throw new Error('FTDX10 CW key speed must be between 6 and 48 WPM');
+    }
+    await this.runSerializedTask('setKeySpeed', async () => {
+      this.requireFtdx10ConfigLevel('KEYSPD');
+      if (await this.rig!.getPtt() !== false) {
+        throw new Error('FTDX10 receiver/CW setting requires confirmed RX state');
+      }
+      await this.rig!.setLevel('KEYSPD', speed);
+      const actual = (await this.rig!.getLevel('KEYSPD')) as number;
+      if (actual !== speed) throw new Error(`FTDX10 key speed readback mismatch: expected ${speed}, observed ${actual}`);
+      this.lastSuccessfulOperation = Date.now();
+    }, { critical: true });
+  }
+
+  /**
    * 获取静噪电平（0.0–1.0）
    */
   async getSQL(): Promise<number> {
@@ -2402,12 +2845,31 @@ export class HamlibRuntime
     });
   }
 
+  private async requireFtdx10ReceiverWrite(): Promise<boolean> {
+    if (this.currentConfig?.type !== 'serial' || this.currentConfig.serial?.rigModel !== 1042) return false;
+    if (await this.rig!.getPtt() !== false) {
+      throw new Error('FTDX10 receiver control requires confirmed RX state');
+    }
+    return true;
+  }
+
   async setAgcMode(mode: string): Promise<void> {
     await this.runSerializedTask('setAgcMode', async () => {
       this.checkConnected();
       const normalized = normalizeAgcModeName(mode);
       try {
-        await this.rig!.setLevel('AGC', HAMLIB_AGC_MODE_TO_CODE[normalized]);
+        const ftdx10 = await this.requireFtdx10ReceiverWrite();
+        const code = HAMLIB_AGC_MODE_TO_CODE[normalized];
+        if (ftdx10 && !(await this.rig!.getAgcLevels()).includes(code)) {
+          throw new Error(`FTDX10 does not support AGC mode ${normalized}`);
+        }
+        await this.rig!.setLevel('AGC', code);
+        if (ftdx10) {
+          const actual = Math.round((await this.rig!.getLevel('AGC')) as number);
+          if (actual !== code) {
+            throw new Error(`FTDX10 AGC readback mismatch: requested ${code}, observed ${actual}`);
+          }
+        }
         this.lastSuccessfulOperation = Date.now();
         logger.debug('AGC mode set', { mode: normalized });
       } catch (error) {
@@ -2451,7 +2913,20 @@ export class HamlibRuntime
     await this.runSerializedTask('setPreampLevel', async () => {
       this.checkConnected();
       try {
+        const ftdx10 = await this.requireFtdx10ReceiverWrite();
+        if (ftdx10) {
+          const choices = [0, ...(await this.rig!.getPreampValues()).filter((level) => Number.isFinite(level))];
+          if (!Number.isFinite(value) || !choices.includes(value)) {
+            throw new Error(`FTDX10 PREAMP/IPO selection ${value} is not a reported option`);
+          }
+        }
         await this.rig!.setLevel('PREAMP', value);
+        if (ftdx10) {
+          const actual = (await this.rig!.getLevel('PREAMP')) as number;
+          if (!Number.isFinite(actual) || Math.round(actual) !== value) {
+            throw new Error(`FTDX10 PREAMP readback mismatch: requested ${value}, observed ${actual}`);
+          }
+        }
         this.lastSuccessfulOperation = Date.now();
         logger.debug('Preamp level set', { value });
       } catch (error) {
@@ -2494,7 +2969,20 @@ export class HamlibRuntime
     await this.runSerializedTask('setAttenuatorLevel', async () => {
       this.checkConnected();
       try {
+        const ftdx10 = await this.requireFtdx10ReceiverWrite();
+        if (ftdx10) {
+          const choices = [0, ...(await this.rig!.getAttenuatorValues()).filter((level) => Number.isFinite(level))];
+          if (!Number.isFinite(value) || !choices.includes(value)) {
+            throw new Error(`FTDX10 ATT selection ${value} is not a reported option`);
+          }
+        }
         await this.rig!.setLevel('ATT', value);
+        if (ftdx10) {
+          const actual = (await this.rig!.getLevel('ATT')) as number;
+          if (!Number.isFinite(actual) || Math.round(actual) !== value) {
+            throw new Error(`FTDX10 ATT readback mismatch: requested ${value}, observed ${actual}`);
+          }
+        }
         this.lastSuccessfulOperation = Date.now();
         logger.debug('Attenuator level set', { value });
       } catch (error) {
@@ -2734,6 +3222,25 @@ export class HamlibRuntime
     return provider.yaesuCommands?.[key] ?? provider.yaesuCommands!.SSB;
   }
 
+  private async resolveFtdx10TxAudioRoutingMode(): Promise<string> {
+    // Mode-specific EX menus belong to the TX modulation family. In Split
+    // operation, do not select the RX VFO's menu bank by mistake.
+    const split = await this.rig!.getSplit();
+    if (!split?.enabled) return this.currentRadioMode ?? 'USB';
+
+    for (const txVfo of this.getSplitTxVfoCandidates(split.txVfo)) {
+      try {
+        const txState = await this.rig!.getSplitMode(txVfo as VFO);
+        if (typeof txState?.mode === 'string' && txState.mode.trim()) {
+          return normalizeModeName(txState.mode);
+        }
+      } catch {
+        // Try the next Hamlib TX VFO alias.
+      }
+    }
+    throw new Error('FTDX10 Split TX mode is unavailable for the audio menu bank');
+  }
+
   private async getIcomCivAddress(provider: HamlibTxAudioProvider): Promise<number> {
     try {
       const configured = await this.rig!.getConf('civaddr');
@@ -2745,13 +3252,13 @@ export class HamlibRuntime
     return provider.modelNames[0] === 'IC-905' ? 0xac : 0xa4;
   }
 
-  private async sendTxAudioRaw(provider: HamlibTxAudioProvider, value?: number): Promise<number | null> {
+  private async sendTxAudioRaw(provider: HamlibTxAudioProvider, value?: number, routingMode?: string): Promise<number | null> {
     if (provider.protocol === 'yaesu-composite') {
-      const commands = provider.yaesuCompositeCommands?.[
-        ((this.currentRadioMode ?? 'USB').toUpperCase().includes('PKT') || (this.currentRadioMode ?? '').toUpperCase().includes('DATA')
-          ? 'DATA' : (this.currentRadioMode ?? '').toUpperCase().includes('FM') ? 'FM'
-            : (this.currentRadioMode ?? '').toUpperCase().includes('AM') ? 'AM' : 'SSB')
-      ];
+      const mode = (routingMode ?? this.currentRadioMode ?? 'USB').toUpperCase();
+      const modeKey = mode.includes('PKT') || mode.includes('DATA') ? 'DATA'
+        : mode.includes('FM') ? 'FM'
+          : mode.includes('AM') ? 'AM' : 'SSB';
+      const commands = provider.yaesuCompositeCommands?.[modeKey];
       if (!commands) return null;
       const send = async (command: string, parameter?: number) => {
         const wire = `${command}${parameter === undefined ? '' : parameter};`;
@@ -2763,18 +3270,13 @@ export class HamlibRuntime
         await this.rig!.sendRawWrite(Buffer.from(wire, 'ascii'));
         return Buffer.alloc(0);
       };
-      const modeKey = ((this.currentRadioMode ?? 'USB').toUpperCase().includes('PKT') || (this.currentRadioMode ?? '').toUpperCase().includes('DATA')
-        ? 'DATA' : (this.currentRadioMode ?? '').toUpperCase().includes('FM') ? 'FM'
-          : (this.currentRadioMode ?? '').toUpperCase().includes('AM') ? 'AM' : 'SSB') as 'SSB' | 'AM' | 'FM' | 'DATA';
       const routeValues = provider.yaesuCompositeValues?.[modeKey];
       if (value === undefined) {
         const modReply = await send(commands.modSource);
         const rearReply = await send(commands.rearSelect);
-        const mod = modReply.toString('ascii').match(new RegExp(`${commands.modSource}(\\d);`));
-        const rear = rearReply.toString('ascii').match(new RegExp(`${commands.rearSelect}(\\d);`));
-        if (!mod || !rear) return null;
-        const modValue = Number(mod[1]);
-        const rearValue = Number(rear[1]);
+        const modValue = parseSingleYaesuNumericReply(modReply, commands.modSource);
+        const rearValue = parseSingleYaesuNumericReply(rearReply, commands.rearSelect);
+        if (modValue === null || rearValue === null) return null;
         const match = Object.entries(routeValues ?? {}).find(([, pair]) => pair?.[0] === modValue && pair?.[1] === rearValue);
         return match ? provider.valueMap[match[0] as TxAudioInputSource] ?? null : null;
       }
@@ -2792,9 +3294,7 @@ export class HamlibRuntime
       const command = `${prefix}${value === undefined ? '' : value};`;
       if (value === undefined) {
         const reply = await this.rig!.sendRaw(Buffer.from(command, 'ascii'), 64, Buffer.from(';'));
-        const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const match = reply.toString('ascii').match(new RegExp(`${escapedPrefix}(\\d);`));
-        return match ? Number.parseInt(match[1]!, 10) : null;
+        return parseSingleYaesuNumericReply(reply, prefix);
       }
       await this.rig!.sendRawWrite(Buffer.from(command, 'ascii'));
       return null;
@@ -2861,8 +3361,38 @@ export class HamlibRuntime
       this.checkConnected();
       const provider = this.getTxAudioProvider();
       if (!provider) return this.txAudioInputSource;
-      const raw = await this.sendTxAudioRaw(provider);
+      // Yaesu EX menu banks depend on the radio's *actual* mode. Do not
+      // choose one from a stale cached mode after a front-panel change.
+      let routingMode: string | undefined;
+      if (this.meterRigMetadata?.rigModel === 1042) {
+        if (this.ftdx10RawRouteQuarantined) {
+          throw new Error('FTDX10 raw CAT route is quarantined until reconnect');
+        }
+        await this.performModeRead();
+        routingMode = await this.resolveFtdx10TxAudioRoutingMode();
+      }
+      let raw: number | null;
+      try {
+        raw = await this.sendTxAudioRaw(provider, undefined, routingMode);
+        // An incomplete EX reply is not a trustworthy "unknown source" state.
+        // It may be an unsolicited or delayed frame. Fence the entire native
+        // raw-CAT session, including independent Roofing/Contour operations.
+        if (raw === null && this.meterRigMetadata?.rigModel === 1042) {
+          throw new Error('FTDX10 TX audio EX reply was incomplete or ambiguous');
+        }
+      } catch (error) {
+        if (this.meterRigMetadata?.rigModel === 1042) {
+          this.ftdx10RawRouteQuarantined = true;
+        }
+        throw error;
+      }
       const normalized = raw === null ? null : provider.reverseMap[raw] ?? null;
+      // An incomplete or unrelated EX reply must not present stale cached
+      // routing as the physical radio's verified state.
+      if (provider.manufacturer === 'Yaesu') {
+        if (normalized) this.txAudioInputSource = normalized;
+        return normalized;
+      }
       if (normalized) this.txAudioInputSource = normalized;
       return this.txAudioInputSource;
     });
@@ -2877,14 +3407,36 @@ export class HamlibRuntime
       this.checkConnected();
       const provider = this.getTxAudioProvider();
       if (!provider) throw new Error('Hamlib model has no verified TX audio input provider');
+      const ftdx10 = this.meterRigMetadata?.rigModel === 1042;
+      let routingMode: string | undefined;
+      if (ftdx10) {
+        if (this.ftdx10RawRouteQuarantined) {
+          throw new Error('FTDX10 raw CAT route is quarantined until reconnect');
+        }
+        if (await this.rig!.getPtt() !== false) {
+          throw new Error('FTDX10 TX audio routing requires confirmed RX state');
+        }
+        await this.performModeRead();
+        routingMode = await this.resolveFtdx10TxAudioRoutingMode();
+      }
       const value = provider.valueMap[source];
       if (value === undefined) throw new Error(`Unsupported TX audio input source for ${this.meterRigMetadata?.modelName ?? 'radio'}: ${source}`);
-      await this.sendTxAudioRaw(provider, value);
-      const actual = await this.sendTxAudioRaw(provider);
-      const applied = actual === null ? source : provider.reverseMap[actual] ?? null;
-      if (applied !== source) throw new Error(`TX audio input readback mismatch: requested ${source}, radio reported ${applied ?? 'unknown'}`);
-      this.txAudioInputSource = source;
-      return { requested: source, applied: source, outcome: 'applied', acknowledgement: 'readback' };
+      try {
+        await this.sendTxAudioRaw(provider, value, routingMode);
+        const actual = await this.sendTxAudioRaw(provider, undefined, routingMode);
+        // An EX setter has no ACK: require the live physical menu readback.
+        const applied = actual === null && provider.manufacturer !== 'Yaesu'
+          ? source : actual === null ? null : provider.reverseMap[actual] ?? null;
+        if (applied !== source) throw new Error(`TX audio input readback mismatch: requested ${source}, radio reported ${applied ?? 'unknown'}`);
+        this.txAudioInputSource = source;
+        return { requested: source, applied: source, outcome: 'applied', acknowledgement: 'readback' };
+      } catch (error) {
+        // Without native request IDs a delayed identical EX response cannot
+        // safely be retried. Force a new connection before any further EX
+        // route mutation; never assume a composite write rolled back.
+        if (ftdx10) this.ftdx10RawRouteQuarantined = true;
+        throw error;
+      }
     }, { critical: true });
   }
 
@@ -3627,6 +4179,67 @@ export class HamlibRuntime
     }, { critical: true });
   }
 
+  /**
+   * Read the transmitter's Split mode independently of the RX mode and dial.
+   * The live radio selects the TX VFO; no cached RX mode is substituted.
+   */
+  async getSplitMode(): Promise<string | null> {
+    return this.runSerializedTask('getSplitMode', async () => {
+      this.checkConnected();
+      const split = await this.readSplitStatus();
+      if (!split.enabled) return null;
+
+      let lastError: unknown;
+      for (const txVfo of this.getSplitTxVfoCandidates(split.txVfo)) {
+        try {
+          const state = await this.rig!.getSplitMode(txVfo as VFO);
+          if (state?.mode && typeof state.mode === 'string') {
+            this.lastSuccessfulOperation = Date.now();
+            return normalizeModeName(state.mode);
+          }
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      if (lastError) throw this.convertError(lastError, 'getSplitMode');
+      return null;
+    }, { id: 'getSplitMode' });
+  }
+
+  /**
+   * Split TX mode is an independent operation: it must not overwrite the
+   * current RX VFO mode or the independently configured Split TX frequency.
+   */
+  async setSplitMode(txMode: string): Promise<void> {
+    await this.runSerializedTask('setSplitMode', async () => {
+      this.checkConnected();
+      const target = normalizeModeName(txMode);
+      if (!target || (this.supportedModes.size && !this.supportedModes.has(target))) {
+        throw new Error(`Split TX mode is not advertised by the radio: ${txMode}`);
+      }
+
+      const split = await this.readSplitStatus();
+      let lastError: unknown;
+      for (const txVfo of this.getSplitTxVfoCandidates(split.txVfo)) {
+        try {
+          await this.rig!.setSplitMode(target as any, txVfo as VFO);
+          const observed = await this.rig!.getSplitMode(txVfo as VFO);
+          if (normalizeModeName(observed?.mode ?? '') !== target) {
+            // A write was accepted but did not affect the intended TX VFO.
+            // Trying another VFO now could inadvertently change both VFOs.
+            throw new Error(`Split TX mode readback mismatch: requested ${target}, observed ${observed?.mode ?? 'unknown'}`);
+          }
+          this.lastSuccessfulOperation = Date.now();
+          return;
+        } catch (error) {
+          if (error instanceof Error && error.message.includes('readback mismatch')) throw error;
+          lastError = error;
+        }
+      }
+      throw this.convertError(lastError ?? new Error('No usable Split TX VFO candidate'), 'setSplitMode');
+    }, { critical: true });
+  }
+
   async setSplitFreqMode(txFrequency: number, txMode: string, txWidth: number): Promise<void> {
     this.checkConnected();
 
@@ -3705,6 +4318,8 @@ export class HamlibRuntime
       this.supportedVfoOps.clear();
       this.txFrequencyRanges = [];
       this.currentRadioMode = null;
+      this.ftdx10ManualModeLock = null;
+      this.ftdx10RawRouteQuarantined = false;
       this.splitSupportState = 'unknown';
       this.splitEnabled = false;
       this.removeAllListeners();
