@@ -330,6 +330,51 @@ describe('HamlibConnection', () => {
     expect(rig.sendRaw).not.toHaveBeenCalled();
   });
 
+  describe('FTDX10 guarded manual mode control', () => {
+    const prepare = (rigOverrides: Partial<MockRig> = {}) => {
+      const { connection, rig } = createConnectedConnection(rigOverrides);
+      const accessor = asTestConnection(connection);
+      accessor.currentConfig = { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } };
+      accessor.supportedModes = new Set(['USB', 'PKTUSB']);
+      return { connection, rig, accessor };
+    };
+
+    it('changes mode only after confirming native RX and Split OFF, then confirms readback', async () => {
+      const { connection, rig } = prepare({
+        getMode: vi.fn().mockResolvedValue({ mode: 'PKTUSB', bandwidth: 2400 }),
+      });
+      await expect(connection.setManualMode('PKTUSB')).resolves.toBeUndefined();
+      expect(rig.getPtt).toHaveBeenCalledTimes(1);
+      expect(rig.getSplit).toHaveBeenCalled();
+      expect(rig.setMode).toHaveBeenCalledWith('PKTUSB', 'nochange');
+      expect(rig.getMode).toHaveBeenCalled();
+    });
+
+    it('rejects native transmit and unknown PTT states before sending a mode write', async () => {
+      const { connection, rig } = prepare({ getPtt: vi.fn().mockResolvedValue(true) });
+      await expect(connection.setManualMode('PKTUSB')).rejects.toThrow('confirmed RX');
+      rig.getPtt.mockResolvedValue(null);
+      await expect(connection.setManualMode('PKTUSB')).rejects.toThrow('confirmed RX');
+      expect(rig.setMode).not.toHaveBeenCalled();
+    });
+
+    it('rejects Split ON and unconfirmed Split state before sending a mode write', async () => {
+      const { connection, rig } = prepare({ getSplit: vi.fn().mockResolvedValue({ enabled: true }) });
+      await expect(connection.setManualMode('PKTUSB')).rejects.toThrow('Split OFF');
+      rig.getSplit.mockResolvedValue(null);
+      await expect(connection.setManualMode('PKTUSB')).rejects.toThrow('Split OFF');
+      expect(rig.setMode).not.toHaveBeenCalled();
+    });
+
+    it('fails closed when the mode readback differs and is unavailable for other models', async () => {
+      const { connection, rig, accessor } = prepare();
+      await expect(connection.setManualMode('PKTUSB')).rejects.toThrow('readback mismatch');
+      accessor.currentConfig = { type: 'serial', serial: { rigModel: 1035, path: 'COM4' } };
+      await expect(connection.setManualMode('PKTUSB')).rejects.toThrow('not enabled');
+      expect(rig.setMode).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('writes FTDX10 USB as an ordered MOD SOURCE + REAR SELECT transaction', async () => {
     const { connection, rig } = createConnectedConnection({
       sendRaw: vi.fn()
