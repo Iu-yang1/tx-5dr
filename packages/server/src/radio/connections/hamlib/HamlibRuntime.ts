@@ -2060,6 +2060,35 @@ export class HamlibRuntime
   }
 
   /**
+   * Hamlib RF level represents normalized receiver RF gain, not RF output
+   * power. Only models explicitly advertising RF support expose this value.
+   */
+  async getRFGain(): Promise<number> {
+    return this.runSerializedTask('getRFGain', async () => {
+      this.checkConnected();
+      if (!this.supportedLevels.has('RF')) throw new Error('RF gain is not supported by this radio');
+      const gain = (await this.rig!.getLevel('RF')) as number;
+      if (!Number.isFinite(gain) || gain < 0 || gain > 1) {
+        throw new Error('Invalid normalized Hamlib RF gain readback');
+      }
+      this.lastSuccessfulOperation = Date.now();
+      return gain;
+    }, { id: 'getRFGain' });
+  }
+
+  async setRFGain(value: number): Promise<void> {
+    if (!Number.isFinite(value) || value < 0 || value > 1) {
+      throw new Error('RF gain must be a finite normalized value between 0 and 1');
+    }
+    await this.runSerializedTask('setRFGain', async () => {
+      this.checkConnected();
+      if (!this.supportedLevels.has('RF')) throw new Error('RF gain is not supported by this radio');
+      await this.rig!.setLevel('RF', value);
+      this.lastSuccessfulOperation = Date.now();
+    }, { critical: true });
+  }
+
+  /**
    * 获取静噪电平（0.0–1.0）
    */
   async getSQL(): Promise<number> {
