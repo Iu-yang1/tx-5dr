@@ -330,6 +330,41 @@ describe('HamlibConnection', () => {
     expect(rig.sendRaw).not.toHaveBeenCalled();
   });
 
+  describe('FTDX10 native APF on/off', () => {
+    const prepare = () => {
+      const { connection, rig } = createConnectedConnection();
+      const accessor = asTestConnection(connection);
+      accessor.currentConfig = { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } };
+      accessor.supportedFunctions = new Set(['APF']);
+      return { connection, rig, accessor };
+    };
+
+    it('uses native APF and verifies physical readback', async () => {
+      const { connection, rig } = prepare();
+      rig.getFunction.mockResolvedValue(true);
+      await expect(connection.getApfEnabled()).resolves.toBe(true);
+      await expect(connection.setApfEnabled(true)).resolves.toBeUndefined();
+      expect(rig.setFunction).toHaveBeenCalledWith('APF', true);
+      expect(rig.getPtt).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects TX, mismatched readback, unsupported function and other rigs', async () => {
+      const { connection, rig, accessor } = prepare();
+      rig.getPtt.mockResolvedValue(true);
+      await expect(connection.setApfEnabled(true)).rejects.toThrow('confirmed RX');
+      expect(rig.setFunction).not.toHaveBeenCalled();
+
+      rig.getPtt.mockResolvedValue(false);
+      rig.getFunction.mockResolvedValue(false);
+      await expect(connection.setApfEnabled(true)).rejects.toThrow('readback mismatch');
+      accessor.supportedFunctions = new Set();
+      await expect(connection.getApfEnabled()).rejects.toThrow('not available');
+      accessor.supportedFunctions = new Set(['APF']);
+      accessor.currentConfig = { type: 'serial', serial: { rigModel: 1035, path: 'COM5' } };
+      await expect(connection.setApfEnabled(false)).rejects.toThrow('not available');
+    });
+  });
+
   describe('FTDX10 RF gain acknowledgement', () => {
     const prepare = () => {
       const { connection, rig } = createConnectedConnection();
