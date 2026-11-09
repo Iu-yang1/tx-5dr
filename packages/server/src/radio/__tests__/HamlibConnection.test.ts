@@ -590,6 +590,21 @@ describe('HamlibConnection', () => {
       expect(rig.setMode).toHaveBeenCalledWith('USB', undefined);
     });
 
+    it('applies a compatible manually locked operating state without reapplying mode or dial twice', async () => {
+      const { connection, rig } = prepare({
+        getMode: vi.fn().mockResolvedValue({ mode: 'PKTUSB', bandwidth: 2400 }),
+      });
+      await connection.setManualMode('PKTUSB');
+      rig.setMode.mockClear();
+      rig.setFrequency.mockClear();
+      const result = await connection.applyOperatingState({
+        frequency: 14_074_000, mode: 'PKTUSB', bandwidth: 'nochange', tolerateModeFailure: true,
+      });
+      expect(result).toMatchObject({ frequencyApplied: true, modeApplied: true });
+      expect(rig.setFrequency).toHaveBeenCalledTimes(1);
+      expect(rig.setMode).not.toHaveBeenCalled();
+    });
+
     it('can explicitly lock the observed RX mode and rejects TX/Split ambiguity', async () => {
       const { connection, rig } = prepare({
         getMode: vi.fn().mockResolvedValue({ mode: 'USB', bandwidth: 2400 }),
