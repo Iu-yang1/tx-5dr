@@ -701,6 +701,30 @@ describe('RadioCapabilityManager', () => {
     manager.onDisconnected();
   });
 
+  it('does not falsely advertise FTDX10-only IF Shift or APF on another Hamlib model', async () => {
+    const manager = new RadioCapabilityManager();
+    const getIFShift = vi.fn().mockResolvedValue(0);
+    const getApfEnabled = vi.fn().mockResolvedValue(false);
+    const connection = new MockConnection(RadioConnectionType.HAMLIB, {
+      getConnectionInfo: () => ({
+        type: RadioConnectionType.HAMLIB,
+        state: RadioConnectionState.CONNECTED,
+        config: { type: 'serial', serial: { rigModel: 1035, path: 'COM5' } },
+      }),
+      setManualMode: vi.fn(),
+      isSupportedLevel: vi.fn((name: string) => name === 'IF'),
+      isSupportedFunction: vi.fn((name: string) => name === 'APF'),
+      getIFShift,
+      getApfEnabled,
+    });
+    await manager.onConnected(connection as never);
+    expect(getCapability(manager.getCapabilityStates(), 'if_shift')).toMatchObject({ supported: false });
+    expect(getCapability(manager.getCapabilityStates(), 'apf_enabled')).toMatchObject({ supported: false });
+    expect(getIFShift).not.toHaveBeenCalled();
+    expect(getApfEnabled).not.toHaveBeenCalled();
+    manager.onDisconnected();
+  });
+
   it('routes FTDX10 passband widths through guarded native control instead of generic mode writes', async () => {
     const manager = new RadioCapabilityManager();
     const setManualModeBandwidth = vi.fn(async (_hz: number) => undefined);
