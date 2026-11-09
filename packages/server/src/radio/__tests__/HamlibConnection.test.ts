@@ -643,6 +643,33 @@ describe('HamlibConnection', () => {
     });
   });
 
+  it('quarantines FTDX10 raw EX routing after an ambiguous write/readback', async () => {
+    const { connection, rig } = createConnectedConnection({
+      sendRaw: vi.fn().mockResolvedValue(Buffer.from('FA014074000;', 'ascii')),
+    });
+    const accessor = asTestConnection(connection);
+    accessor.meterRigMetadata = { rigModel: 1042, mfgName: 'Yaesu', modelName: 'FTDX-10' };
+    accessor.currentConfig = { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } };
+    await expect(connection.setTxAudioInputSource!('usb')).rejects.toThrow('readback mismatch');
+    expect(rig.sendRawWrite).toHaveBeenCalledTimes(2);
+    await expect(connection.setTxAudioInputSource!('usb')).rejects.toThrow('quarantined until reconnect');
+    await expect(connection.getTxAudioInputSource!()).rejects.toThrow('quarantined until reconnect');
+    expect(rig.sendRawWrite).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not write FTDX10 EX routing when the physical radio is TX or Split ON', async () => {
+    const { connection, rig } = createConnectedConnection();
+    const accessor = asTestConnection(connection);
+    accessor.meterRigMetadata = { rigModel: 1042, mfgName: 'Yaesu', modelName: 'FTDX-10' };
+    accessor.currentConfig = { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } };
+    rig.getPtt.mockResolvedValue(true);
+    await expect(connection.setTxAudioInputSource!('usb')).rejects.toThrow('confirmed RX');
+    rig.getPtt.mockResolvedValue(false);
+    rig.getSplit.mockResolvedValue({ enabled: true });
+    await expect(connection.setTxAudioInputSource!('usb')).rejects.toThrow('Split OFF');
+    expect(rig.sendRawWrite).not.toHaveBeenCalled();
+  });
+
   it('writes FTDX10 USB as an ordered MOD SOURCE + REAR SELECT transaction', async () => {
     const { connection, rig } = createConnectedConnection({
       sendRaw: vi.fn()
