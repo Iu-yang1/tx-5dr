@@ -64,15 +64,24 @@ jobs:
           source = shim.read_text(encoding="utf-8")
           assert source.count("rig->state.") == 36, "Upstream rig state ABI changed; review patch"
           assert source.count("rot->state.") == 3, "Upstream rot state ABI changed; review patch"
+          assert source.count("rig->state.rigport.") == 27
+          assert source.count("rig->state.pttport.") == 2
+          assert source.count("rig->state.dcdport.") == 2
+          assert source.count("rot->state.rotport.") == 3
           assert source.count("#include <hamlib/rig_state.h>") == 1
           source = source.replace(
               "#include <hamlib/rig_state.h>",
-              "#include <hamlib/rig_state.h>\\n#include <hamlib/rot_state.h>"
+              "#include <hamlib/rig_state.h>\\n#include <hamlib/port.h>"
           )
-          # IN_HAMLIB-only STATE/ROTSTATE macros are intentionally not used
-          # by external addons. Use public Hamlib 5 application accessors.
+          # Port handles moved OUT of rig_state / rot_state in Hamlib 5.
+          # Use public port accessor APIs rather than private struct members.
+          source = source.replace("rig->state.rigport.", "HAMLIB_RIGPORT(rig)->")
+          source = source.replace("rig->state.pttport.", "HAMLIB_PTTPORT(rig)->")
+          source = source.replace("rig->state.dcdport.", "HAMLIB_DCDPORT(rig)->")
+          source = source.replace("rot->state.rotport.", "HAMLIB_ROTPORT(rot)->")
+          # Remaining five rig_state members are provided by public HAMLIB_STATE.
+          assert source.count("rig->state.") == 5
           source = source.replace("rig->state.", "HAMLIB_STATE(rig)->")
-          source = source.replace("rot->state.", "HAMLIB_ROTSTATE(rot)->")
           shim.write_text(source, encoding="utf-8")
           PY
       - name: Rebuild node-hamlib against patched native Hamlib prefix
