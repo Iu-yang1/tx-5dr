@@ -3353,7 +3353,21 @@ export class HamlibRuntime
         }
         await this.performModeRead();
       }
-      const raw = await this.sendTxAudioRaw(provider);
+      let raw: number | null;
+      try {
+        raw = await this.sendTxAudioRaw(provider);
+        // An incomplete EX reply is not a trustworthy "unknown source" state.
+        // It may be an unsolicited or delayed frame. Fence the entire native
+        // raw-CAT session, including independent Roofing/Contour operations.
+        if (raw === null && this.meterRigMetadata?.rigModel === 1042) {
+          throw new Error('FTDX10 TX audio EX reply was incomplete or ambiguous');
+        }
+      } catch (error) {
+        if (this.meterRigMetadata?.rigModel === 1042) {
+          this.ftdx10RawRouteQuarantined = true;
+        }
+        throw error;
+      }
       const normalized = raw === null ? null : provider.reverseMap[raw] ?? null;
       // An incomplete or unrelated EX reply must not present stale cached
       // routing as the physical radio's verified state.
