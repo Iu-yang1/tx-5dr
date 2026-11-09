@@ -701,6 +701,33 @@ describe('RadioCapabilityManager', () => {
     manager.onDisconnected();
   });
 
+  it('presents FTDX10 IF shift as signed Hz while preserving generic descriptors', async () => {
+    const manager = new RadioCapabilityManager();
+    const setIFShift = vi.fn(async (_hz: number) => undefined);
+    const connection = new MockConnection(RadioConnectionType.HAMLIB, {
+      getConnectionInfo: () => ({
+        type: RadioConnectionType.HAMLIB,
+        state: RadioConnectionState.CONNECTED,
+        config: { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } },
+      }),
+      setManualMode: vi.fn(),
+      isSupportedLevel: vi.fn((level: string) => level === 'IF'),
+      getIFShift: vi.fn(async () => -250),
+      setIFShift,
+    });
+
+    let latestSnapshot = manager.getCapabilitySnapshot();
+    manager.on('capabilityList', snapshot => { latestSnapshot = snapshot; });
+    await manager.onConnected(connection as never);
+    expect(getDescriptor(latestSnapshot.descriptors, 'if_shift')).toMatchObject({
+      valueType: 'number', range: { min: -1200, max: 1200, step: 10 }, requiresIdle: true,
+      display: { mode: 'value', unit: 'Hz', decimals: 0 },
+    });
+    await expect(manager.writeCapability('if_shift', -250)).resolves.toBeUndefined();
+    expect(setIFShift).toHaveBeenCalledWith(-250);
+    manager.onDisconnected();
+  });
+
   it('exposes FTDX10 DATA/CW modes and writes through the guarded manual operation', async () => {
     const manager = new RadioCapabilityManager();
     let currentMode = 'USB';
