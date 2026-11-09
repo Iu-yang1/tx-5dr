@@ -734,7 +734,7 @@ describe('RadioCapabilityManager', () => {
       writable: true,
       requiresIdle: true,
       options: [
-        { value: 0 }, { value: 1 }, { value: 2 }, { value: 4 }, { value: 5 },
+        { value: 1 }, { value: 2 }, { value: 4 }, { value: 5 },
       ],
     });
     expect(getDescriptor(descriptors, 'contour_enabled')).toMatchObject({
