@@ -2856,9 +2856,7 @@ export class HamlibRuntime
       const command = `${prefix}${value === undefined ? '' : value};`;
       if (value === undefined) {
         const reply = await this.rig!.sendRaw(Buffer.from(command, 'ascii'), 64, Buffer.from(';'));
-        const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const match = reply.toString('ascii').match(new RegExp(`${escapedPrefix}(\\d);`));
-        return match ? Number.parseInt(match[1]!, 10) : null;
+        return parseSingleYaesuNumericReply(reply, prefix);
       }
       await this.rig!.sendRawWrite(Buffer.from(command, 'ascii'));
       return null;
