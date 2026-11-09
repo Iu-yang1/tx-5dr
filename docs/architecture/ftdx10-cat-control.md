@@ -95,7 +95,9 @@ The shared Hamlib serial queue remains the sole CAT owner: there is no second
 port reader, speculative retry or synthetic ACK.
 
 FTDX10 mode-specific MOD SOURCE and REAR SELECT menu commands are resolved
-from the **live** radio mode (SSB, AM, FM, DATA), not a cached UI mode. Writes
+from the **live TX VFO** mode when Split is enabled and otherwise from the
+current RX mode (SSB, AM, FM, DATA), not a cached UI mode. Split operation
+is not itself a reason to disable TX-audio routing. Writes
 are acknowledged by reading the exact matching EX menu registers. Real CAT
 timeouts, wrong-register frames, or inconsistent readbacks still produce
 errors and fence the affected connection until reconnect; this is recovery

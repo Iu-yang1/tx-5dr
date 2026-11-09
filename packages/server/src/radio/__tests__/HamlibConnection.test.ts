@@ -793,17 +793,38 @@ describe('HamlibConnection', () => {
     expect(rig.sendRawWrite).toHaveBeenCalledTimes(2);
   });
 
-  it('does not write FTDX10 EX routing when the physical radio is TX or Split ON', async () => {
+  it('does not change FTDX10 audio routing while the physical transmitter is keyed', async () => {
     const { connection, rig } = createConnectedConnection();
     const accessor = asTestConnection(connection);
     accessor.meterRigMetadata = { rigModel: 1042, mfgName: 'Yaesu', modelName: 'FTDX-10' };
     accessor.currentConfig = { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } };
     rig.getPtt.mockResolvedValue(true);
     await expect(connection.setTxAudioInputSource!('usb')).rejects.toThrow('confirmed RX');
-    rig.getPtt.mockResolvedValue(false);
-    rig.getSplit.mockResolvedValue({ enabled: true });
-    await expect(connection.setTxAudioInputSource!('usb')).rejects.toThrow('Split OFF');
     expect(rig.sendRawWrite).not.toHaveBeenCalled();
+  });
+
+  it('allows FTDX10 audio routing during Split using the live TX VFO DATA bank', async () => {
+    const mod = 'EX010415', rear = 'EX010416';
+    const { connection, rig } = createConnectedConnection({
+      getMode: vi.fn().mockResolvedValue({ mode: 'USB', bandwidth: 2400 }),
+      getSplit: vi.fn().mockResolvedValue({ enabled: true, txVfo: 'VFOB' }),
+      getSplitMode: vi.fn().mockResolvedValue({ mode: 'PKTUSB', width: 2400 }),
+      sendRaw: vi.fn(async (wire: Buffer) => {
+        const query = wire.toString('ascii');
+        if (query === `${mod};`) return Buffer.from(`${mod}1;`, 'ascii');
+        if (query === `${rear};`) return Buffer.from(`${rear}1;`, 'ascii');
+        return Buffer.from('FA014074000;', 'ascii');
+      }),
+    });
+    const accessor = asTestConnection(connection);
+    accessor.meterRigMetadata = { rigModel: 1042, mfgName: 'Yaesu', modelName: 'FTDX-10' };
+    accessor.currentConfig = { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } };
+    await expect(connection.setTxAudioInputSource!('usb')).resolves.toMatchObject({ applied: 'usb' });
+    expect(rig.getSplitMode).toHaveBeenCalledWith('VFOB');
+    expect(rig.sendRawWrite.mock.calls.map((args) => args[0].toString('ascii'))).toEqual([
+      `${mod}1;`, `${rear}1;`,
+    ]);
+    expect(rig.setMode).not.toHaveBeenCalled();
   });
 
   it.each([
