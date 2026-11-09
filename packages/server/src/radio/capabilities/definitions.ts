@@ -1089,6 +1089,7 @@ function createDefinitions(): CapabilityDefinition[] {
         ),
         readable: true,
         writable: true,
+        requiresIdle: isFtdx10ManualModeConnection(conn) && typeof conn.setManualModeBandwidth === 'function',
         updateMode: 'polling',
         pollIntervalMs: 2000,
         labelI18nKey: 'radio:capability.mode_bandwidth.label',
@@ -1105,7 +1106,16 @@ function createDefinitions(): CapabilityDefinition[] {
         return { supported: bandwidths.length > 0, source: 'runtime-probe' };
       },
       read: (conn) => conn.getModeBandwidth!(),
-      write: (conn, value) => conn.setModeBandwidth!(value as RadioModeBandwidth),
+      write: async (conn, value) => {
+        if (isFtdx10ManualModeConnection(conn)) {
+          if (!conn.setManualModeBandwidth || typeof value !== 'number') {
+            throw new Error('FTDX10 manual passband control requires a numeric Hz value');
+          }
+          await conn.setManualModeBandwidth(value);
+          return { value, meta: { acknowledgement: 'readback' } };
+        }
+        await conn.setModeBandwidth!(value as RadioModeBandwidth);
+      },
     },
     {
       ...createRuntimeBooleanDefinition('split_enabled', 'operation', 'getSplitEnabled', 'setSplitEnabled', undefined, {
