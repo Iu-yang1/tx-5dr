@@ -42,12 +42,12 @@ function operations<const Names extends readonly string[], Args extends z.ZodTyp
 
 const empty = z.tuple([]);
 export const HAMLIB_OPERATIONS = {
-  ...operations(['getFrequency', 'getRFPower', 'getAFGain', 'getRFGain', 'getIFShift', 'getCwPitch', 'getKeySpeed', 'getSQL', 'getMicGain', 'getCompressorLevel', 'getMonitorGain', 'getNBLevel', 'getNRLevel', 'getPreampLevel', 'getAttenuatorLevel', 'getRitOffset', 'getXitOffset', 'getTuningStep', 'getRepeaterOffset', 'getCtcssTone', 'getDcsCode', 'getMaxRit', 'getMaxXit'] as const, empty, number),
+  ...operations(['getRoofingFilter', 'getContourFrequency', 'getContourLevel', 'getContourWidth', 'getFrequency', 'getRFPower', 'getAFGain', 'getRFGain', 'getIFShift', 'getCwPitch', 'getKeySpeed', 'getSQL', 'getMicGain', 'getCompressorLevel', 'getMonitorGain', 'getNBLevel', 'getNRLevel', 'getPreampLevel', 'getAttenuatorLevel', 'getRitOffset', 'getXitOffset', 'getTuningStep', 'getRepeaterOffset', 'getCtcssTone', 'getDcsCode', 'getMaxRit', 'getMaxXit'] as const, empty, number),
   getVfo: { args: empty, result: z.string() },
   setVfo: { args: z.tuple([z.string()]), result: z.void() },
   ...operations(['setFrequency', 'setRFPower', 'setAFGain', 'setSQL', 'setMicGain', 'setCompressorLevel', 'setMonitorGain', 'setNBLevel', 'setNRLevel', 'setPreampLevel', 'setAttenuatorLevel', 'setRitOffset', 'setXitOffset', 'setTuningStep', 'setRepeaterOffset', 'setCtcssTone', 'setDcsCode', 'setSpectrumSpan', 'setSplitFrequency'] as const, z.tuple([number]), z.void()),
-  ...operations(['getPTT', 'getDCD', 'getApfEnabled', 'getManualModeAutoFollow', 'getCompressorEnabled', 'getNBEnabled', 'getNREnabled', 'getLockMode', 'getMuteEnabled', 'getVOXEnabled', 'getSplitEnabled', 'startTuning'] as const, empty, z.boolean()),
-  ...operations(['setPTT', 'setTuner', 'setApfEnabled', 'setManualModeAutoFollow', 'setCompressorEnabled', 'setNBEnabled', 'setNREnabled', 'setLockMode', 'setMuteEnabled', 'setVOXEnabled', 'setSplitEnabled'] as const, z.tuple([z.boolean()]), z.void()),
+  ...operations(['getPTT', 'getDCD', 'getContourEnabled', 'getApfEnabled', 'getManualModeAutoFollow', 'getCompressorEnabled', 'getNBEnabled', 'getNREnabled', 'getLockMode', 'getMuteEnabled', 'getVOXEnabled', 'getSplitEnabled', 'startTuning'] as const, empty, z.boolean()),
+  ...operations(['setPTT', 'setTuner', 'setContourEnabled', 'setApfEnabled', 'setManualModeAutoFollow', 'setCompressorEnabled', 'setNBEnabled', 'setNREnabled', 'setLockMode', 'setMuteEnabled', 'setVOXEnabled', 'setSplitEnabled'] as const, z.tuple([z.boolean()]), z.void()),
   ...operations(['getAgcMode', 'getPowerState', 'getRepeaterShift'] as const, empty, z.string()),
   ...operations(['setAgcMode', 'setPowerState', 'setRepeaterShift'] as const, z.tuple([z.string()]), z.void()),
   ...operations(['getSupportedPreampLevels', 'getSupportedAttenuatorLevels', 'getSupportedTuningSteps', 'getAvailableCtcssTones', 'getAvailableDcsCodes', 'getSpectrumSpans'] as const, empty, z.array(number)),
@@ -58,6 +58,10 @@ export const HAMLIB_OPERATIONS = {
   probeResponding: { args: z.tuple([number]), result: z.boolean() },
   setKnownFrequency: { args: z.tuple([number]), result: z.void() },
   sendCWMessage: { args: z.tuple([z.string(), number]), result: z.void() },
+  setRoofingFilter: { args: z.tuple([z.union([z.literal(1), z.literal(2), z.literal(4), z.literal(5)])]), result: z.void() },
+  setContourFrequency: { args: z.tuple([z.number().int().min(10).max(3200)]), result: z.void() },
+  setContourLevel: { args: z.tuple([z.number().int().min(-40).max(20)]), result: z.void() },
+  setContourWidth: { args: z.tuple([z.number().int().min(1).max(11)]), result: z.void() },
   // RF gain is a normalized receiver level, never an arbitrary native rig value.
   setRFGain: { args: z.tuple([z.number().finite().min(0).max(1)]), result: z.void() },
   setIFShift: { args: z.tuple([z.number().int().min(-1200).max(1200)]), result: z.void() },
@@ -74,6 +78,8 @@ export const HAMLIB_OPERATIONS = {
   getSpectrumSupportSummary: { args: empty, result: summary },
   getCurrentSpectrumSpan: { args: empty, result: number.nullable() },
   getSplitFrequency: { args: empty, result: number.nullable() },
+  getSplitMode: { args: empty, result: z.string().nullable() },
+  setSplitMode: { args: z.tuple([z.string().min(1)]), result: z.void() },
   setSplitFreqMode: { args: z.tuple([number, z.string(), number]), result: z.void() },
   getSpectrumDisplayState: { args: empty, result: displayState.nullable() },
   configureSpectrumDisplay: { args: z.tuple([displayConfig]), result: z.void() },

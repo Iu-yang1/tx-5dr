@@ -1,0 +1,127 @@
+name: FTDX10 CAT Protocol Regression
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'packages/server/src/radio/**'
+      - 'packages/web/src/i18n/locales/**/radio.json'
+      - '.github/workflows/ftdx10-cat-regression.yml'
+  push:
+    branches: ['feature/ftdx10-p2-p3-roofing-contour']
+    paths:
+      - 'packages/server/src/radio/**'
+      - '.github/workflows/ftdx10-cat-regression.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  ftdx10-native-hamlib:
+    name: Native Hamlib FTDX10 reply guard (fork source)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout native Hamlib FTDX10 branch
+        uses: actions/checkout@v4
+        with:
+          repository: Iu-yang1/Hamlib
+          ref: 4e1bc90ceb8586b3b58a83853e2087ec7067e9a0
+          persist-credentials: false
+      - name: Compile and run native reply discriminator tests
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -pedantic -o /tmp/ftdx10_cat_reply_test tests/ftdx10_cat_reply_test.c
+          /tmp/ftdx10_cat_reply_test
+      - name: Build native Hamlib library and patched FTDX10 raw send path
+        run: |
+          ./bootstrap
+          ./configure --prefix="$RUNNER_TEMP/ftdx10-hamlib" \
+            --enable-html-matrix=no --enable-parallel=no --enable-pytest=no \
+            --enable-shared=yes --enable-static=no --enable-usrp=no \
+            --with-cxx-binding=no --with-indi=no --with-libusb=no \
+            --with-lua-binding=no --with-perl-binding=no \
+            --with-python-binding=no --with-readline=no \
+            --with-samplerate=no --with-tcl-binding=no --with-xml-support=no
+          make -j2 --no-print-directory
+          test -f src/.libs/libhamlib.so || find . -name 'libhamlib.so*' -type f -print -quit | grep libhamlib
+          make install --no-print-directory
+      - name: Checkout node-hamlib 0.7.7 native addon source
+        uses: actions/checkout@v4
+        with:
+          repository: boybook/node-hamlib
+          ref: 7c7375059dba2d6e5c3e1dec549bb192233be9f7
+          path: node-hamlib
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.1'
+      - name: Adapt node-hamlib 0.7.7 shim state ABI to native Hamlib 5
+        working-directory: node-hamlib
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          shim = Path("src/shim/hamlib_shim.c")
+          source = shim.read_text(encoding="utf-8")
+          assert source.count("rig->state.") == 36, "Upstream rig state ABI changed; review patch"
+          assert source.count("rot->state.") == 3, "Upstream rot state ABI changed; review patch"
+          assert source.count("rig->state.rigport.") == 27
+          assert source.count("rig->state.pttport.") == 2
+          assert source.count("rig->state.dcdport.") == 2
+          assert source.count("rot->state.rotport.") == 3
+          assert source.count("#include <hamlib/rig_state.h>") == 1
+          source = source.replace(
+              "#include <hamlib/rig_state.h>",
+              "#include <hamlib/rig_state.h>\n#include <hamlib/port.h>"
+          )
+          # Port handles moved OUT of rig_state / rot_state in Hamlib 5.
+          # Use public port accessor APIs rather than private struct members.
+          source = source.replace("rig->state.rigport.", "HAMLIB_RIGPORT(rig)->")
+          source = source.replace("rig->state.pttport.", "HAMLIB_PTTPORT(rig)->")
+          source = source.replace("rig->state.dcdport.", "HAMLIB_DCDPORT(rig)->")
+          source = source.replace("rot->state.rotport.", "HAMLIB_ROTPORT(rot)->")
+          # Remaining five rig_state members are provided by public HAMLIB_STATE.
+          assert source.count("rig->state.") == 5
+          source = source.replace("rig->state.", "HAMLIB_STATE(rig)->")
+          shim.write_text(source, encoding="utf-8")
+          PY
+      - name: Rebuild node-hamlib against patched native Hamlib prefix
+        working-directory: node-hamlib
+        env:
+          HAMLIB_PREFIX: ${{ runner.temp }}/ftdx10-hamlib
+          LD_LIBRARY_PATH: ${{ runner.temp }}/ftdx10-hamlib/lib
+        run: |
+          npm ci --ignore-scripts
+          npm run rebuild
+          test -f build/Release/hamlib.node
+          node -e "const addon=require('./build/Release/hamlib.node'); if(!addon.HamLib) throw new Error('compiled HamLib native export missing')"
+          ldd build/Release/hamlib.node | tee /tmp/ftdx10-native-ldd.txt
+          grep -F "$HAMLIB_PREFIX/lib/libhamlib.so" /tmp/ftdx10-native-ldd.txt
+          node test/test_loader.js
+
+  ftdx10-cat-protocol:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.1'
+      - name: Enable Yarn
+        run: |
+          corepack enable
+          corepack prepare yarn@4.12.0 --activate
+      - name: Install test dependencies without unrelated native postinstall scripts
+        env:
+          YARN_ENABLE_SCRIPTS: 'false'
+          ONNXRUNTIME_NODE_INSTALL: skip
+        run: yarn install --immutable --mode=skip-build
+      - name: Build workspace type dependencies
+        run: yarn turbo run build --filter='@tx5dr/server^...'
+      - name: Compile and typecheck affected server
+        run: yarn workspace @tx5dr/server exec tsc --noEmit
+      - name: Run typed CAT contract, codec and runtime tests
+        run: |
+          cd packages/server
+          yarn exec vitest run             src/radio/connections/hamlib/__tests__/Ftdx10ReceiverCat.test.ts             src/radio/connections/hamlib/__tests__/YaesuCatReply.test.ts             src/radio/connections/hamlib/__tests__/hamlib-protocol.test.ts             src/radio/__tests__/HamlibConnection.test.ts             src/radio/__tests__/RadioCapabilityManager.test.ts             --maxWorkers=2
+      - name: Verify translation parity
+        run: yarn check:i18n

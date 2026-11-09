@@ -35,6 +35,7 @@ import {
 import { RADIO_IO_SKIPPED, RadioIoQueue, type RadioIoTaskContext, type RadioIoTaskOptions } from '../RadioIoQueue.js';
 import { HamlibNativeMonitor } from './HamlibNativeMonitor.js';
 import { parseSingleYaesuNumericReply } from './YaesuCatReply.js';
+import { FTDX10_RECEIVER_REGISTERS, encodeFtdx10ReceiverWrite, parseFtdx10ReceiverReply, type Ftdx10ReceiverControl } from './Ftdx10ReceiverCat.js';
 import { serializeHamlibError, type HamlibSnapshot } from './hamlib-protocol.js';
 import {
   type ApplyOperatingStateRequest,
@@ -2288,6 +2289,95 @@ export class HamlibRuntime
     }, { critical: true });
   }
 
+  /**
+   * Dedicated FTDX10 RX analogue/DSP controls. All raw commands still travel
+   * through the sole Hamlib rig handle, within the owning serialized task.
+   * Hamlib rig_send_raw does not offer a request identifier; a questionable
+   * frame poisons this connection's raw CAT state until reconnect.
+   */
+  private assertFtdx10ReceiverCatAvailable(): void {
+    this.checkConnected();
+    if (this.currentConfig?.type !== 'serial' || this.currentConfig.serial?.rigModel !== 1042) {
+      throw new Error('FTDX10 receiver CAT controls are not available on this model');
+    }
+    if (this.ftdx10RawRouteQuarantined) {
+      throw new Error('FTDX10 raw CAT is quarantined until reconnect');
+    }
+  }
+
+  private async queryFtdx10ReceiverCat(control: Ftdx10ReceiverControl): Promise<number> {
+    const command = FTDX10_RECEIVER_REGISTERS[control].query;
+    const reply = await this.rig!.sendRaw(Buffer.from(command, 'ascii'), 64, Buffer.from(';'));
+    const value = parseFtdx10ReceiverReply(control, reply);
+    if (value === null) {
+      throw new Error(`FTDX10 ${control} CAT reply was incomplete, unrelated or ambiguous`);
+    }
+    return value;
+  }
+
+  private async getFtdx10ReceiverControl(control: Ftdx10ReceiverControl): Promise<number> {
+    return this.runSerializedTask('getFtdx10ReceiverControl', async () => {
+      this.assertFtdx10ReceiverCatAvailable();
+      try {
+        const value = await this.queryFtdx10ReceiverCat(control);
+        this.lastSuccessfulOperation = Date.now();
+        return value;
+      } catch (error) {
+        this.ftdx10RawRouteQuarantined = true;
+        throw error;
+      }
+    }, { id: `getFtdx10ReceiverControl:${control}` });
+  }
+
+  private async setFtdx10ReceiverControl(control: Ftdx10ReceiverControl, value: number): Promise<void> {
+    // Validation before queueing prevents accidental serial writes from
+    // malformed or out-of-range IPC values.
+    const command = encodeFtdx10ReceiverWrite(control, value);
+    await this.runSerializedTask('setFtdx10ReceiverControl', async () => {
+      this.assertFtdx10ReceiverCatAvailable();
+      if (await this.rig!.getPtt() !== false) {
+        throw new Error('FTDX10 receiver CAT controls require confirmed RX');
+      }
+      const split = await this.rig!.getSplit();
+      if (!split || split.enabled !== false) {
+        throw new Error('FTDX10 receiver CAT controls require confirmed Split OFF');
+      }
+      try {
+        // Verify query/response association as far as this native Hamlib API
+        // permits. A same-prefix late response is inherently indistinguishable
+        // and therefore P3 cannot be declared fully complete on this transport.
+        await this.queryFtdx10ReceiverCat(control);
+        await this.rig!.sendRawWrite(Buffer.from(command, 'ascii'));
+        const first = await this.queryFtdx10ReceiverCat(control);
+        const confirmed = await this.queryFtdx10ReceiverCat(control);
+        if (first !== value || confirmed !== value) {
+          throw new Error(`FTDX10 ${control} readback mismatch: expected ${value}, observed ${first}/${confirmed}`);
+        }
+        this.lastSuccessfulOperation = Date.now();
+      } catch (error) {
+        this.ftdx10RawRouteQuarantined = true;
+        throw error;
+      }
+    }, { critical: true });
+  }
+
+  getRoofingFilter(): Promise<number> { return this.getFtdx10ReceiverControl('roofing_filter'); }
+  setRoofingFilter(value: number): Promise<void> { return this.setFtdx10ReceiverControl('roofing_filter', value); }
+
+  async getContourEnabled(): Promise<boolean> {
+    return (await this.getFtdx10ReceiverControl('contour_enabled')) === 1;
+  }
+  setContourEnabled(enabled: boolean): Promise<void> {
+    return this.setFtdx10ReceiverControl('contour_enabled', enabled ? 1 : 0);
+  }
+
+  getContourFrequency(): Promise<number> { return this.getFtdx10ReceiverControl('contour_frequency'); }
+  setContourFrequency(value: number): Promise<void> { return this.setFtdx10ReceiverControl('contour_frequency', value); }
+  getContourLevel(): Promise<number> { return this.getFtdx10ReceiverControl('contour_level'); }
+  setContourLevel(value: number): Promise<void> { return this.setFtdx10ReceiverControl('contour_level', value); }
+  getContourWidth(): Promise<number> { return this.getFtdx10ReceiverControl('contour_width'); }
+  setContourWidth(value: number): Promise<void> { return this.setFtdx10ReceiverControl('contour_width', value); }
+
   private requireFtdx10ConfigLevel(level: 'IF' | 'CWPITCH' | 'KEYSPD'): void {
     this.checkConnected();
     if (this.currentConfig?.type !== 'serial' || this.currentConfig.serial?.rigModel !== 1042
@@ -3132,6 +3222,25 @@ export class HamlibRuntime
     return provider.yaesuCommands?.[key] ?? provider.yaesuCommands!.SSB;
   }
 
+  private async resolveFtdx10TxAudioRoutingMode(): Promise<string> {
+    // Mode-specific EX menus belong to the TX modulation family. In Split
+    // operation, do not select the RX VFO's menu bank by mistake.
+    const split = await this.rig!.getSplit();
+    if (!split?.enabled) return this.currentRadioMode ?? 'USB';
+
+    for (const txVfo of this.getSplitTxVfoCandidates(split.txVfo)) {
+      try {
+        const txState = await this.rig!.getSplitMode(txVfo as VFO);
+        if (typeof txState?.mode === 'string' && txState.mode.trim()) {
+          return normalizeModeName(txState.mode);
+        }
+      } catch {
+        // Try the next Hamlib TX VFO alias.
+      }
+    }
+    throw new Error('FTDX10 Split TX mode is unavailable for the audio menu bank');
+  }
+
   private async getIcomCivAddress(provider: HamlibTxAudioProvider): Promise<number> {
     try {
       const configured = await this.rig!.getConf('civaddr');
@@ -3143,13 +3252,13 @@ export class HamlibRuntime
     return provider.modelNames[0] === 'IC-905' ? 0xac : 0xa4;
   }
 
-  private async sendTxAudioRaw(provider: HamlibTxAudioProvider, value?: number): Promise<number | null> {
+  private async sendTxAudioRaw(provider: HamlibTxAudioProvider, value?: number, routingMode?: string): Promise<number | null> {
     if (provider.protocol === 'yaesu-composite') {
-      const commands = provider.yaesuCompositeCommands?.[
-        ((this.currentRadioMode ?? 'USB').toUpperCase().includes('PKT') || (this.currentRadioMode ?? '').toUpperCase().includes('DATA')
-          ? 'DATA' : (this.currentRadioMode ?? '').toUpperCase().includes('FM') ? 'FM'
-            : (this.currentRadioMode ?? '').toUpperCase().includes('AM') ? 'AM' : 'SSB')
-      ];
+      const mode = (routingMode ?? this.currentRadioMode ?? 'USB').toUpperCase();
+      const modeKey = mode.includes('PKT') || mode.includes('DATA') ? 'DATA'
+        : mode.includes('FM') ? 'FM'
+          : mode.includes('AM') ? 'AM' : 'SSB';
+      const commands = provider.yaesuCompositeCommands?.[modeKey];
       if (!commands) return null;
       const send = async (command: string, parameter?: number) => {
         const wire = `${command}${parameter === undefined ? '' : parameter};`;
@@ -3161,9 +3270,6 @@ export class HamlibRuntime
         await this.rig!.sendRawWrite(Buffer.from(wire, 'ascii'));
         return Buffer.alloc(0);
       };
-      const modeKey = ((this.currentRadioMode ?? 'USB').toUpperCase().includes('PKT') || (this.currentRadioMode ?? '').toUpperCase().includes('DATA')
-        ? 'DATA' : (this.currentRadioMode ?? '').toUpperCase().includes('FM') ? 'FM'
-          : (this.currentRadioMode ?? '').toUpperCase().includes('AM') ? 'AM' : 'SSB') as 'SSB' | 'AM' | 'FM' | 'DATA';
       const routeValues = provider.yaesuCompositeValues?.[modeKey];
       if (value === undefined) {
         const modReply = await send(commands.modSource);
@@ -3257,13 +3363,29 @@ export class HamlibRuntime
       if (!provider) return this.txAudioInputSource;
       // Yaesu EX menu banks depend on the radio's *actual* mode. Do not
       // choose one from a stale cached mode after a front-panel change.
+      let routingMode: string | undefined;
       if (this.meterRigMetadata?.rigModel === 1042) {
         if (this.ftdx10RawRouteQuarantined) {
           throw new Error('FTDX10 raw CAT route is quarantined until reconnect');
         }
         await this.performModeRead();
+        routingMode = await this.resolveFtdx10TxAudioRoutingMode();
       }
-      const raw = await this.sendTxAudioRaw(provider);
+      let raw: number | null;
+      try {
+        raw = await this.sendTxAudioRaw(provider, undefined, routingMode);
+        // An incomplete EX reply is not a trustworthy "unknown source" state.
+        // It may be an unsolicited or delayed frame. Fence the entire native
+        // raw-CAT session, including independent Roofing/Contour operations.
+        if (raw === null && this.meterRigMetadata?.rigModel === 1042) {
+          throw new Error('FTDX10 TX audio EX reply was incomplete or ambiguous');
+        }
+      } catch (error) {
+        if (this.meterRigMetadata?.rigModel === 1042) {
+          this.ftdx10RawRouteQuarantined = true;
+        }
+        throw error;
+      }
       const normalized = raw === null ? null : provider.reverseMap[raw] ?? null;
       // An incomplete or unrelated EX reply must not present stale cached
       // routing as the physical radio's verified state.
@@ -3286,6 +3408,7 @@ export class HamlibRuntime
       const provider = this.getTxAudioProvider();
       if (!provider) throw new Error('Hamlib model has no verified TX audio input provider');
       const ftdx10 = this.meterRigMetadata?.rigModel === 1042;
+      let routingMode: string | undefined;
       if (ftdx10) {
         if (this.ftdx10RawRouteQuarantined) {
           throw new Error('FTDX10 raw CAT route is quarantined until reconnect');
@@ -3293,17 +3416,14 @@ export class HamlibRuntime
         if (await this.rig!.getPtt() !== false) {
           throw new Error('FTDX10 TX audio routing requires confirmed RX state');
         }
-        const split = await this.rig!.getSplit();
-        if (!split || split.enabled !== false) {
-          throw new Error('FTDX10 TX audio routing requires confirmed Split OFF');
-        }
         await this.performModeRead();
+        routingMode = await this.resolveFtdx10TxAudioRoutingMode();
       }
       const value = provider.valueMap[source];
       if (value === undefined) throw new Error(`Unsupported TX audio input source for ${this.meterRigMetadata?.modelName ?? 'radio'}: ${source}`);
       try {
-        await this.sendTxAudioRaw(provider, value);
-        const actual = await this.sendTxAudioRaw(provider);
+        await this.sendTxAudioRaw(provider, value, routingMode);
+        const actual = await this.sendTxAudioRaw(provider, undefined, routingMode);
         // An EX setter has no ACK: require the live physical menu readback.
         const applied = actual === null && provider.manufacturer !== 'Yaesu'
           ? source : actual === null ? null : provider.reverseMap[actual] ?? null;
@@ -4056,6 +4176,67 @@ export class HamlibRuntime
       }
 
       throw this.convertError(lastError ?? new Error('No usable Split TX VFO candidate'), 'setSplitFrequency');
+    }, { critical: true });
+  }
+
+  /**
+   * Read the transmitter's Split mode independently of the RX mode and dial.
+   * The live radio selects the TX VFO; no cached RX mode is substituted.
+   */
+  async getSplitMode(): Promise<string | null> {
+    return this.runSerializedTask('getSplitMode', async () => {
+      this.checkConnected();
+      const split = await this.readSplitStatus();
+      if (!split.enabled) return null;
+
+      let lastError: unknown;
+      for (const txVfo of this.getSplitTxVfoCandidates(split.txVfo)) {
+        try {
+          const state = await this.rig!.getSplitMode(txVfo as VFO);
+          if (state?.mode && typeof state.mode === 'string') {
+            this.lastSuccessfulOperation = Date.now();
+            return normalizeModeName(state.mode);
+          }
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      if (lastError) throw this.convertError(lastError, 'getSplitMode');
+      return null;
+    }, { id: 'getSplitMode' });
+  }
+
+  /**
+   * Split TX mode is an independent operation: it must not overwrite the
+   * current RX VFO mode or the independently configured Split TX frequency.
+   */
+  async setSplitMode(txMode: string): Promise<void> {
+    await this.runSerializedTask('setSplitMode', async () => {
+      this.checkConnected();
+      const target = normalizeModeName(txMode);
+      if (!target || (this.supportedModes.size && !this.supportedModes.has(target))) {
+        throw new Error(`Split TX mode is not advertised by the radio: ${txMode}`);
+      }
+
+      const split = await this.readSplitStatus();
+      let lastError: unknown;
+      for (const txVfo of this.getSplitTxVfoCandidates(split.txVfo)) {
+        try {
+          await this.rig!.setSplitMode(target as any, txVfo as VFO);
+          const observed = await this.rig!.getSplitMode(txVfo as VFO);
+          if (normalizeModeName(observed?.mode ?? '') !== target) {
+            // A write was accepted but did not affect the intended TX VFO.
+            // Trying another VFO now could inadvertently change both VFOs.
+            throw new Error(`Split TX mode readback mismatch: requested ${target}, observed ${observed?.mode ?? 'unknown'}`);
+          }
+          this.lastSuccessfulOperation = Date.now();
+          return;
+        } catch (error) {
+          if (error instanceof Error && error.message.includes('readback mismatch')) throw error;
+          lastError = error;
+        }
+      }
+      throw this.convertError(lastError ?? new Error('No usable Split TX VFO candidate'), 'setSplitMode');
     }, { critical: true });
   }
 

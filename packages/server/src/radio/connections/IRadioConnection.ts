@@ -652,6 +652,18 @@ export interface IRadioConnection extends EventEmitter<IRadioConnectionEvents> {
 
   getMonitorEnabled?(): Promise<boolean>;
   setMonitorEnabled?(enabled: boolean): Promise<void>;
+  /** FTDX10 independent analogue roofing filter (1=12k,2=3k,4=500,5=300 optional). */
+  getRoofingFilter?(): Promise<number>;
+  setRoofingFilter?(index: number): Promise<void>;
+  /** Receiver Contour DSP controls; not the standard mode passband. */
+  getContourEnabled?(): Promise<boolean>;
+  setContourEnabled?(enabled: boolean): Promise<void>;
+  getContourFrequency?(): Promise<number>;
+  setContourFrequency?(hz: number): Promise<void>;
+  getContourLevel?(): Promise<number>;
+  setContourLevel?(db: number): Promise<void>;
+  getContourWidth?(): Promise<number>;
+  setContourWidth?(width: number): Promise<void>;
   getApfEnabled?(): Promise<boolean>;
   setApfEnabled?(enabled: boolean): Promise<void>;
   getApfLevel?(): Promise<number>;
@@ -812,6 +824,9 @@ export interface IRadioConnection extends EventEmitter<IRadioConnectionEvents> {
   getSplitFrequency?(): Promise<number | null>;
   /** 设置 Split TX 频率。 */
   setSplitFrequency?(txFrequency: number): Promise<void>;
+  /** 独立读写 Split TX 模式；Split OFF 时读取返回 null。 */
+  getSplitMode?(): Promise<string | null>;
+  setSplitMode?(txMode: string): Promise<void>;
   /** 原子设置 Split TX 频率和模式。 */
   setSplitFreqMode?(txFrequency: number, txMode: string, txWidth: number): Promise<void>;
   getAudioIfMode?(): Promise<string>;

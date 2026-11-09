@@ -23,17 +23,11 @@ import type { CapabilityValue } from '@tx5dr/contracts';
 import { TX_AUDIO_INPUT_SOURCE_OPTIONS } from '../txAudioInput/TxAudioInputProvider.js';
 
 /**
- * Temporary safety quarantine for the TX audio input route capability.
- *
- * Hamlib/CI-V models can leave asynchronous spectrum frames and raw CAT
- * replies interleaved on the same serial stream. Until the binding-level
- * transaction boundary is fixed, this capability must not be advertised or
- * dispatched for any radio model. The implementation remains in place for a
- * later re-enable after protocol-level validation.
+ * Feature availability is derived from each live radio's declared providers.
+ * There are no blanket capability bans: unsupported routes remain absent
+ * from the reported options, while protocol errors are handled by their owner.
  */
-const TEMPORARILY_DISABLED_CAPABILITIES: ReadonlySet<string> = new Set<string>([
-  'tx_audio_input_source',
-]);
+const TEMPORARILY_DISABLED_CAPABILITIES: ReadonlySet<string> = new Set();
 
 export function isCapabilityTemporarilyDisabled(id: string): boolean {
   return TEMPORARILY_DISABLED_CAPABILITIES.has(id);
@@ -287,6 +281,50 @@ function createFtdx10ApfDefinition(): CapabilityDefinition {
       return { supported: true, source: 'runtime-probe' };
     },
   };
+}
+
+function ftdx10OnlyReceiverCapability(base: CapabilityDefinition): CapabilityDefinition {
+  return {
+    ...base,
+    descriptor: { ...base.descriptor, requiresIdle: true },
+    probeSupport: async (conn) => isFtdx10ManualModeConnection(conn)
+      ? base.probeSupport(conn) : false,
+  };
+}
+
+function createFtdx10ReceiverDefinitions(): CapabilityDefinition[] {
+  const roofing = ftdx10OnlyReceiverCapability(createRuntimeEnumDefinition(
+    'roofing_filter', 'rf', 'getRoofingFilter', 'setRoofingFilter', [1, 2, 4, 5],
+  ));
+  return [
+    {
+      ...roofing,
+      descriptor: {
+        ...roofing.descriptor,
+        options: [
+          createOption(1, 'radio:capability.roofing_filter.options.12khz'),
+          createOption(2, 'radio:capability.roofing_filter.options.3khz'),
+          createOption(4, 'radio:capability.roofing_filter.options.500hz'),
+          createOption(5, 'radio:capability.roofing_filter.options.300hz'),
+        ],
+      },
+    },
+    ftdx10OnlyReceiverCapability(createRuntimeBooleanDefinition(
+      'contour_enabled', 'rf', 'getContourEnabled', 'setContourEnabled',
+    )),
+    ftdx10OnlyReceiverCapability(createRuntimeNumberDefinition(
+      'contour_frequency', 'rf', 'getContourFrequency', 'setContourFrequency',
+      { min: 10, max: 3200, step: 1 }, { mode: 'value', unit: 'Hz', decimals: 0 },
+    )),
+    ftdx10OnlyReceiverCapability(createRuntimeNumberDefinition(
+      'contour_level', 'rf', 'getContourLevel', 'setContourLevel',
+      { min: -40, max: 20, step: 1 }, { mode: 'value', unit: 'dB', decimals: 0 },
+    )),
+    ftdx10OnlyReceiverCapability(createRuntimeNumberDefinition(
+      'contour_width', 'rf', 'getContourWidth', 'setContourWidth',
+      { min: 1, max: 11, step: 1 }, { mode: 'value', decimals: 0 },
+    )),
+  ];
 }
 
 function createRuntimeNumberDefinition(
@@ -1055,6 +1093,7 @@ function createDefinitions(): CapabilityDefinition[] {
       read: (conn) => conn.getAttenuatorLevel!(),
       write: (conn, value) => conn.setAttenuatorLevel!(value as number),
     },
+    ...createFtdx10ReceiverDefinitions(),
     createFtdx10ModeAutoFollowDefinition(),
     {
       id: 'radio_mode',
@@ -1182,6 +1221,10 @@ function createDefinitions(): CapabilityDefinition[] {
         }
       },
     },
+    ftdx10OnlyReceiverCapability(createRuntimeEnumDefinition(
+      'split_tx_mode', 'operation', 'getSplitMode', 'setSplitMode',
+      [...FTDX10_RADIO_MODE_ORDER], 'getSupportedModes',
+    )),
     createRuntimeEnumDefinition(
       'vfo_select',
       'operation',

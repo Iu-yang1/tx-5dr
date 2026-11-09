@@ -2,6 +2,7 @@ import { EventEmitter } from 'eventemitter3';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CapabilityDescriptor, CapabilityState, HamlibConfig } from '@tx5dr/contracts';
 import { RadioCapabilityManager } from '../RadioCapabilityManager.js';
+import { CAPABILITY_DEFINITION_MAP } from '../capabilities/definitions.js';
 import {
   RadioConnectionState,
   RadioConnectionType,
@@ -65,6 +66,47 @@ function getDescriptor(snapshot: CapabilityDescriptor[], id: string): Capability
   }
   return descriptor;
 }
+
+describe('FTDX10 P4 TX audio route capability', () => {
+  it('exposes declared source options without a global feature quarantine', async () => {
+    const definition = CAPABILITY_DEFINITION_MAP.get('tx_audio_input_source');
+    expect(definition).toBeDefined();
+    expect(definition!.descriptor).toMatchObject({
+      readable: true,
+      writable: true,
+    });
+    expect(definition!.descriptor.options?.length).toBeGreaterThan(0);
+    expect(definition!.read).toBeTypeOf('function');
+    expect(definition!.write).toBeTypeOf('function');
+
+    const getSupportedTxAudioInputSources = vi.fn(async () => ['mic', 'usb', 'accessory']);
+    const getTxAudioInputSource = vi.fn(async () => 'mic');
+    const setTxAudioInputSource = vi.fn(async (source: string) => ({
+      requested: source, applied: source, outcome: 'applied', acknowledgement: 'readback',
+    }));
+    const connection = new MockConnection(RadioConnectionType.HAMLIB, {
+      getSupportedTxAudioInputSources, getTxAudioInputSource, setTxAudioInputSource,
+    });
+    await expect(definition!.probeSupport(connection as never)).resolves.toMatchObject({
+      supported: true, source: 'backend-declared',
+    });
+    await expect(definition!.read!(connection as never)).resolves.toBe('mic');
+    await definition!.write!(connection as never, 'usb');
+    expect(setTxAudioInputSource).toHaveBeenCalledWith('usb');
+  });
+
+  it('does not advertise the source capability for a radio with no provider', async () => {
+    const definition = CAPABILITY_DEFINITION_MAP.get('tx_audio_input_source')!;
+    const connection = new MockConnection(RadioConnectionType.HAMLIB, {
+      getSupportedTxAudioInputSources: vi.fn(async () => []),
+      getTxAudioInputSource: vi.fn(async () => null),
+      setTxAudioInputSource: vi.fn(),
+    });
+    await expect(definition.probeSupport(connection as never)).resolves.toMatchObject({
+      supported: false,
+    });
+  });
+});
 
 describe('RadioCapabilityManager', () => {
   afterEach(() => {
@@ -698,6 +740,87 @@ describe('RadioCapabilityManager', () => {
     await expect(manager.writeCapability('mode_bandwidth', 10000)).resolves.toBeUndefined();
     expect(setModeBandwidth).toHaveBeenCalledWith(10000);
 
+    manager.onDisconnected();
+  });
+
+  it('exposes FTDX10 analogue roofing and Contour controls independently from DSP mode WIDTH', async () => {
+    const manager = new RadioCapabilityManager();
+    let roofing = 2;
+    let contourEnabled = false;
+    let contourFrequency = 800;
+    const setRoofingFilter = vi.fn(async (index: number) => { roofing = index; });
+    const setContourEnabled = vi.fn(async (value: boolean) => { contourEnabled = value; });
+    const setContourFrequency = vi.fn(async (hz: number) => { contourFrequency = hz; });
+    const conn = new MockConnection(RadioConnectionType.HAMLIB, {
+      getConnectionInfo: () => ({
+        type: RadioConnectionType.HAMLIB,
+        state: RadioConnectionState.CONNECTED,
+        config: { type: 'serial', serial: { rigModel: 1042, path: 'COM4' } },
+      }),
+      setManualMode: vi.fn(),
+      getRoofingFilter: vi.fn(async () => roofing),
+      setRoofingFilter,
+      getContourEnabled: vi.fn(async () => contourEnabled),
+      setContourEnabled,
+      getContourFrequency: vi.fn(async () => contourFrequency),
+      setContourFrequency,
+      getContourLevel: vi.fn(async () => -12),
+      setContourLevel: vi.fn(async (_value: number) => undefined),
+      getContourWidth: vi.fn(async () => 5),
+      setContourWidth: vi.fn(async (_value: number) => undefined),
+    });
+    await manager.onConnected(conn as never);
+    const descriptors = manager.getCapabilitySnapshot().descriptors;
+    expect(getDescriptor(descriptors, 'roofing_filter')).toMatchObject({
+      valueType: 'enum',
+      writable: true,
+      requiresIdle: true,
+      options: [
+        { value: 1 }, { value: 2 }, { value: 4 }, { value: 5 },
+      ],
+    });
+    expect(getDescriptor(descriptors, 'contour_enabled')).toMatchObject({
+      valueType: 'boolean', writable: true, requiresIdle: true,
+    });
+    expect(getDescriptor(descriptors, 'contour_frequency')).toMatchObject({
+      valueType: 'number', writable: true, requiresIdle: true,
+      range: { min: 10, max: 3200, step: 1 },
+    });
+    expect(getCapability(manager.getCapabilityStates(), 'roofing_filter')).toMatchObject({
+      supported: true, value: 2,
+    });
+    await manager.writeCapability('roofing_filter', 4);
+    expect(setRoofingFilter).toHaveBeenCalledWith(4);
+    expect(getCapability(manager.getCapabilityStates(), 'roofing_filter').value).toBe(4);
+    await manager.writeCapability('contour_enabled', true);
+    expect(setContourEnabled).toHaveBeenCalledWith(true);
+    await manager.writeCapability('contour_frequency', 950);
+    expect(setContourFrequency).toHaveBeenCalledWith(950);
+    await expect(manager.writeCapability('roofing_filter', 3)).rejects.toThrow('unsupported enum value');
+    manager.setPTTActive(true);
+    await expect(manager.writeCapability('contour_enabled', false)).rejects.toThrow('requires an idle radio');
+    manager.onDisconnected();
+  });
+
+  it('never advertises FTDX10 Roofing/Contour on another Hamlib model', async () => {
+    const manager = new RadioCapabilityManager();
+    const getRoofingFilter = vi.fn(async () => 2);
+    const getContourFrequency = vi.fn(async () => 800);
+    await manager.onConnected(new MockConnection(RadioConnectionType.HAMLIB, {
+      getConnectionInfo: () => ({
+        type: RadioConnectionType.HAMLIB,
+        state: RadioConnectionState.CONNECTED,
+        config: { type: 'serial', serial: { rigModel: 1035, path: 'COM5' } },
+      }),
+      setManualMode: vi.fn(),
+      getRoofingFilter,
+      getContourFrequency,
+    }) as never);
+    for (const id of ['roofing_filter', 'contour_enabled', 'contour_frequency', 'contour_level', 'contour_width']) {
+      expect(getCapability(manager.getCapabilityStates(), id)).toMatchObject({ supported: false });
+    }
+    expect(getRoofingFilter).not.toHaveBeenCalled();
+    expect(getContourFrequency).not.toHaveBeenCalled();
     manager.onDisconnected();
   });
 
