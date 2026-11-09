@@ -701,6 +701,69 @@ describe('RadioCapabilityManager', () => {
     manager.onDisconnected();
   });
 
+  it('exposes FTDX10 DATA/CW modes and writes through the guarded manual operation', async () => {
+    const manager = new RadioCapabilityManager();
+    let currentMode = 'USB';
+    const setManualMode = vi.fn(async (mode: string) => { currentMode = mode; });
+    const connection = new MockConnection(RadioConnectionType.HAMLIB, {
+      getConnectionInfo: () => ({
+        type: RadioConnectionType.HAMLIB,
+        state: RadioConnectionState.CONNECTED,
+        config: { type: 'serial', serial: { path: 'COM4', rigModel: 1042 } },
+      }),
+      getSupportedModes: vi.fn(async () => ['USB', 'LSB', 'CW', 'CWR', 'PKTUSB', 'PKTLSB', 'FM', 'UNKNOWN']),
+      getMode: vi.fn(async () => ({ mode: currentMode, bandwidth: 'wide' })),
+      setManualMode,
+    });
+
+    let latestSnapshot = manager.getCapabilitySnapshot();
+    manager.on('capabilityList', snapshot => { latestSnapshot = snapshot; });
+    await manager.onConnected(connection as never);
+
+    expect(getDescriptor(latestSnapshot.descriptors, 'radio_mode')).toMatchObject({
+      writable: true,
+      requiresIdle: true,
+      options: [
+        { value: 'USB' }, { value: 'LSB' }, { value: 'FM' },
+        { value: 'CW' }, { value: 'CWR' }, { value: 'PKTUSB' }, { value: 'PKTLSB' },
+      ],
+    });
+    await manager.writeCapability('radio_mode', 'PKTUSB');
+    expect(setManualMode).toHaveBeenCalledWith('PKTUSB');
+    expect(getCapability(manager.getCapabilityStates(), 'radio_mode').value).toBe('PKTUSB');
+
+    await expect(manager.writeCapability('radio_mode', 'UNKNOWN')).rejects.toThrow('unsupported enum value');
+    expect(setManualMode).toHaveBeenCalledTimes(1);
+
+    manager.setPTTActive(true);
+    await expect(manager.writeCapability('radio_mode', 'USB')).rejects.toThrow('requires an idle radio');
+    expect(setManualMode).toHaveBeenCalledTimes(1);
+    manager.onDisconnected();
+  });
+
+  it('does not expose writable radio modes on unrelated Hamlib models', async () => {
+    const manager = new RadioCapabilityManager();
+    const connection = new MockConnection(RadioConnectionType.HAMLIB, {
+      getConnectionInfo: () => ({
+        type: RadioConnectionType.HAMLIB,
+        state: RadioConnectionState.CONNECTED,
+        config: { type: 'serial', serial: { path: 'COM5', rigModel: 1035 } },
+      }),
+      getSupportedModes: vi.fn(async () => ['USB', 'CW', 'PKTUSB']),
+      getMode: vi.fn(async () => ({ mode: 'USB', bandwidth: 'wide' })),
+      setManualMode: vi.fn(),
+    });
+    let latestSnapshot = manager.getCapabilitySnapshot();
+    manager.on('capabilityList', snapshot => { latestSnapshot = snapshot; });
+    await manager.onConnected(connection as never);
+    expect(getDescriptor(latestSnapshot.descriptors, 'radio_mode').writable).toBe(false);
+    expect(getDescriptor(latestSnapshot.descriptors, 'radio_mode').options).toEqual([
+      { value: 'USB', labelI18nKey: 'voice:radioMode.usb' },
+    ]);
+    await expect(manager.writeCapability('radio_mode', 'USB')).rejects.toThrow('read-only');
+    manager.onDisconnected();
+  });
+
   it('discovers WFM through the radio_mode capability when the radio reports support', async () => {
     const manager = new RadioCapabilityManager();
     const connection = new MockConnection(RadioConnectionType.HAMLIB, {
