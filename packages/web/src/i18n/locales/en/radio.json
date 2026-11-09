@@ -957,6 +957,10 @@
       "label": "Radio Mode",
       "description": "Shows the current voice-capable modulation modes reported by the connected radio."
     },
+    "split_tx_mode": {
+      "label": "Split TX Mode",
+      "description": "Set the Split transmit VFO mode independently without changing the RX mode or Split TX frequency; verify the live TX mode after writing."
+    },
     "mode_bandwidth": {
       "label": "Mode Bandwidth",
       "description": "Reads and switches the active filter bandwidth for the current operating mode. The voice spectrum overlay prefers this real bandwidth when available."
