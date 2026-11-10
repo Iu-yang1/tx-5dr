@@ -71,6 +71,34 @@ describe('decode session cancellation and bounded waiting', () => {
     await occupied;
   });
 
+  it('keeps receiver history after a Worker exits and excludes cancelled late results', async () => {
+    const learned = pool.decode(request('hash-learn', true));
+    workers[0].finish(['5TB3Z']);
+    await learned;
+
+    workers[0].kill();
+    const next = pool.decode(request('hash-after-crash', true));
+    const survivingCommand = workers[1].commands.filter(c => c.type === 'decode').at(-1);
+    expect(survivingCommand?.hashSnapshot?.calls).toContain('5TB3Z');
+    workers[1].finish();
+    await next;
+
+    const stale = pool.decode(request('hash-cancelled'));
+    const active = workers.find(w => w.commands.filter(c => c.type === 'decode')
+      .at(-1)?.request?.slotId === 'hash-cancelled')!;
+    pool.cancelSession('hash-cancelled', 'transmit-skipped');
+    active.finish(['BAD1CALL']);
+    await expect(stale).rejects.toMatchObject({ code: 'DECODE_SESSION_CANCELLED' });
+    const later = pool.decode(request('hash-later', true));
+    const last = workers.flatMap(w => w.commands.filter(c => c.type === 'decode'))
+      .find(c => c.request?.slotId === 'hash-later');
+    expect(last?.hashSnapshot?.calls).toContain('5TB3Z');
+    expect(last?.hashSnapshot?.calls).not.toContain('BAD1CALL');
+    const lastWorker = workers.find(w => w.commands.some(c => c === last))!;
+    lastWorker.finish();
+    await later;
+  });
+
   it('reuses both workers after two sessions lose their final windows', async () => {
     const a = pool.decode(request('slot-A')); workers[0].finish(); await a;
     const b = pool.decode(request('slot-B')); workers[1].finish(); await b;
