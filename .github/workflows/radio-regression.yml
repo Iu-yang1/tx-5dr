@@ -145,6 +145,9 @@ jobs:
             src/plugin/__tests__/PluginManager.standard-qso.test.ts
             src/decode/__tests__/NativeAutoTxScheduler.test.ts
             src/decode/__tests__/MfskNativeTxService.test.ts
+            src/decode/__tests__/CallsignHashRegistry.test.ts
+            src/decode/__tests__/MfskDecodeWorkerCore.test.ts
+            src/decode/__tests__/WSJTXDecodeProcessPool.lifecycle.test.ts
             src/subsystems/__tests__/TransmissionPipeline.test.ts
             src/subsystems/__tests__/RadioBridge.test.ts
             src/__tests__/DigitalRadioEngine.mode-switch.test.ts
