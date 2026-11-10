@@ -18,8 +18,12 @@ export class HamlibEndpoint extends EventEmitter<HamlibEndpointEvents> {
     this.runtime.diagnostics.on('snapshot', snapshot => this.emit('snapshot', snapshot));
     this.runtime.diagnostics.on('fault', error => this.emit('fault', error));
     const forward = (event: HamlibEvent['event'], args: unknown[]) => {
+      // Telemetry originates from native code. Invalid measurements must not
+      // escape the event emitter into the radio state machine.
+      const parsed = HamlibEventSchema.safeParse({ event, args });
+      if (!parsed.success) return;
       this.publishSnapshot();
-      this.emit('event', HamlibEventSchema.parse({ event, args }));
+      this.emit('event', parsed.data);
     };
     this.runtime.on('stateChanged', state => forward('stateChanged', [state]));
     this.runtime.on('connected', () => forward('connected', []));
