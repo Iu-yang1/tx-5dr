@@ -88,7 +88,7 @@ fn from_pcm(pcm: &Buffer) -> Result<Vec<f32>> {
 
 #[napi]
 pub fn codec_version() -> String {
-    "mfsk-core/0.15.1; tx5dr-fork/d56ea0ccd07a; tx5dr-napi/0.1.0".to_owned()
+    "mfsk-core/0.15.1; tx5dr-fork/a6dab18f1a88; tx5dr-napi/0.1.0".to_owned()
 }
 
 #[napi]
@@ -124,9 +124,13 @@ pub fn decode_slotted(mode: String, pcm_f32_le: Buffer) -> Result<Vec<NativeDeco
         frequency_hz: f64::from(r.decoded.freq_hz),
         snr_db: f64::from(r.decoded.snr_db),
         dt_seconds: f64::from(r.decoded.dt_sec),
-        learned_callsigns: r.detail.info.get(..77)
-            .map(mfsk_core::msg::wsjt77::callsigns_in_message)
-            .unwrap_or_default(),
+        learned_callsigns: if mode == "FT8" || mode == "FT4" {
+            r.detail.info.get(..77)
+                .map(mfsk_core::msg::wsjt77::callsigns_in_message)
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        },
     }).collect())
 }
 
