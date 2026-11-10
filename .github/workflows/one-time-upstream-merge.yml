@@ -1,0 +1,36 @@
+name: Stage one-time upstream merge without release
+
+on:
+  push:
+    branches: ['sync/boybook-main-20261110']
+    paths: ['.github/workflows/one-time-upstream-merge.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Merge exact reviewed upstream main with fork precedence only on conflicting hunks
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch --no-tags https://github.com/boybook/tx-5dr.git main
+          test "$(git rev-parse FETCH_HEAD)" = 'd0f1c3165ca4aaebd01d1450d174b5f5314c1d8c'
+          if ! git merge --no-ff -X ours -m 'chore(upstream): integrate boybook/tx-5dr [skip release]' FETCH_HEAD; then
+            git status --short
+            git diff --name-only --diff-filter=U
+            exit 1
+          fi
+          git rm .github/workflows/one-time-upstream-merge.yml
+          git commit -m 'chore: remove one-shot sync workflow [skip release]'
+          git log -3 --oneline
+          git push origin HEAD:refs/heads/sync/boybook-main-20261110
