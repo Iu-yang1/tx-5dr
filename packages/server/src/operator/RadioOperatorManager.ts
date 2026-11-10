@@ -1158,7 +1158,8 @@ export class RadioOperatorManager {
   }
 
   private startOperatorInternal(operatorId: string, deferInitialDecision: boolean): boolean {
-    if (this.transmissionMaintenanceReason) throw new Error(`Operator transmission paused: ${this.transmissionMaintenanceReason}`);
+    // Arming is retained as intent during recovery; the transmit gate
+    // independently blocks any RF output until the new session is verified.
     const operator = this.operators.get(operatorId);
     if (!operator) {
       throw new Error(`operator ${operatorId} not found`);
@@ -2514,10 +2515,19 @@ export class RadioOperatorManager {
   }
 
   beginRadioRecovery(): void {
-    if (this.radioRecovery || this.transmissionMaintenanceReason) return;
+    if (this.radioRecovery) {
+      // A second fault invalidates the earlier recovery confirmation.
+      this.radioRecovery.resumeAt = null;
+      this.stopAllOperators(true);
+      this.discardUncommittedTransmissions(RADIO_RECOVERY_MAINTENANCE_REASON);
+      for (const [id, intent] of this.radioRecovery.intents) {
+        intent.epoch = this.intentCoordinator.getCurrentEpoch(id);
+      }
+      return;
+    }
     const transmitting = [...this.operators.values()].filter(operator => operator.isTransmitting);
     this.stopAllOperators(true);
-    this.enterTransmissionMaintenance('Hamlib recovery');
+    this.discardUncommittedTransmissions(RADIO_RECOVERY_MAINTENANCE_REASON);
     const config = ConfigManager.getInstance();
     this.radioRecovery = {
       resumeAt: null, profileId: config.getActiveProfileId(), mode: this.getCurrentMode().name,
@@ -2535,8 +2545,8 @@ export class RadioOperatorManager {
   }
 
   cancelRadioRecovery(): void {
+    // Unrelated plugin/CAT maintenance is a separate transaction.
     this.radioRecovery = null;
-    if (this.transmissionMaintenanceReason === 'Hamlib recovery') this.exitTransmissionMaintenance();
   }
 
   /** Gate every automated TX path during maintenance and uncertain recovery. */
@@ -2556,7 +2566,16 @@ export class RadioOperatorManager {
 
   private getRecoveryConfiguration(operator: RadioOperator): string {
     const config = ConfigManager.getInstance();
-    return JSON.stringify({ operator: config.getOperatorConfig(operator.config.id) ?? operator.config, plugins: config.getPluginsConfig() });
+    const id = operator.config.id;
+    const plugins = config.getPluginsConfig();
+    const strategy = plugins.operatorStrategies?.[id];
+    return JSON.stringify({
+      operator: config.getOperatorConfig(id) ?? operator.config,
+      strategy,
+      strategyConfig: strategy ? plugins.configs?.[strategy] : undefined,
+      operatorSettings: plugins.operatorSettings?.[id],
+      pauses: plugins.operatorPluginPauses?.[id],
+    });
   }
 
   private resumeRecoveredOperatorsAtSlot(slot: SlotInfo): void {
