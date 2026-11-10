@@ -187,7 +187,12 @@ describe('pluginRoutes auth', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual(snapshot);
+    const projected = response.json();
+    expect(projected).toEqual({
+      ...snapshot,
+      loadFailures: snapshot.loadFailures?.map(({ message: _message, ...summary }) => summary),
+    });
+    expect(projected.loadFailures?.[0]).not.toHaveProperty('message');
     expect(getSnapshot).toHaveBeenCalledTimes(1);
   });
 
