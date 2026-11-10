@@ -1,62 +1,102 @@
 /**
- * Receiver-scoped WSJT 77-bit callsign memory.
- *
- * Native decoders own per-slot staged DSP state; only protocol-validated
- * calls from completed worker results enter this registry. A snapshot is
- * ordered oldest-to-newest for native 22-bit LRU replay.
+ * Receiver-scoped WSJT 77-bit hash memory, independent of slot/Worker state.
+ * Mirrors the three WSJT-X table lifetimes: 10/12-bit direct indexes and
+ * a 1000-entry 22-bit LRU. Collisions keep a witness for Native to replay
+ * so a short hash never silently resolves to the most recent winner.
  */
 export interface CallsignHashSnapshot {
   version: number;
   calls: string[];
 }
 
-const MAX_CALLS = 1000;
-const VALID_CALL = /^(?=.{2,11}$)(?=.*[A-Z])(?=.*[0-9])[A-Z0-9/]+$/;
+const MAX_HASH22 = 1000;
+const C38 = ' 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ/';
+const MASK64 = (1n << 64n) - 1n;
+const MAGIC = 47_055_833_459n;
+// Native extracts validated 77-bit fields. This additional shape check
+// excludes grids/reports if a malformed or legacy Worker sends bad metadata.
+const VALID_CALL = /^(?=.{2,11}$)(?=.*[A-Z])(?=.*[0-9][A-Z])[A-Z0-9/]+$/;
+
+export function callsignHash(call: string, bits: 10 | 12 | 22): number {
+  const normalized = call.toUpperCase().padEnd(11, ' ');
+  let n = 0n;
+  for (const c of normalized.slice(0, 11)) {
+    n = ((n * 38n) + BigInt(Math.max(C38.indexOf(c), 0))) & MASK64;
+  }
+  return Number(((n * MAGIC) & MASK64) >> BigInt(64 - bits));
+}
 
 export class CallsignHashRegistry {
-  private readonly rxCalls = new Map<string, true>();
+  private readonly calls10 = new Map<number, string>();
+  private readonly calls12 = new Map<number, string>();
+  private readonly collision10 = new Map<number, string>();
+  private readonly collision12 = new Map<number, string>();
+  private readonly calls22 = new Map<string, true>();
   private revision = 0;
+  private last22: string | null = null;
 
   get version(): number { return this.revision; }
-  get size(): number { return this.rxCalls.size; }
+  get size(): number { return this.calls22.size; }
 
-  /**
-   * Accept only calls supplied by Native's 77-bit field extractor.
-   * Never pass display-text tokens, grids, or unresolved hashes here.
-   */
+  /** Input MUST come from a Native-validated protocol field, not UI text. */
   learnRx(calls: readonly string[]): number {
     let changed = 0;
     for (const raw of calls) {
       if (typeof raw !== 'string') continue;
       const call = raw.trim().toUpperCase();
       if (!VALID_CALL.test(call)) continue;
-      if (this.rxCalls.has(call)) {
-        // WSJT-X save_hash_call refreshes the 22-bit LRU on repeated RX.
-        if ([...this.rxCalls.keys()].at(-1) !== call) {
-          this.rxCalls.delete(call);
-          this.rxCalls.set(call, true);
+      for (const [bits, slots, conflicts] of [
+        [10, this.calls10, this.collision10],
+        [12, this.calls12, this.collision12],
+      ] as const) {
+        const hash = callsignHash(call, bits);
+        const previous = slots.get(hash);
+        if (previous !== call) {
+          if (previous && !conflicts.has(hash)) conflicts.set(hash, previous);
+          slots.set(hash, call);
           changed++;
         }
-        continue;
       }
-      this.rxCalls.set(call, true);
-      if (this.rxCalls.size > MAX_CALLS) {
-        this.rxCalls.delete(this.rxCalls.keys().next().value!);
+      if (!this.calls22.has(call)) {
+        this.calls22.set(call, true);
+        if (this.calls22.size > MAX_HASH22) {
+          this.calls22.delete(this.calls22.keys().next().value!);
+        }
+        this.last22 = call;
+        changed++;
+      } else if (this.last22 !== call) {
+        this.calls22.delete(call);
+        this.calls22.set(call, true);
+        this.last22 = call;
+        changed++;
       }
-      changed++;
     }
     if (changed) this.revision++;
     return changed;
   }
 
   snapshot(): CallsignHashSnapshot {
-    return { version: this.revision, calls: [...this.rxCalls.keys()] };
+    // Replay direct-slot witnesses first. Replaying the latest 1000 calls
+    // last restores the correct long-hash LRU without discarding older
+    // still-valid short-hash entries.
+    const calls = new Set<string>();
+    for (const call of this.collision10.values()) calls.add(call);
+    for (const call of this.collision12.values()) calls.add(call);
+    for (const call of this.calls10.values()) calls.add(call);
+    for (const call of this.calls12.values()) calls.add(call);
+    for (const call of this.calls22.keys()) {
+      calls.delete(call);
+      calls.add(call);
+    }
+    return { version: this.revision, calls: [...calls] };
   }
 
   clear(): void {
-    if (this.rxCalls.size) {
-      this.rxCalls.clear();
-      this.revision++;
-    }
+    if (!this.revision && !this.calls22.size) return;
+    this.calls10.clear(); this.calls12.clear();
+    this.collision10.clear(); this.collision12.clear();
+    this.calls22.clear();
+    this.last22 = null;
+    this.revision++;
   }
 }
