@@ -260,6 +260,8 @@ export class RadioBridge {
 
   private async handleRadioConnected(): Promise<void> {
     logger.info('Radio connected');
+    this.clearLeaseRecoveryRetry();
+    this.leaseRecoveryAttempt = 0;
     await this.recoveryStop;
 
     const { engineEmitter, radioManager } = this.deps;
@@ -296,7 +298,8 @@ export class RadioBridge {
     // otherwise it can keep producing deferred TX requests against a radio
     // whose physical lease is not safe to use.
     if (recoverySnapshot && recoverySnapshot.phase !== 'idle') {
-      logger.warn('Radio connected but physical TX recovery is still unknown; keeping automation stopped');
+      logger.warn('Radio connected but physical TX recovery is still unknown; retrying release before resuming');
+      this.scheduleLeaseRecoveryRetry();
       return;
     }
 
