@@ -28,6 +28,8 @@ pub struct NativeDecodeRow {
     pub frequency_hz: f64,
     pub snr_db: f64,
     pub dt_seconds: f64,
+    /// Protocol-field calls from an accepted FT8/FT4 77-bit packet.
+    pub learned_callsigns: Vec<String>,
 }
 
 #[napi(object)]
@@ -86,7 +88,7 @@ fn from_pcm(pcm: &Buffer) -> Result<Vec<f32>> {
 
 #[napi]
 pub fn codec_version() -> String {
-    "mfsk-core/0.15.1; tx5dr-fork/9b48880d7309; tx5dr-napi/0.1.0".to_owned()
+    "mfsk-core/0.15.1; tx5dr-fork/ded17b31a2f88; tx5dr-napi/0.1.0".to_owned()
 }
 
 #[napi]
@@ -122,6 +124,13 @@ pub fn decode_slotted(mode: String, pcm_f32_le: Buffer) -> Result<Vec<NativeDeco
         frequency_hz: f64::from(r.decoded.freq_hz),
         snr_db: f64::from(r.decoded.snr_db),
         dt_seconds: f64::from(r.decoded.dt_sec),
+        learned_callsigns: if mode == "FT8" || mode == "FT4" {
+            r.detail.info.get(..77)
+                .map(mfsk_core::msg::wsjt77::callsigns_in_message)
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        },
     }).collect())
 }
 
@@ -217,6 +226,7 @@ pub fn decode_msk144_recording(pcm_f32_le: Buffer, audio_hz: f64) -> Result<Vec<
     stream.push(&pcm, &mut |r| rows.push(NativeDecodeRow {
         text: r.message, frequency_hz: r.freq_hz as f64,
         snr_db: r.snr_db as f64, dt_seconds: r.t_s,
+        learned_callsigns: Vec::new(),
     }));
     Ok(rows)
 }
@@ -294,6 +304,20 @@ impl SlottedSession {
         Ok(Self { mode, inner: std::sync::Mutex::new(decoder), threads: AtomicU32::new(0) })
     }
 
+    /// Seed a fresh slot decoder from the receiver-level registry. The
+    /// decoder retains only this slot's staged/a7/DSP state.
+    #[napi]
+    pub fn preload_callsigns(&self, calls: Vec<String>) -> Result<()> {
+        if self.mode != "FT8" && self.mode != "FT4" {
+            return Ok(());
+        }
+        let mut decoder = self.inner.lock().map_err(|_| invalid("decoder lock poisoned"))?;
+        for call in calls {
+            decoder.learn_callsign(&call);
+        }
+        Ok(())
+    }
+
     #[napi]
     pub fn decode(
         &self, pcm_f32_le: Buffer, period_index: Option<i32>, early_prefix: Option<bool>,
@@ -313,6 +337,13 @@ impl SlottedSession {
                 frequency_hz: r.decoded.freq_hz as f64,
                 snr_db: r.decoded.snr_db as f64,
                 dt_seconds: r.decoded.dt_sec as f64,
+                learned_callsigns: if self.mode == "FT8" || self.mode == "FT4" {
+                    r.detail.info.get(..77)
+                        .map(mfsk_core::msg::wsjt77::callsigns_in_message)
+                        .unwrap_or_default()
+                } else {
+                    Vec::new()
+                },
             }).collect())
         };
         let threads = self.threads.load(Ordering::Acquire);
@@ -613,6 +644,7 @@ impl Msk144Session {
         self.inner.lock().map_err(|_| invalid("MSK144 receiver lock poisoned"))?
             .push(&pcm, &mut |r| rows.push(NativeDecodeRow {
                 text:r.message, frequency_hz:r.freq_hz as f64, snr_db:r.snr_db as f64,dt_seconds:r.t_s,
+                learned_callsigns: Vec::new(),
             }));
         Ok(rows)
     }

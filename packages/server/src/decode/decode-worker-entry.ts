@@ -4,6 +4,7 @@ import { createLogger } from '../utils/logger.js';
 import type { WSJTXDecodeWorkerCore } from './WSJTXDecodeWorkerCore.js';
 import { MfskDecodeWorkerCore } from './MfskDecodeWorkerCore.js';
 import { DecodeWorkerCommandSchema } from './decode-worker-protocol.js';
+import type { CallsignHashSnapshot } from './CallsignHashRegistry.js';
 import { resolveCodecBackend } from './codec-backend.js';
 
 const logger = createLogger('DecodeWorker');
@@ -34,6 +35,7 @@ interface DecodeCommand {
   type: 'decode';
   id: number;
   request: DecodeRequest;
+  hashSnapshot?: CallsignHashSnapshot;
 }
 
 function send(message: unknown): void {
@@ -148,8 +150,12 @@ async function handleDecode(command: DecodeCommand): Promise<void> {
   sendTelemetry();
 
   try {
-    const result: DecodeResult = await decoder.decode(command.request);
-    send({ type: 'result', id: command.id, result });
+    const result: DecodeResult = decoder instanceof MfskDecodeWorkerCore
+      ? await decoder.decode(command.request, command.hashSnapshot)
+      : await decoder.decode(command.request);
+    const learnedCalls = decoder instanceof MfskDecodeWorkerCore
+      ? decoder.takeLearnedCalls() : [];
+    send({ type: 'result', id: command.id, result, learnedCalls });
   } catch (error) {
     logger.error('decode failed', { workerId, error: serializeError(error) });
     send({ type: 'error', id: command.id, error: serializeError(error) });

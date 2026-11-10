@@ -1,9 +1,11 @@
 import type { DecodeRequest, DecodeResult } from '@tx5dr/core';
 import { resampleAudioProfessional } from '../utils/audioUtils.js';
 import { loadMfskNative, type MfskNativeModule, type MfskNativeRow } from './MfskNativeAdapter.js';
+import type { CallsignHashSnapshot } from './CallsignHashRegistry.js';
 
 export interface MfskNativeSlotHandle {
   decode(pcmF32Le: Buffer, periodIndex?: number, earlyPrefix?: boolean): MfskNativeRow[];
+  preloadCallsigns(calls: string[]): void;
   setParameters(depth: number, averaging: boolean, rxHz?: number, toleranceHz?: number): void;
   setParallelThreads?: (threads: number) => void;
   setFrameOptions?: (apMode: string, strategy: string, syncMin?: number, maxCandidates?: number) => void;
@@ -17,6 +19,7 @@ interface SlotSession {
   depth: number;
   tuningFingerprint: string;
   handle: MfskNativeSlotHandle;
+  hashVersion: number;
   seen: Set<string>;
 }
 
@@ -31,6 +34,7 @@ export class MfskDecodeWorkerCore {
   private readonly native: MfskNativeModule;
   private session: SlotSession | null = null;
   private decoding = false;
+  private learnedCalls: string[] = [];
 
   constructor(nativeModule?: MfskNativeModule) {
     if (nativeModule) {
@@ -42,11 +46,18 @@ export class MfskDecodeWorkerCore {
     }
   }
 
-  async decode(request: DecodeRequest): Promise<DecodeResult> {
+  takeLearnedCalls(): string[] {
+    const calls = this.learnedCalls;
+    this.learnedCalls = [];
+    return calls;
+  }
+
+  async decode(request: DecodeRequest, hashSnapshot?: CallsignHashSnapshot): Promise<DecodeResult> {
+    this.learnedCalls = [];
     if (this.decoding) throw new Error('Concurrent native decode is prohibited');
     this.decoding = true;
     try {
-      return await this.decodeInternal(request);
+      return await this.decodeInternal(request, hashSnapshot);
     } finally {
       this.decoding = false;
     }
@@ -57,7 +68,7 @@ export class MfskDecodeWorkerCore {
     if (this.session?.id === id) this.session = null;
   }
 
-  private async decodeInternal(request: DecodeRequest): Promise<DecodeResult> {
+  private async decodeInternal(request: DecodeRequest, hashSnapshot?: CallsignHashSnapshot): Promise<DecodeResult> {
     const started = performance.now();
     const mode = request.mode;
     if (mode !== 'FT8' && mode !== 'FT4') {
@@ -73,11 +84,18 @@ export class MfskDecodeWorkerCore {
     if (!this.session || this.session.id !== id) {
       const create = this.native.SlottedSession as unknown as
         new (name: string) => MfskNativeSlotHandle;
-      this.session = { id, mode, depth, tuningFingerprint, handle: new create(mode), seen: new Set() };
+      this.session = { id, mode, depth, tuningFingerprint, handle: new create(mode), hashVersion: -1, seen: new Set() };
     }
     const session = this.session;
     if (session.mode !== mode || session.depth !== depth || session.tuningFingerprint !== tuningFingerprint) {
       throw new Error('Decode mode/depth/tuning changed inside a native session');
+    }
+
+    // Import the receiver snapshot into each fresh slot decoder. A version
+    // change during a staged slot also becomes visible before its next stage.
+    if (hashSnapshot && session.hashVersion !== hashSnapshot.version) {
+      session.handle.preloadCallsigns(hashSnapshot.calls);
+      session.hashVersion = hashSnapshot.version;
     }
 
     const baseFrequency = request.apContext?.frequencyHz;
@@ -94,6 +112,12 @@ export class MfskDecodeWorkerCore {
       ap?.dxCall ?? '', ap?.dxGrid ?? '', progress,
       Boolean(ap?.myCall && ap.dxCall),
     );
+    // Operator-specified calls help this QSO, but never enter the RX registry.
+    // When AP context changes inside a slot it may be re-applied safely.
+    if (ap?.myCall || ap?.dxCall) {
+      session.handle.preloadCallsigns([ap.myCall ?? '', ap.dxCall ?? '']
+        .filter(call => /^(?=.{2,11}$)(?=.*[A-Z])(?=.*[0-9])[A-Z0-9/]+$/i.test(call)));
+    }
     if (tuning && Object.keys(tuning).length > 0) {
       // The deployed native addon must implement the requested features.
       // Failing closed is preferable to silently ignoring UI settings.
@@ -147,6 +171,11 @@ export class MfskDecodeWorkerCore {
       && !request.decodeFinalWindow && !request.lateRetry;
     const decoded = session.handle.decode(pcm, period, earlyPrefix);
     const nativeProcessingTimeMs = performance.now() - tNative;
+    // Prefix checkpoints are provisional; only finalized decoded packets
+    // publish hash learning effects to the supervising process.
+    if (!earlyPrefix) {
+      this.learnedCalls = [...new Set(decoded.flatMap(row => row.learnedCallsigns ?? []))];
+    }
     const frames: DecodeResult['frames'] = [];
     for (const row of decoded) {
       if (typeof row.text !== 'string' || !row.text.trim()

@@ -18,10 +18,11 @@ function fakeRequest(opts: Partial<DecodeRequest> = {}): DecodeRequest {
 
 function fakeNative(rows: MfskNativeRow[] = []) {
   const calls = { mode: [] as string[], decoded: 0, ap: [] as unknown[],
-    threads: [] as number[], frameOptions: [] as unknown[][] };
+    threads: [] as number[], frameOptions: [] as unknown[][], preloads: [] as string[][] };
   class Slotted {
     constructor(mode: string) { calls.mode.push(mode); }
     decode() { calls.decoded += 1; return rows; }
+    preloadCallsigns(callsigns: string[]) { calls.preloads.push([...callsigns]); }
     setParameters() {}
     setParallelThreads(threads: number) { calls.threads.push(threads); }
     setFrameOptions(...args: unknown[]) { calls.frameOptions.push(args); }
@@ -47,6 +48,22 @@ describe('isolated mfsk-native worker', () => {
     worker.endSession('slot-1');
     await worker.decode(fakeRequest({ decodeSessionId: 'slot-2' }));
     expect(calls.mode).toEqual(['FT8', 'FT8']);
+  });
+
+  it('preloads the same trusted hash snapshot into fresh slots and publishes final learning', async () => {
+    const { native, calls } = fakeNative([
+      { text: '<BG5JSU> 5TB3Z', frequencyHz: 1500, snrDb: -13,
+        dtSeconds: 0.4, learnedCallsigns: ['5TB3Z'] },
+    ]);
+    const worker = new MfskDecodeWorkerCore(native);
+    const snapshot = { version: 1, calls: ['5TB3Z'] };
+    await worker.decode(fakeRequest({ decodeFinalWindow: false }), snapshot);
+    expect(worker.takeLearnedCalls()).toEqual([]);
+    await worker.decode(fakeRequest({ decodeStage: 50, decodeFinalWindow: true }), snapshot);
+    expect(worker.takeLearnedCalls()).toEqual(['5TB3Z']);
+    await worker.decode(fakeRequest({ decodeSessionId: 'slot-2', decodeStage: 50,
+      decodeFinalWindow: true }), snapshot);
+    expect(calls.preloads).toEqual([['5TB3Z'], ['5TB3Z']]);
   });
 
   it('applies advanced Rayon/AP/SIC/synchronization settings to the native decoder', async () => {
