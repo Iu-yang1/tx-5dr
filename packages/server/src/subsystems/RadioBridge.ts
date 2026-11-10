@@ -69,6 +69,8 @@ export class RadioBridge {
   private frequencyEventTail: Promise<void> = Promise.resolve();
   private latestFrequencyRevision = 0;
   private recoveryStop: Promise<void> = Promise.resolve();
+  private leaseRecoveryTimer: ReturnType<typeof setTimeout> | null = null;
+  private leaseRecoveryAttempt = 0;
 
   constructor(private deps: RadioBridgeDeps) {}
 
