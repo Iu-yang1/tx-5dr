@@ -24,6 +24,8 @@ import { buildRadioStatusPayload } from '../radio/buildRadioStatusPayload.js';
 import { formatFrequencyMHz } from '../utils/frequencyMHz.js';
 
 const logger = createLogger('RadioBridge');
+/** Backoff for re-releasing a physical TX lease left unknown across a reconnect. */
+const LEASE_RECOVERY_RETRY_MS = [5000, 10000, 20000, 30000, 60000];
 
 export interface RadioBridgeDeps {
   engineEmitter: EventEmitter<DigitalRadioEngineEvents>;
@@ -296,6 +298,40 @@ export class RadioBridge {
       return;
     }
 
+    await this.resumeAutomationAfterReconnect();
+  }
+
+  private scheduleLeaseRecoveryRetry(): void {
+    this.clearLeaseRecoveryRetry();
+    const delayMs = LEASE_RECOVERY_RETRY_MS[Math.min(this.leaseRecoveryAttempt, LEASE_RECOVERY_RETRY_MS.length - 1)];
+    this.leaseRecoveryAttempt++;
+    this.leaseRecoveryTimer = setTimeout(() => {
+      this.leaseRecoveryTimer = null;
+      void this.retryLeaseRecovery().catch(error => logger.error('Physical TX lease recovery retry failed:', error));
+    }, delayMs);
+    this.leaseRecoveryTimer.unref?.();
+  }
+
+  private clearLeaseRecoveryRetry(): void {
+    if (this.leaseRecoveryTimer) clearTimeout(this.leaseRecoveryTimer);
+    this.leaseRecoveryTimer = null;
+  }
+
+  private async retryLeaseRecovery(): Promise<void> {
+    if (!this.deps.radioManager.isConnected()) return;
+    await this.deps.physicalTxCoordinator?.retryUnknownStop('radio reconnected retry');
+    const phase = this.deps.physicalTxCoordinator?.getSnapshot?.()?.phase;
+    if (phase && phase !== 'idle') {
+      logger.warn('Physical TX lease still not idle; retrying later', { phase, attempt: this.leaseRecoveryAttempt });
+      this.scheduleLeaseRecoveryRetry();
+      return;
+    }
+    logger.info('Physical TX lease recovered after reconnect; resuming');
+    this.leaseRecoveryAttempt = 0;
+    await this.resumeAutomationAfterReconnect();
+  }
+
+  private async resumeAutomationAfterReconnect(): Promise<void> {
     await this.restoreRunningStateIfNeeded();
     if (this.deps.getEngineLifecycle().getIsRunning()) this.deps.operatorManager.confirmRadioRecovery?.();
   }
@@ -459,6 +495,7 @@ export class RadioBridge {
         // 音频启动失败不再在此兜底 —— AudioSidecarController 会自行后台重试。
         // 其它非音频引擎启动失败直接记日志并清状态。
         logger.error('Auto-start failed:', err);
+        this.deps.operatorManager.cancelRadioRecovery?.();
       } finally {
         this.restoreStartInProgress = false;
         this._wasRunningBeforeDisconnect = false;
@@ -474,7 +511,9 @@ export class RadioBridge {
     maxAttempts: number,
     delayMs?: number,
   ): Promise<void> {
-    logger.info(`Radio reconnecting ${attempt}/${maxAttempts}`);
+    const progress = maxAttempts > 0 ? `${attempt}/${maxAttempts}` : `${attempt}`;
+    logger.info(`Radio reconnecting ${progress}`);
+    this.clearLeaseRecoveryRetry();
 
     const { engineEmitter, operatorManager, radioManager } = this.deps;
     const lifecycle = this.deps.getEngineLifecycle();
@@ -497,7 +536,7 @@ export class RadioBridge {
       connected: false,
       status: RadioConnectionStatus.RECONNECTING,
       radioInfo: null,
-      message: `Reconnecting to radio... (${attempt}/${maxAttempts})`,
+      message: `Reconnecting to radio... (${progress})`,
       reconnectProgress: { attempt, maxAttempts, nextRetryMs: delayMs },
       radioManager,
     }));
@@ -505,6 +544,7 @@ export class RadioBridge {
 
   private async handleRadioDisconnected(reason?: string): Promise<void> {
     logger.info(`Radio disconnected: ${reason || 'unknown reason'}`);
+    this.clearLeaseRecoveryRetry();
 
     const { engineEmitter, operatorManager, radioManager } = this.deps;
     const lifecycle = this.deps.getEngineLifecycle();
@@ -539,7 +579,9 @@ export class RadioBridge {
       logger.info('Recording running state before disconnect');
     }
 
-    operatorManager.stopAllOperators();
+    // Restoring an engine whose previous stop failed first finishes that
+    // cleanup, which closes the replacement CAT session. Keep recovery intent.
+    operatorManager.stopAllOperators(this.restoreStartInProgress);
 
     const pipeline = this.deps.getTransmissionPipeline();
     if (pipeline.getIsPTTActive()) {
@@ -637,6 +679,7 @@ export class RadioBridge {
    * 清理所有监听器
    */
   teardownListeners(): void {
+    this.clearLeaseRecoveryRetry();
     logger.info(`Removing ${this.lm.count} RadioManager event listeners`);
     this.lm.disposeAll();
   }

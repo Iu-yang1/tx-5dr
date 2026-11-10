@@ -229,6 +229,7 @@
     "radioSdrSource": "Radio SDR",
     "openwebrxSdrSource": "OpenWebRX",
     "popOut": "Show in separate window",
+    "pageTitle": "Spectrum",
     "rangeSettings": "Spectrum Settings",
     "viewSettings": "View",
     "analysisSettings": "Analysis",

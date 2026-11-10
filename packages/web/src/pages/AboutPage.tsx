@@ -15,6 +15,7 @@ import { DependencyList } from './about/DependencyList';
 import { SponsorList } from './about/SponsorList';
 import { DesktopUpdateCard } from '../components/app/DesktopUpdateCard';
 import { useLanguage } from '../hooks/useLanguage';
+import { useSurface, useSurfaceCardClassNames } from '../components/common/SurfaceContext';
 
 const REPO_URL = 'https://github.com/boybook/tx-5dr';
 const ISSUES_URL = 'https://github.com/boybook/tx-5dr/issues';
@@ -28,6 +29,9 @@ interface AboutPageProps {
 }
 
 export const AboutPage: React.FC<AboutPageProps> = ({ embedded, showUpdateCard = false }) => {
+  // Grey page background when standalone; the settings dialog provides a white panel.
+  const onPanel = useSurface() === 'panel';
+  const cardClassNames = useSurfaceCardClassNames();
   useTheme();
   useLanguage();
   const { t } = useTranslation('about');
@@ -54,7 +58,7 @@ export const AboutPage: React.FC<AboutPageProps> = ({ embedded, showUpdateCard =
   }, [isEmbedded]);
 
   return (
-    <div className={`${isEmbedded ? 'min-h-full' : 'min-h-screen'} bg-default-100 text-foreground`}>
+    <div className={`${isEmbedded ? 'min-h-full' : 'min-h-screen'} ${onPanel ? 'bg-transparent' : 'bg-default-100'} text-foreground`}>
       {showMacTitlebar && (
         <div
           className="fixed top-0 left-0 right-0 z-50 flex"
@@ -72,7 +76,7 @@ export const AboutPage: React.FC<AboutPageProps> = ({ embedded, showUpdateCard =
         className="max-w-3xl mx-auto p-6 space-y-4"
         style={showMacTitlebar ? { paddingTop: TITLEBAR_HEIGHT + 16 } : undefined}
       >
-        <Card shadow="none">
+        <Card shadow="none" classNames={cardClassNames}>
           <CardBody className="px-6 py-5">
             <AboutHeader />
           </CardBody>
@@ -80,7 +84,7 @@ export const AboutPage: React.FC<AboutPageProps> = ({ embedded, showUpdateCard =
 
         {showUpdateCard && <DesktopUpdateCard />}
 
-        <Card shadow="none">
+        <Card shadow="none" classNames={cardClassNames}>
           <CardBody className="gap-3 px-6 py-5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-sm text-default-500">{t('author')}</span>
