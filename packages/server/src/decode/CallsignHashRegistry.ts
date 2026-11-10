@@ -45,6 +45,7 @@ export class CallsignHashRegistry {
       if (typeof raw !== 'string') continue;
       const call = raw.trim().toUpperCase();
       if (!VALID_CALL.test(call)) continue;
+      let updated = false;
       for (const [bits, slots, conflicts] of [
         [10, this.calls10, this.collision10],
         [12, this.calls12, this.collision12],
@@ -54,7 +55,7 @@ export class CallsignHashRegistry {
         if (previous !== call) {
           if (previous && !conflicts.has(hash)) conflicts.set(hash, previous);
           slots.set(hash, call);
-          changed++;
+          updated = true;
         }
       }
       if (!this.calls22.has(call)) {
@@ -63,13 +64,14 @@ export class CallsignHashRegistry {
           this.calls22.delete(this.calls22.keys().next().value!);
         }
         this.last22 = call;
-        changed++;
+        updated = true;
       } else if (this.last22 !== call) {
         this.calls22.delete(call);
         this.calls22.set(call, true);
         this.last22 = call;
-        changed++;
+        updated = true;
       }
+      if (updated) changed++;
     }
     if (changed) this.revision++;
     return changed;
