@@ -12,7 +12,7 @@ crate-type = ["cdylib"]
 napi = { version = "2.16", default-features = false, features = ["napi4"] }
 napi-derive = "2.16"
 rayon = "1"
-mfsk-core = { version = "=0.15.1", git = "https://github.com/Iu-yang1/mfsk-core-tx5dr", rev = "8ff54a3866c0e2233998909ed0243d93fa04d572", default-features = false, features = [
+mfsk-core = { version = "=0.15.1", git = "https://github.com/Iu-yang1/mfsk-core-tx5dr", rev = "ded17b31a2f88177fe4f9ce071d03565ea975c1d", default-features = false, features = [
   "std", "fft-rustfft", "ft8", "ft4", "wspr", "q65", "msk144", "jtty", "parallel"
 ] }
 
