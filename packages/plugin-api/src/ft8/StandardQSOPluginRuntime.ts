@@ -1788,6 +1788,12 @@ export class StandardQSOPluginRuntime implements StrategyRuntime {
         }
         this.state = state;
         this.tx5TransmissionQueued = false;
+        // Manual slot selection bypasses changeState() and its onEnter hook.
+        // A final RR73/73 must prepare the same idempotent QSO completion
+        // effect as an automatically selected TX4/TX5 state.
+        if (state === 'TX4' || state === 'TX5') {
+            this.prepareCompletedQSOEffect();
+        }
         if (state !== 'TX6') {
             this.clearPost73RetryContext(`manual set_state ${state}`);
         }

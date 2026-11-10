@@ -2314,7 +2314,7 @@ describe('PluginManager standard-qso late re-decision', () => {
     await pluginManager.shutdown();
   });
 
-  it('takes over a third-party direct TX2 in the same RX batch after our RR73 is answered with 73', async () => {
+  it('does not hand off to a third-party direct TX2 before manual RR73 completion is durable', async () => {
     const { operator, pluginManager } = await createRuntimeHarness({
       myCallsign: 'BG7XTV',
       myGrid: 'OL32',
@@ -2340,12 +2340,13 @@ describe('PluginManager standard-qso late re-decision', () => {
       },
     ]));
 
+    // The manually selected RR73 now creates a real completion effect.
+    // Handing off in the same RX batch would overwrite its lifecycle before
+    // the Host has confirmed that the logbook write is durable.
     const status = pluginManager.getOperatorRuntimeStatus(operator.config.id);
-    expect(status.currentSlot).toBe('TX3');
-    expect(status.context?.targetCallsign).toBe('JA1AAA');
-    expect(status.context?.reportReceived).toBe(-12);
-    expect(operator.isTransmitting).toBe(true);
-    expect(getCurrentTransmission(pluginManager, operator.config.id)).toBe('JA1AAA BG7XTV R-18');
+    expect(status.currentSlot).toBe('TX6');
+    expect(status.context?.targetCallsign).toBeUndefined();
+    expect(operator.isTransmitting).toBe(false);
 
     await pluginManager.shutdown();
   });
@@ -4611,6 +4612,39 @@ describe('PluginManager standard-qso late re-decision', () => {
     expect(status.currentSlot).toBe('TX6');
     expect(status.context?.targetCallsign).toBeUndefined();
 
+    await pluginManager.shutdown();
+  });
+
+  it.each([
+    { mode: 'Q65' as const, state: 'TX4' as const },
+    { mode: 'Q65' as const, state: 'TX5' as const },
+    { mode: 'MSK144' as const, state: 'TX4' as const },
+    { mode: 'MSK144' as const, state: 'TX5' as const },
+  ])('records manual $mode $state even without a subsequent RX decode', async ({ mode, state }) => {
+    const records: RecordQSORequest['qsoRecord'][] = [];
+    const { operator, pluginManager } = await createRuntimeHarness({
+      mode: MODES[mode],
+      myCallsign: 'BG5JSU',
+      targetCallsign: 'K1ABC',
+      recordQSOHandler: request => {
+        records.push(request.qsoRecord);
+        request.resolve?.(request.qsoRecord);
+      },
+    });
+
+    setRuntimeState(pluginManager, operator.config.id, state);
+    await vi.waitFor(() => expect(records).toHaveLength(1));
+    expect(records[0]).toMatchObject({
+      callsign: 'K1ABC',
+      myCallsign: 'BG5JSU',
+      mode,
+    });
+
+    setRuntimeState(pluginManager, operator.config.id, state === 'TX4' ? 'TX5' : 'TX4');
+    await vi.waitFor(() => expect(
+      pluginManager.getOperatorRuntimeStatus(operator.config.id).currentSlot,
+    ).toBe(state === 'TX4' ? 'TX5' : 'TX4'));
+    expect(records).toHaveLength(1);
     await pluginManager.shutdown();
   });
 

@@ -1112,6 +1112,23 @@ export class PluginManager {
     });
     this.orchestrator.invalidateDecisionMessageSet(operatorId);
     this.eventEmitter.emit('operatorSlotChanged', { operatorId, slot: state });
+
+    // FT8/FT4 have periodic slot decisions. Native Q65/MSK144 may stay silent
+    // after a manual final-message selection, so flush its completion effect
+    // through the same guarded decision/Host persistence path immediately.
+    const mode = this.deps.getCurrentMode().name;
+    if ((state === 'TX4' || state === 'TX5')
+        && (mode === 'Q65' || mode === 'MSK144')
+        && this.getResolvedStrategyName(operatorId) === BUILTIN_STANDARD_QSO_PLUGIN_NAME
+        && this.deps.getOperatorById(operatorId)?.isTransmitting === true) {
+      void this.intentCoordinator.submit(operatorId, 'manual', (token, signal) => (
+        this.orchestrator.revalidateStrategyExecutionInLane(operatorId, token, signal)
+      )).catch((error) => {
+        logger.error('Manual native QSO completion decision failed', {
+          operatorId, state, error: String(error),
+        });
+      });
+    }
   }
 
   async setOperatorStreamState(operatorId: string, update: StrategyStreamStateUpdate): Promise<void> {
