@@ -3,7 +3,6 @@ import {
   Alert,
   Button,
   Chip,
-  Divider,
   Input,
   Listbox,
   ListboxItem,
@@ -12,20 +11,26 @@ import {
   ModalContent,
   ModalFooter,
   ModalHeader,
-  ScrollShadow,
   Spinner,
   Switch,
-  Tab,
-  Tabs,
+  Tooltip,
 } from '@heroui/react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import {
+  faArrowUpRightFromSquare,
+  faChevronDown,
+  faChevronUp,
+  faCircleInfo,
+  faMagnifyingGlass,
+  faRotate,
+  faShieldHalved,
+  faTriangleExclamation,
+} from '@fortawesome/free-solid-svg-icons';
 import { addToast } from '@heroui/toast';
 import type {
-  PluginMarketCatalogEntry,
   PluginMarketCatalogResponse,
-  PluginMarketChannel,
+  PluginMarketListing,
   PluginPermission,
-  PluginRuntimeInfo,
-  PluginSource,
   PluginStatus,
 } from '@tx5dr/contracts';
 import { UserRole } from '@tx5dr/contracts';
@@ -43,6 +48,16 @@ import {
   resolvePluginName,
 } from '../../utils/pluginLocales';
 
+import {
+  buildMarketItemState,
+  compareSemverLike,
+  getActionPriority,
+  getMarketItemStatus,
+  isPrimaryMarketItem,
+  type MarketItemState,
+  type MarketItemStatus,
+} from './marketplaceItems';
+
 const logger = createLogger('PluginMarketplace');
 
 interface PluginMarketplaceProps {
@@ -50,154 +65,16 @@ interface PluginMarketplaceProps {
   onOpenInstalledPlugin?: (pluginName: string) => void;
 }
 
-type CatalogMap = Partial<Record<PluginMarketChannel, PluginMarketCatalogResponse>>;
-type StringMap = Partial<Record<PluginMarketChannel, string>>;
-type BooleanMap = Partial<Record<PluginMarketChannel, boolean>>;
 type PluginAction = 'install' | 'update' | 'uninstall';
-type MarketplaceSource = Extract<PluginSource, { kind: 'marketplace' }>;
-
-interface MarketItemState {
-  entry: PluginMarketCatalogEntry;
-  installedPlugin?: PluginStatus;
-  installRecord?: MarketplaceSource;
-  isInstalled: boolean;
-  isBuiltIn: boolean;
-  isMarketplaceManaged: boolean;
-  isManualInstall: boolean;
-  installedVersion?: string;
-  versionComparison: number;
-  hasUpdate: boolean;
-  hasChannelSwitch: boolean;
-  selectedChannelIsOlder: boolean;
-}
-
-function parseSemverLike(value: string): { main: number[]; prerelease: string[] } {
-  const normalized = value.trim();
-  const [mainPart, prereleasePart = ''] = normalized.split('-', 2);
-  const main = mainPart
-    .split('.')
-    .map((segment) => Number.parseInt(segment, 10))
-    .map((segment) => (Number.isFinite(segment) ? segment : 0));
-  const prerelease = prereleasePart
-    ? prereleasePart.split('.').filter(Boolean)
-    : [];
-  return { main, prerelease };
-}
-
-function compareSemverLike(left: string, right: string): number {
-  const leftVersion = parseSemverLike(left);
-  const rightVersion = parseSemverLike(right);
-  const length = Math.max(leftVersion.main.length, rightVersion.main.length);
-
-  for (let index = 0; index < length; index += 1) {
-    const leftValue = leftVersion.main[index] ?? 0;
-    const rightValue = rightVersion.main[index] ?? 0;
-    if (leftValue !== rightValue) {
-      return leftValue > rightValue ? 1 : -1;
-    }
-  }
-
-  if (leftVersion.prerelease.length === 0 && rightVersion.prerelease.length === 0) {
-    return 0;
-  }
-  if (leftVersion.prerelease.length === 0) {
-    return 1;
-  }
-  if (rightVersion.prerelease.length === 0) {
-    return -1;
-  }
-
-  const prereleaseLength = Math.max(leftVersion.prerelease.length, rightVersion.prerelease.length);
-  for (let index = 0; index < prereleaseLength; index += 1) {
-    const leftValue = leftVersion.prerelease[index];
-    const rightValue = rightVersion.prerelease[index];
-    if (leftValue === rightValue) {
-      continue;
-    }
-    if (leftValue === undefined) {
-      return -1;
-    }
-    if (rightValue === undefined) {
-      return 1;
-    }
-
-    const leftNumeric = Number.parseInt(leftValue, 10);
-    const rightNumeric = Number.parseInt(rightValue, 10);
-    const bothNumeric = Number.isFinite(leftNumeric) && Number.isFinite(rightNumeric);
-    if (bothNumeric && leftNumeric !== rightNumeric) {
-      return leftNumeric > rightNumeric ? 1 : -1;
-    }
-
-    const lexical = leftValue.localeCompare(rightValue);
-    if (lexical !== 0) {
-      return lexical > 0 ? 1 : -1;
-    }
-  }
-
-  return 0;
-}
-
-function buildMarketItemState(
-  entry: PluginMarketCatalogEntry,
-  channel: PluginMarketChannel,
-  installedPluginsByName: Map<string, PluginStatus>,
-): MarketItemState {
-  const installedPlugin = installedPluginsByName.get(entry.name);
-  const installRecord = installedPlugin?.source?.kind === 'marketplace'
-    ? installedPlugin.source
-    : undefined;
-  const installedVersion = installedPlugin?.version ?? installRecord?.version;
-  const versionComparison = installedVersion
-    ? compareSemverLike(entry.latestVersion, installedVersion)
-    : 0;
-  const isInstalled = Boolean(installedPlugin);
-  const isBuiltIn = installedPlugin?.isBuiltIn ?? false;
-  const isMarketplaceManaged = isInstalled && !isBuiltIn && Boolean(installRecord);
-  const isManualInstall = isInstalled && !isBuiltIn && !installRecord;
-  const hasUpdate = isMarketplaceManaged && versionComparison > 0;
-  const hasChannelSwitch = isMarketplaceManaged
-    && versionComparison === 0
-    && installRecord?.channel !== channel;
-  const selectedChannelIsOlder = isMarketplaceManaged && versionComparison < 0;
-
-  return {
-    entry,
-    installedPlugin,
-    installRecord,
-    isInstalled,
-    isBuiltIn,
-    isMarketplaceManaged,
-    isManualInstall,
-    installedVersion,
-    versionComparison,
-    hasUpdate,
-    hasChannelSwitch,
-    selectedChannelIsOlder,
-  };
-}
-
-function getActionPriority(item: MarketItemState): number {
-  if (item.hasUpdate) return 4;
-  if (item.hasChannelSwitch) return 3;
-  if (item.isInstalled) return 2;
-  return 1;
-}
-
-function hasGlobalSettings(plugin?: PluginStatus): boolean {
-  return Object.values(plugin?.settings ?? {}).some(
-    (descriptor) => descriptor.type !== 'info' && (!descriptor.scope || descriptor.scope === 'global'),
-  );
-}
-
-function getMarketplaceEntryTitle(entry: PluginMarketCatalogEntry): string {
+function getMarketplaceEntryTitle(entry: PluginMarketListing): string {
   return resolvePluginName(entry.name, entry.title);
 }
 
-function getMarketplaceEntryDescription(entry: PluginMarketCatalogEntry): string {
+function getMarketplaceEntryDescription(entry: PluginMarketListing): string {
   return resolvePluginDescription(entry.name, entry.description) ?? entry.description;
 }
 
-function registerMarketplaceCatalogLocales(entries: PluginMarketCatalogEntry[]): void {
+function registerMarketplaceCatalogLocales(entries: PluginMarketListing[]): void {
   for (const entry of entries) {
     registerPluginLocales(entry.name, entry.locales);
   }
@@ -229,6 +106,27 @@ function resolveMarketplaceMarkdownUrl(
   return null;
 }
 
+function matchesSearch(item: MarketItemState, query: string): boolean {
+  if (!query) return true;
+  return [
+    item.listing.name,
+    getMarketplaceEntryTitle(item.listing),
+    getMarketplaceEntryDescription(item.listing),
+    ...item.listing.categories,
+    ...item.listing.keywords,
+  ].some((value) => value.toLowerCase().includes(query));
+}
+
+function sortMarketItems(items: MarketItemState[]): MarketItemState[] {
+  return [...items].sort((left, right) => {
+    const priority = getActionPriority(right) - getActionPriority(left);
+    if (priority !== 0) {
+      return priority;
+    }
+    return getMarketplaceEntryTitle(left.listing).localeCompare(getMarketplaceEntryTitle(right.listing));
+  });
+}
+
 export function PluginMarketplace({ isActive, onOpenInstalledPlugin }: PluginMarketplaceProps) {
   const { t, i18n } = useTranslation('settings');
   const isAdmin = useHasMinRole(UserRole.ADMIN);
@@ -239,51 +137,40 @@ export function PluginMarketplace({ isActive, onOpenInstalledPlugin }: PluginMar
   );
   const currentLanguage = i18n.resolvedLanguage ?? i18n.language;
 
-  const [channel, setChannel] = useState<PluginMarketChannel>('nightly');
   const [search, setSearch] = useState('');
   const deferredSearch = useDeferredValue(search.trim().toLowerCase());
-  const [catalogByChannel, setCatalogByChannel] = useState<CatalogMap>({});
-  const [catalogLoading, setCatalogLoading] = useState<BooleanMap>({});
-  const [catalogError, setCatalogError] = useState<StringMap>({});
-  const [selectedNameByChannel, setSelectedNameByChannel] = useState<StringMap>({});
-  const [entryByKey, setEntryByKey] = useState<Record<string, PluginMarketCatalogEntry>>({});
-  const [entryLoading, setEntryLoading] = useState<Record<string, boolean>>({});
+  const [catalog, setCatalog] = useState<PluginMarketCatalogResponse | null>(null);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [selectedName, setSelectedName] = useState<string | undefined>();
+  const [showUnsupported, setShowUnsupported] = useState(false);
   const [pendingActionByPlugin, setPendingActionByPlugin] = useState<Partial<Record<string, PluginAction>>>({});
   const [pendingToggleByPlugin, setPendingToggleByPlugin] = useState<Record<string, boolean>>({});
-  const [uninstallCandidate, setUninstallCandidate] = useState<PluginMarketCatalogEntry | null>(null);
-  const [runtimeInfo, setRuntimeInfo] = useState<PluginRuntimeInfo | null>(null);
-  const catalogByChannelRef = useRef<CatalogMap>({});
-  const catalogLoadingRef = useRef<BooleanMap>({});
-  const entryByKeyRef = useRef<Record<string, PluginMarketCatalogEntry>>({});
-  const entryLoadingRef = useRef<Record<string, boolean>>({});
+  const [uninstallCandidate, setUninstallCandidate] = useState<PluginMarketListing | null>(null);
+  const [downgradeCandidate, setDowngradeCandidate] = useState<MarketItemState | null>(null);
+  const catalogLoadingRef = useRef(false);
+  const catalogLoadedRef = useRef(false);
 
-  const loadCatalog = useCallback(async (targetChannel: PluginMarketChannel, force = false) => {
-    if (!force && (catalogByChannelRef.current[targetChannel] || catalogLoadingRef.current[targetChannel])) {
+  const loadCatalog = useCallback(async (force = false) => {
+    if (catalogLoadingRef.current || (!force && catalogLoadedRef.current)) {
       return;
     }
 
-    catalogLoadingRef.current = { ...catalogLoadingRef.current, [targetChannel]: true };
-    setCatalogLoading((prev) => ({ ...prev, [targetChannel]: true }));
-    setCatalogError((prev) => {
-      const next = { ...prev };
-      delete next[targetChannel];
-      return next;
-    });
+    catalogLoadingRef.current = true;
+    setCatalogLoading(true);
+    setCatalogError(null);
 
     try {
-      const response = await api.getPluginMarketCatalog(targetChannel);
-      registerMarketplaceCatalogLocales(response.catalog.plugins);
-      catalogByChannelRef.current = { ...catalogByChannelRef.current, [targetChannel]: response };
-      setCatalogByChannel((prev) => ({ ...prev, [targetChannel]: response }));
+      const response = await api.getPluginMarketCatalog();
+      registerMarketplaceCatalogLocales(response.plugins);
+      catalogLoadedRef.current = true;
+      setCatalog(response);
     } catch (err: unknown) {
-      logger.error(`Failed to load plugin marketplace catalog for ${targetChannel}`, err);
-      setCatalogError((prev) => ({
-        ...prev,
-        [targetChannel]: localizeError(err) || t('plugins.marketError', 'Failed to load marketplace catalog.'),
-      }));
+      logger.error('Failed to load plugin marketplace catalog', err);
+      setCatalogError(localizeError(err) || t('plugins.marketError', 'Failed to load marketplace catalog.'));
     } finally {
-      catalogLoadingRef.current = { ...catalogLoadingRef.current, [targetChannel]: false };
-      setCatalogLoading((prev) => ({ ...prev, [targetChannel]: false }));
+      catalogLoadingRef.current = false;
+      setCatalogLoading(false);
     }
   }, [t]);
 
@@ -291,139 +178,75 @@ export function PluginMarketplace({ isActive, onOpenInstalledPlugin }: PluginMar
     if (!isActive) {
       return;
     }
-    void loadCatalog(channel);
-  }, [channel, isActive, loadCatalog]);
+    void loadCatalog();
+  }, [isActive, loadCatalog]);
 
+  // Installing or removing a plugin changes the on-disk records that the Host
+  // folds into the catalog, so refresh it after the plugin snapshot changes.
+  const snapshotGeneration = pluginSnapshot.generation;
   useEffect(() => {
-    if (!isActive || runtimeInfo) return;
-    void api.getPluginRuntimeInfo()
-      .then(setRuntimeInfo)
-      .catch((error: unknown) => logger.warn('Failed to load plugin Host version', error));
-  }, [isActive, runtimeInfo]);
+    if (!isActive || !catalogLoadedRef.current) {
+      return;
+    }
+    void loadCatalog(true);
+  }, [isActive, loadCatalog, snapshotGeneration]);
 
-  const currentCatalog = catalogByChannel[channel]?.catalog.plugins ?? [];
-  const currentItems = useMemo(
-    () => currentCatalog.map((entry) => buildMarketItemState(entry, channel, installedPluginsByName)),
-    [channel, currentCatalog, installedPluginsByName],
+  const pluginApiVersion = catalog?.pluginApiVersion ?? '';
+  const allItems = useMemo(
+    () => (catalog?.plugins ?? []).map((listing) => buildMarketItemState(listing, installedPluginsByName)),
+    [catalog, installedPluginsByName],
   );
 
-  const filteredItems = useMemo(() => {
-    const normalizedQuery = deferredSearch.trim();
-    const sorted = [...currentItems].sort((left, right) => {
-      const priority = getActionPriority(right) - getActionPriority(left);
-      if (priority !== 0) {
-        return priority;
-      }
-      return getMarketplaceEntryTitle(left.entry).localeCompare(getMarketplaceEntryTitle(right.entry));
-    });
+  // Installed plugins always stay in the main list, even when unsupported.
+  const { primaryItems, unsupportedItems } = useMemo(() => {
+    const matching = allItems.filter((item) => matchesSearch(item, deferredSearch));
+    return {
+      primaryItems: sortMarketItems(matching.filter(isPrimaryMarketItem)),
+      unsupportedItems: sortMarketItems(matching.filter((item) => !isPrimaryMarketItem(item))),
+    };
+  }, [allItems, currentLanguage, deferredSearch]);
 
-    if (!normalizedQuery) {
-      return sorted;
-    }
-
-    return sorted.filter((item) => [
-      item.entry.name,
-      getMarketplaceEntryTitle(item.entry),
-      getMarketplaceEntryDescription(item.entry),
-      ...item.entry.categories,
-      ...item.entry.keywords,
-    ].some((value) => value.toLowerCase().includes(normalizedQuery)));
-  }, [currentItems, currentLanguage, deferredSearch]);
-
-  const selectedName = selectedNameByChannel[channel];
-  const visibleSelectedName = filteredItems.some((item) => item.entry.name === selectedName)
+  const visibleItems = showUnsupported ? [...primaryItems, ...unsupportedItems] : primaryItems;
+  const visibleSelectedName = visibleItems.some((item) => item.listing.name === selectedName)
     ? selectedName
-    : filteredItems[0]?.entry.name;
+    : visibleItems[0]?.listing.name;
+  const selectedItem = allItems.find((item) => item.listing.name === visibleSelectedName) ?? null;
 
-  useEffect(() => {
-    if (!filteredItems.length || !visibleSelectedName) {
-      return;
-    }
-    setSelectedNameByChannel((prev) => (
-      prev[channel] === visibleSelectedName
-        ? prev
-        : { ...prev, [channel]: visibleSelectedName }
-    ));
-  }, [channel, filteredItems, visibleSelectedName]);
-
-  const selectedListItem = filteredItems.find((item) => item.entry.name === visibleSelectedName)
-    ?? currentItems.find((item) => item.entry.name === visibleSelectedName)
-    ?? null;
-  const selectedCatalogEntry = selectedListItem?.entry ?? null;
-  const selectedEntryKey = selectedCatalogEntry ? `${channel}:${selectedCatalogEntry.name}` : null;
-  const selectedEntry = selectedEntryKey
-    ? (entryByKey[selectedEntryKey] ?? selectedCatalogEntry)
-    : null;
-
-  useEffect(() => {
-    if (
-      !isActive
-      || !selectedCatalogEntry
-      || !selectedEntryKey
-      || entryByKeyRef.current[selectedEntryKey]
-      || entryLoadingRef.current[selectedEntryKey]
-    ) {
-      return;
-    }
-
-    entryLoadingRef.current = { ...entryLoadingRef.current, [selectedEntryKey]: true };
-    setEntryLoading((prev) => ({ ...prev, [selectedEntryKey]: true }));
-    void api.getPluginMarketCatalogEntry(selectedCatalogEntry.name, channel)
-      .then((response) => {
-        registerPluginLocales(response.plugin.name, response.plugin.locales);
-        entryByKeyRef.current = { ...entryByKeyRef.current, [selectedEntryKey]: response.plugin };
-        setEntryByKey((prev) => ({ ...prev, [selectedEntryKey]: response.plugin }));
-      })
-      .catch((err: unknown) => {
-        logger.error(`Failed to load marketplace plugin detail for ${selectedCatalogEntry.name}`, err);
-      })
-      .finally(() => {
-        entryLoadingRef.current = { ...entryLoadingRef.current, [selectedEntryKey]: false };
-        setEntryLoading((prev) => ({ ...prev, [selectedEntryKey]: false }));
-      });
-  }, [channel, isActive, selectedCatalogEntry, selectedEntryKey]);
-
-  const selectedItem = useMemo(
-    () => (selectedEntry ? buildMarketItemState(selectedEntry, channel, installedPluginsByName) : null),
-    [channel, installedPluginsByName, selectedEntry],
-  );
-
-  const catalogMeta = catalogByChannel[channel];
-  const isLoading = Boolean(catalogLoading[channel]) && !catalogMeta;
-  const loadError = catalogError[channel];
-  const listedCount = filteredItems.length;
+  const isLoading = catalogLoading && !catalog;
+  const loadError = catalogError;
+  const listedCount = primaryItems.length + unsupportedItems.length;
 
   const runPluginAction = useCallback(async (action: PluginAction, item: MarketItemState) => {
-    const { entry } = item;
-    const entryTitle = getMarketplaceEntryTitle(entry);
-    setPendingActionByPlugin((prev) => ({ ...prev, [entry.name]: action }));
+    const { listing } = item;
+    const entryTitle = getMarketplaceEntryTitle(listing);
+    setPendingActionByPlugin((prev) => ({ ...prev, [listing.name]: action }));
     try {
-      if (action === 'install') {
-        await api.installPluginFromMarket(entry.name, channel);
+      if (action === 'install' && item.target) {
+        await api.installPluginFromMarket(listing.name, item.target.version);
         addToast({
           title: t('plugins.marketInstallSuccessTitle', 'Plugin installed'),
           description: t('plugins.marketInstallSuccessDescription', {
-            defaultValue: '{{title}} was installed from the {{channel}} channel.',
+            defaultValue: '{{title}} {{version}} was installed.',
             title: entryTitle,
-            channel,
+            version: item.target.version,
           }),
           color: 'success',
           timeout: 3500,
         });
-      } else if (action === 'update') {
-        await api.updatePluginFromMarket(entry.name, channel);
+      } else if (action === 'update' && item.target) {
+        await api.updatePluginFromMarket(listing.name, item.target.version);
         addToast({
           title: t('plugins.marketUpdateSuccessTitle', 'Plugin updated'),
           description: t('plugins.marketUpdateSuccessDescription', {
-            defaultValue: '{{title}} is now aligned with the {{channel}} channel.',
+            defaultValue: '{{title}} was replaced with {{version}}.',
             title: entryTitle,
-            channel,
+            version: item.target.version,
           }),
           color: 'success',
           timeout: 3500,
         });
-      } else {
-        await api.uninstallPluginFromMarket(entry.name);
+      } else if (action === 'uninstall') {
+        await api.uninstallPluginFromMarket(listing.name);
         setUninstallCandidate(null);
         addToast({
           title: t('plugins.marketUninstallSuccessTitle', 'Plugin uninstalled'),
@@ -435,8 +258,10 @@ export function PluginMarketplace({ isActive, onOpenInstalledPlugin }: PluginMar
           timeout: 3500,
         });
       }
+      setDowngradeCandidate(null);
+      await loadCatalog(true);
     } catch (err: unknown) {
-      logger.error(`Plugin marketplace ${action} failed for ${entry.name}`, err);
+      logger.error(`Plugin marketplace ${action} failed for ${listing.name}`, err);
       showErrorToast({
         userMessage: localizeError(err),
         severity: 'error',
@@ -444,30 +269,33 @@ export function PluginMarketplace({ isActive, onOpenInstalledPlugin }: PluginMar
     } finally {
       setPendingActionByPlugin((prev) => {
         const next = { ...prev };
-        delete next[entry.name];
+        delete next[listing.name];
         return next;
       });
     }
-  }, [channel, t]);
+  }, [loadCatalog, t]);
 
-  const selectedPendingAction = selectedItem ? pendingActionByPlugin[selectedItem.entry.name] : undefined;
-  const selectedTogglePending = selectedItem ? Boolean(pendingToggleByPlugin[selectedItem.entry.name]) : false;
+  const requestReplacement = useCallback((item: MarketItemState) => {
+    if (item.isDowngrade) {
+      setDowngradeCandidate(item);
+      return;
+    }
+    void runPluginAction('update', item);
+  }, [runPluginAction]);
+
+  const selectedPendingAction = selectedItem ? pendingActionByPlugin[selectedItem.listing.name] : undefined;
+  const selectedTogglePending = selectedItem ? Boolean(pendingToggleByPlugin[selectedItem.listing.name]) : false;
   const selectedCanToggle = selectedItem?.installedPlugin?.type === 'utility';
-  const selectedHasGlobalSettings = hasGlobalSettings(selectedItem?.installedPlugin);
-  const selectedTitle = selectedItem ? getMarketplaceEntryTitle(selectedItem.entry) : '';
-  const selectedDescription = selectedItem ? getMarketplaceEntryDescription(selectedItem.entry) : '';
-  const selectedPluginApiCompatible = !selectedItem || !runtimeInfo
-    || compareSemverLike(
-      runtimeInfo.pluginApiVersion,
-      selectedItem.entry.minPluginApiVersion,
-    ) >= 0;
+  const selectedTitle = selectedItem ? getMarketplaceEntryTitle(selectedItem.listing) : '';
+  const selectedDescription = selectedItem ? getMarketplaceEntryDescription(selectedItem.listing) : '';
   const selectedMarketActionNeedsWarning = Boolean(
     isAdmin
     && selectedItem
+    && selectedItem.target
     && !selectedItem.isBuiltIn
     && (
       !selectedItem.isInstalled
-      || (selectedItem.isMarketplaceManaged && (selectedItem.hasUpdate || selectedItem.hasChannelSwitch))
+      || (selectedItem.isMarketplaceManaged && (selectedItem.hasUpdate || selectedItem.needsCompatibleReplacement))
     ),
   );
 
@@ -510,46 +338,208 @@ export function PluginMarketplace({ isActive, onOpenInstalledPlugin }: PluginMar
     }
   }, [t]);
 
-  return (
-    <>
-      <div className="flex flex-col gap-4">
-        <div className="rounded-large border border-divider bg-content1 px-4 py-4">
-          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
-            <Input
-              size="sm"
-              variant="bordered"
-              value={search}
-              onValueChange={setSearch}
-              placeholder={t('plugins.marketSearchPlaceholder', 'Search by title, description, category, or keyword')}
-              className="w-full"
-            />
-            <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-              <Tabs
-                aria-label={t('plugins.marketplaceTitle', 'Marketplace')}
-                selectedKey={channel}
-                onSelectionChange={(key) => setChannel(key as PluginMarketChannel)}
-                size="sm"
-                radius="full"
-                variant="solid"
-              >
-                <Tab key="stable" title={t('plugins.marketChannelStable', 'Stable')} />
-                <Tab key="nightly" title={t('plugins.marketChannelNightly', 'Nightly')} />
-              </Tabs>
+  const detailScrollRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    detailScrollRef.current?.scrollTo({ top: 0 });
+  }, [visibleSelectedName]);
+
+  const renderListbox = (items: MarketItemState[], label: string) => (
+    <Listbox
+      aria-label={label}
+      selectionMode="single"
+      selectedKeys={visibleSelectedName ? new Set([visibleSelectedName]) : new Set()}
+      onSelectionChange={(keys) => {
+        if (keys === 'all') {
+          return;
+        }
+        const key = Array.from(keys)[0];
+        if (typeof key === 'string') {
+          setSelectedName(key);
+        }
+      }}
+      variant="flat"
+      classNames={{ base: 'w-full min-w-0 p-0', list: 'min-w-0 gap-0' }}
+      itemClasses={{
+        base: 'w-full min-w-0 rounded-none px-3 py-2 data-[hover=true]:bg-default-100 data-[selectable=true]:focus:bg-default-100 data-[selected=true]:bg-primary-50 data-[selected=true]:text-foreground',
+        wrapper: 'w-full min-w-0',
+        title: 'w-full min-w-0 whitespace-normal',
+        selectedIcon: 'hidden',
+      }}
+    >
+      {items.map((item) => {
+        const pendingAction = pendingActionByPlugin[item.listing.name];
+        const itemTitle = getMarketplaceEntryTitle(item.listing);
+        return (
+          <ListboxItem key={item.listing.name} textValue={`${itemTitle} ${item.listing.name}`}>
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="min-w-0 flex-1 truncate text-sm font-medium text-default-800">{itemTitle}</span>
+                {pendingAction
+                  ? <Spinner size="sm" className="shrink-0" />
+                  : <MarketplaceStatusChip item={item} compact />}
+              </div>
+              <p className="line-clamp-2 break-words text-xs leading-[18px] text-default-500">
+                {getMarketplaceEntryDescription(item.listing)}
+              </p>
+            </div>
+          </ListboxItem>
+        );
+      })}
+    </Listbox>
+  );
+
+  const renderDetail = (item: MarketItemState) => {
+    const { listing } = item;
+    const repositoryUrl = resolveMarketplaceMarkdownUrl(listing.repository);
+    const homepageUrl = resolveMarketplaceMarkdownUrl(listing.homepage);
+    const canInstall = !item.isInstalled && !item.isBuiltIn && Boolean(item.target);
+    return (
+      <div className="flex flex-col gap-5 px-5 py-4">
+        <header className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <h4 className="text-lg font-semibold leading-7 text-default-900">{selectedTitle}</h4>
+                <span className="text-sm text-default-400">{item.displayVersion.version}</span>
+                <MarketplaceStatusChip item={item} />
+              </div>
+              <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-default-400">
+                <span>{listing.name}</span>
+                {listing.author && <span>{listing.author}</span>}
+                {repositoryUrl && (
+                  <MarketplaceExternalLink href={repositoryUrl}>
+                    {t('plugins.marketRepository', 'Repository')}
+                  </MarketplaceExternalLink>
+                )}
+                {homepageUrl && (
+                  <MarketplaceExternalLink href={homepageUrl}>
+                    {t('plugins.marketHomepage', 'Homepage')}
+                  </MarketplaceExternalLink>
+                )}
+              </div>
+            </div>
+
+            {isAdmin && (
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
+                {canInstall && item.target && (
+                  <Button
+                    size="sm"
+                    color="primary"
+                    onPress={() => { void runPluginAction('install', item); }}
+                    isLoading={selectedPendingAction === 'install'}
+                  >
+                    {t('plugins.marketActionInstallVersion', 'Install {{version}}', { version: item.target.version })}
+                  </Button>
+                )}
+                {item.hasUpdate && item.target && (
+                  <Button
+                    size="sm"
+                    color="primary"
+                    onPress={() => { void runPluginAction('update', item); }}
+                    isLoading={selectedPendingAction === 'update'}
+                  >
+                    {t('plugins.marketActionUpdateVersion', 'Update to {{version}}', { version: item.target.version })}
+                  </Button>
+                )}
+                {item.needsCompatibleReplacement && item.target && (
+                  <Button
+                    size="sm"
+                    color="primary"
+                    onPress={() => requestReplacement(item)}
+                    isLoading={selectedPendingAction === 'update'}
+                  >
+                    {t('plugins.marketActionInstallCompatible', 'Install compatible {{version}}', {
+                      version: item.target.version,
+                    })}
+                  </Button>
+                )}
+                {item.isMarketplaceManaged && (
+                  <Button
+                    size="sm"
+                    color="danger"
+                    variant="light"
+                    onPress={() => setUninstallCandidate(listing)}
+                    isDisabled={Boolean(selectedPendingAction)}
+                  >
+                    {t('plugins.marketActionUninstall', 'Uninstall')}
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+
+          <p className="text-sm leading-6 text-default-600">{selectedDescription}</p>
+
+          {item.installedPlugin && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              {selectedCanToggle && (
+                <Switch
+                  size="sm"
+                  isSelected={item.installedPlugin.enabled}
+                  isDisabled={!isAdmin || selectedTogglePending}
+                  onValueChange={(value) => { void handleToggleEnabled(item.installedPlugin!, value); }}
+                >
+                  <span className="text-sm text-default-700">
+                    {t('plugins.marketEnableInlineTitle', 'Enable this plugin')}
+                  </span>
+                </Switch>
+              )}
               <Button
                 size="sm"
-                variant="flat"
-                className="lg:self-end"
-                onPress={() => { void loadCatalog(channel, true); }}
-                isLoading={Boolean(catalogLoading[channel]) && Boolean(catalogMeta)}
+                variant="light"
+                color="primary"
+                className="px-2"
+                onPress={() => onOpenInstalledPlugin?.(listing.name)}
               >
-                {t('plugins.marketRefresh', 'Refresh')}
+                {t('plugins.marketActionOpenInstalled', 'Go to Installed')}
               </Button>
             </div>
-          </div>
-        </div>
+          )}
 
+          {selectedMarketActionNeedsWarning && (
+            <p className="flex gap-2 text-xs leading-5 text-default-500">
+              <FontAwesomeIcon icon={faShieldHalved} className="mt-1 shrink-0 text-warning" />
+              <span>
+                {t(
+                  'plugins.marketInstallRiskDescription',
+                  'Marketplace plugins run as local TX-5DR plugin code. Official listings are reviewed and open to community inspection, but you should still inspect the source before installing or updating.',
+                )}
+                {repositoryUrl && (
+                  <>
+                    {' '}
+                    <a href={repositoryUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                      {t('plugins.marketReviewSourceLink', 'Review source')}
+                    </a>
+                  </>
+                )}
+              </span>
+            </p>
+          )}
+        </header>
+
+        <MarketplaceNotices item={item} pluginApiVersion={pluginApiVersion} isAdmin={isAdmin} />
+
+        {item.displayVersion.permissions.length > 0 && (
+          <MarketplacePermissionSection permissions={item.displayVersion.permissions} />
+        )}
+
+        {listing.readmeMarkdown && (
+          <MarketplaceReadmeSection markdown={listing.readmeMarkdown} sourceUrl={listing.readmeSourceUrl} />
+        )}
+
+        <MarketplaceDetailsSection item={item} />
+        <MarketplaceVersionHistory item={item} />
+      </div>
+    );
+  };
+
+  const ready = !isLoading && !loadError && allItems.length > 0;
+
+  return (
+    <>
+      <div className="flex min-h-0 flex-1 flex-col">
         {isLoading && (
-          <div className="flex items-center justify-center rounded-large border border-divider bg-content1 py-12">
+          <div className="flex flex-1 items-center justify-center py-12">
             <Spinner size="md" />
           </div>
         )}
@@ -561,469 +551,101 @@ export function PluginMarketplace({ isActive, onOpenInstalledPlugin }: PluginMar
             title={t('plugins.marketError', 'Failed to load marketplace catalog.')}
             description={loadError}
             endContent={(
-              <Button size="sm" color="danger" variant="flat" onPress={() => { void loadCatalog(channel, true); }}>
+              <Button size="sm" color="danger" variant="flat" onPress={() => { void loadCatalog(true); }}>
                 {t('plugins.marketRetry', 'Retry')}
               </Button>
             )}
           />
         )}
 
-        {!isLoading && !loadError && currentCatalog.length === 0 && (
-          <div className="rounded-large border border-dashed border-divider bg-content1 px-4 py-10 text-center text-sm text-default-400">
-            {t('plugins.marketEmpty', 'No marketplace plugins are available for this channel.')}
+        {!isLoading && !loadError && catalog && allItems.length === 0 && (
+          <div className="rounded-large border border-dashed border-divider px-4 py-10 text-center text-sm text-default-400">
+            {t('plugins.marketEmpty', 'No marketplace plugins are available.')}
           </div>
         )}
 
-        {!isLoading && !loadError && currentCatalog.length > 0 && (
-          <div className="grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)]">
-            <div className="min-w-0 rounded-large border border-divider bg-content1">
-              <div className="flex items-center justify-between px-4 py-3">
-                <div className="min-w-0">
-                  <div className="text-sm font-semibold text-default-700">
-                    {t('plugins.viewMarketplace', 'Marketplace')}
-                  </div>
-                  <div className="text-xs text-default-400">
-                    {t('plugins.marketCount', '{{count}} listed', { count: listedCount })}
-                  </div>
-                </div>
-              </div>
-              <Divider />
-              {filteredItems.length === 0 ? (
-                <div className="px-4 py-10 text-center text-sm text-default-400">
-                  {t('plugins.marketNoResults', 'No marketplace plugins match the current search.')}
-                </div>
-              ) : (
-                <ScrollShadow className="max-h-[58vh] lg:max-h-[72vh]">
-                  <Listbox
-                    aria-label={t('plugins.viewMarketplace', 'Marketplace')}
-                    selectionMode="single"
-                    selectedKeys={visibleSelectedName ? new Set([visibleSelectedName]) : new Set()}
-                    onSelectionChange={(keys) => {
-                      if (keys === 'all') {
-                        return;
-                      }
-                      const key = Array.from(keys)[0];
-                      if (typeof key === 'string') {
-                        setSelectedNameByChannel((prev) => ({ ...prev, [channel]: key }));
-                      }
-                    }}
-                    variant="flat"
-                    className="p-0"
-                    itemClasses={{
-                      base: 'rounded-none px-4 py-3 data-[hover=true]:bg-default-100 data-[selectable=true]:focus:bg-default-100 data-[selected=true]:bg-primary-50 data-[selected=true]:text-foreground',
-                      selectedIcon: 'hidden',
-                    }}
+        {ready && (
+          <div className="grid min-h-0 flex-1 overflow-hidden rounded-large border border-divider bg-content1 max-lg:grid-rows-[minmax(0,40%)_minmax(0,1fr)] lg:grid-cols-[272px_minmax(0,1fr)]">
+            <aside className="flex min-h-0 flex-col border-divider max-lg:border-b lg:border-r">
+              <div className="flex shrink-0 items-center gap-1 p-2">
+                <Input
+                  size="sm"
+                  variant="flat"
+                  isClearable
+                  value={search}
+                  onValueChange={setSearch}
+                  onClear={() => setSearch('')}
+                  aria-label={t('plugins.marketSearchPlaceholder', 'Search by title, description, category, or keyword')}
+                  placeholder={t('plugins.marketSearchShort', 'Search plugins')}
+                  startContent={<FontAwesomeIcon icon={faMagnifyingGlass} className="text-xs text-default-400" />}
+                />
+                <Tooltip content={t('plugins.marketRefresh', 'Refresh')}>
+                  <Button
+                    size="sm"
+                    variant="light"
+                    isIconOnly
+                    aria-label={t('plugins.marketRefresh', 'Refresh')}
+                    onPress={() => { void loadCatalog(true); }}
+                    isLoading={catalogLoading && Boolean(catalog)}
                   >
-                    {filteredItems.map((item) => {
-                      const pendingAction = pendingActionByPlugin[item.entry.name];
-                      const itemTitle = getMarketplaceEntryTitle(item.entry);
-                      const itemDescription = getMarketplaceEntryDescription(item.entry);
-                      return (
-                        <ListboxItem
-                          key={item.entry.name}
-                          textValue={`${itemTitle} ${item.entry.name}`}
-                          endContent={(
-                            <div className="flex flex-col items-end gap-1 pl-3">
-                              <Chip size="sm" variant="flat" color="secondary" className="text-[10px]">
-                                {item.entry.latestVersion}
-                              </Chip>
-                              {item.hasUpdate && (
-                                <Chip size="sm" variant="flat" color="warning" className="text-[10px]">
-                                  {t('plugins.marketActionUpdate', 'Update')}
-                                </Chip>
-                              )}
-                              {item.hasChannelSwitch && (
-                                <Chip size="sm" variant="flat" color="primary" className="text-[10px]">
-                                  {t('plugins.marketActionSwitchChannel', 'Switch channel')}
-                                </Chip>
-                              )}
-                              {item.isMarketplaceManaged && !item.hasUpdate && !item.hasChannelSwitch && (
-                                <Chip size="sm" variant="flat" color="success" className="text-[10px]">
-                                  {t('plugins.marketInstalled', 'Installed')}
-                                </Chip>
-                              )}
-                              {item.isManualInstall && (
-                                <Chip size="sm" variant="flat" className="text-[10px]">
-                                  {t('plugins.marketInstalledManual', 'Installed manually')}
-                                </Chip>
-                              )}
-                              {pendingAction && (
-                                <span className="text-[11px] text-primary">
-                                  {t(`plugins.marketPending.${pendingAction}`, pendingAction)}
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        >
-                          <div className="flex min-w-0 flex-col gap-2">
-                            <div className="text-sm font-semibold leading-5 text-default-800">
-                              {itemTitle}
-                            </div>
-                            <p className="line-clamp-2 text-xs leading-5 text-default-500">
-                              {itemDescription}
-                            </p>
-                            <div className="flex flex-wrap items-center gap-2 text-[11px] text-default-400">
-                              <span>{item.entry.name}</span>
-                              <span>
-                                {t('plugins.marketMinPluginApiVersionShort', 'Plugin API >= {{version}}', {
-                                  version: item.entry.minPluginApiVersion,
-                                })}
-                              </span>
-                              {item.installedVersion && (
-                                <span>
-                                  {t('plugins.marketInstalledVersionInline', 'Installed {{version}}', {
-                                    version: item.installedVersion,
-                                  })}
-                                </span>
-                              )}
-                            </div>
-                            {item.entry.categories.length > 0 && (
-                              <div className="flex flex-wrap gap-1">
-                                {item.entry.categories.slice(0, 2).map((category) => (
-                                  <Chip key={category} size="sm" variant="flat" className="h-5 text-[10px]">
-                                    {category}
-                                  </Chip>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        </ListboxItem>
-                      );
-                    })}
-                  </Listbox>
-                </ScrollShadow>
-              )}
-            </div>
+                    <FontAwesomeIcon icon={faRotate} className="text-default-500" />
+                  </Button>
+                </Tooltip>
+              </div>
 
-            <div className="min-w-0 rounded-large border border-divider bg-content1">
-              {selectedItem ? (
-                <ScrollShadow className="max-h-[72vh]">
-                  <div className="flex flex-col gap-5 px-5 py-5">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h4 className="text-lg font-semibold text-default-800">{selectedTitle}</h4>
-                          <Chip size="sm" variant="flat" color="secondary" className="text-xs">
-                            {t('plugins.marketLatestVersion', 'Latest version {{version}}', {
-                              version: selectedItem.entry.latestVersion,
-                            })}
-                          </Chip>
-                          {selectedItem.isMarketplaceManaged && !selectedItem.hasUpdate && !selectedItem.hasChannelSwitch && (
-                            <Chip size="sm" variant="flat" color="success" className="text-xs">
-                              {t('plugins.marketInstalled', 'Installed')}
-                            </Chip>
-                          )}
-                          {selectedItem.hasUpdate && (
-                            <Chip size="sm" variant="flat" color="warning" className="text-xs">
-                              {t('plugins.marketUpdateAvailable', 'Update available')}
-                            </Chip>
-                          )}
-                          {selectedItem.isManualInstall && (
-                            <Chip size="sm" variant="flat" className="text-xs">
-                              {t('plugins.marketInstalledManual', 'Installed manually')}
-                            </Chip>
-                          )}
-                        </div>
-                        <p className="mt-1 text-sm text-default-400">{selectedItem.entry.name}</p>
-                      </div>
-                      {selectedEntryKey && entryLoading[selectedEntryKey] && <Spinner size="sm" />}
-                    </div>
-
-                    <p className="text-sm leading-7 text-default-600">{selectedDescription}</p>
-
-                    <div className="flex flex-wrap items-center gap-2">
-                      {selectedItem.isMarketplaceManaged && selectedItem.installRecord && (
-                        <>
-                          <Chip size="sm" variant="flat" color="success" className="text-xs">
-                            {t('plugins.marketManagedByMarketplace', 'Managed by marketplace')}
-                          </Chip>
-                          <Chip size="sm" variant="flat" className="text-xs">
-                            {t('plugins.marketInstalledChannel', 'Channel {{channel}}', {
-                              channel: selectedItem.installRecord.channel,
-                            })}
-                          </Chip>
-                        </>
-                      )}
-                      {selectedItem.isManualInstall && (
-                        <Chip size="sm" variant="flat" className="text-xs">
-                          {t('plugins.marketManagedManually', 'Managed manually')}
-                        </Chip>
-                      )}
-                      {!selectedItem.isInstalled && (
-                        <Chip size="sm" variant="flat" className="text-xs">
-                          {t('plugins.marketNotInstalled', 'Not installed')}
-                        </Chip>
-                      )}
-                    </div>
-
-                    {selectedItem.installRecord && (
-                      <div className="text-xs text-default-500">
-                        {t('plugins.marketInstalledAt', 'Installed at {{value}}', {
-                          value: formatDateTime(selectedItem.installRecord.installedAt),
-                        })}
-                      </div>
-                    )}
-
-                    {selectedItem.isManualInstall && (
-                      <Alert
-                        color="warning"
-                        variant="flat"
-                        title={t('plugins.marketInstalledManual', 'Installed manually')}
-                        description={t(
-                          'plugins.marketManualInstallHint',
-                          'This plugin is installed on disk but is not tracked by the official marketplace. Update and uninstall actions stay disabled here to avoid overwriting manual files.',
-                        )}
-                      />
-                    )}
-
-                    {selectedItem.selectedChannelIsOlder && (
-                      <Alert
-                        color="warning"
-                        variant="flat"
-                        title={t('plugins.marketChannelSwitchAvailable', 'Channel switch available')}
-                        description={t(
-                          'plugins.marketChannelOlderHint',
-                          'The installed version is newer than the latest build in the currently selected channel. Switch channels only after you intentionally publish or downgrade.',
-                        )}
-                      />
-                    )}
-
-                    {!isAdmin && (
-                      <Alert
-                        color="default"
-                        variant="flat"
-                        title={t('plugins.marketBrowseOnlyBadge', 'Browse only')}
-                        description={t(
-                          'plugins.marketAdminRequired',
-                          'Browsing is available here, but installing, updating, and uninstalling requires an admin session.',
-                        )}
-                      />
-                    )}
-
-                    {!selectedPluginApiCompatible && selectedItem && runtimeInfo && (
-                      <Alert
-                        color="warning"
-                        variant="flat"
-                        title={t('plugins.marketPluginApiIncompatibleTitle', 'TX-5DR update required')}
-                        description={t('plugins.marketPluginApiIncompatibleDescription', {
-                          defaultValue: 'This plugin requires Plugin API {{required}} or newer. TX-5DR currently bundles {{current}}.',
-                          required: selectedItem.entry.minPluginApiVersion,
-                          current: runtimeInfo.pluginApiVersion,
-                        })}
-                      />
-                    )}
-
-                    {isAdmin && (
-                      <div className="flex flex-col gap-3">
-                        {selectedMarketActionNeedsWarning && (
-                          <MarketplaceInstallRiskNotice entry={selectedItem.entry} />
-                        )}
-                        <div className="flex flex-wrap items-center gap-2">
-                          {!selectedItem.isInstalled && !selectedItem.isBuiltIn && (
-                            <Button
-                              color="primary"
-                              onPress={() => { void runPluginAction('install', selectedItem); }}
-                              isLoading={selectedPendingAction === 'install'}
-                              isDisabled={!selectedPluginApiCompatible}
-                            >
-                              {t('plugins.marketActionInstall', 'Install')}
-                            </Button>
-                          )}
-
-                          {selectedItem.isMarketplaceManaged && (selectedItem.hasUpdate || selectedItem.hasChannelSwitch) && (
-                            <Button
-                              color="primary"
-                              variant={selectedItem.hasUpdate ? 'solid' : 'flat'}
-                              onPress={() => { void runPluginAction('update', selectedItem); }}
-                              isLoading={selectedPendingAction === 'update'}
-                              isDisabled={!selectedPluginApiCompatible}
-                            >
-                              {selectedItem.hasUpdate
-                                ? t('plugins.marketActionUpdate', 'Update')
-                                : t('plugins.marketActionSwitchChannel', 'Switch channel')}
-                            </Button>
-                          )}
-
-                          {selectedItem.isMarketplaceManaged && (
-                            <Button
-                              color="danger"
-                              variant="flat"
-                              onPress={() => setUninstallCandidate(selectedItem.entry)}
-                              isDisabled={Boolean(selectedPendingAction)}
-                            >
-                              {t('plugins.marketActionUninstall', 'Uninstall')}
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {selectedItem.isInstalled && (
-                      <Button
-                        variant="flat"
-                        onPress={() => onOpenInstalledPlugin?.(selectedItem.entry.name)}
-                      >
-                        {t('plugins.marketActionOpenInstalled', 'Go to Installed')}
-                      </Button>
-                    )}
-
-                    {selectedItem.isInstalled && selectedCanToggle && selectedItem.installedPlugin && (
-                      <div className="flex flex-wrap items-center justify-between gap-3 rounded-medium border border-divider px-3 py-3">
-                        <div className="min-w-0">
-                          <div className="text-sm font-medium text-default-700">
-                            {t('plugins.marketEnableInlineTitle', 'Enable this plugin')}
-                          </div>
-                          <div className="text-xs text-default-500">
-                            {selectedHasGlobalSettings
-                              ? t(
-                                'plugins.marketEnableInlineHintConfigurable',
-                                'You can enable it here. If you need configuration, open the Installed tab for full settings.',
-                              )
-                              : t(
-                                'plugins.marketEnableInlineHint',
-                                'You can enable or disable this plugin without leaving the marketplace view.',
-                              )}
-                          </div>
-                        </div>
-                        <Switch
-                          size="sm"
-                          isSelected={selectedItem.installedPlugin.enabled}
-                          isDisabled={!isAdmin || selectedTogglePending}
-                          onValueChange={(value) => { void handleToggleEnabled(selectedItem.installedPlugin!, value); }}
-                        />
-                      </div>
-                    )}
-
-                    <Divider />
-
-                    <div className="grid gap-x-8 gap-y-3 sm:grid-cols-2 xl:grid-cols-3">
-                      <MarketplaceMeta
-                        label={t('plugins.marketInstalledVersion', 'Installed version')}
-                        value={selectedItem.installedVersion ?? t('plugins.marketNotInstalled', 'Not installed')}
-                      />
-                      <MarketplaceMeta
-                        label={t('plugins.marketMinPluginApiVersion', 'Minimum Plugin API version')}
-                        value={selectedItem.entry.minPluginApiVersion}
-                      />
-                      {runtimeInfo && (
-                        <MarketplaceMeta
-                          label={t('plugins.marketCurrentPluginApiVersion', 'Bundled Plugin API version')}
-                          value={runtimeInfo.pluginApiVersion}
-                        />
-                      )}
-                      <MarketplaceMeta
-                        label={t('plugins.marketPublishedAt', 'Published at')}
-                        value={formatDateTime(selectedItem.entry.publishedAt)}
-                      />
-                      {selectedItem.entry.author && (
-                        <MarketplaceMeta
-                          label={t('plugins.marketAuthor', 'Author')}
-                          value={selectedItem.entry.author}
-                        />
-                      )}
-                      {selectedItem.entry.license && (
-                        <MarketplaceMeta
-                          label={t('plugins.marketLicense', 'License')}
-                          value={selectedItem.entry.license}
-                        />
-                      )}
-                      <MarketplaceMeta
-                        label={t('plugins.marketPackageSize', 'Package size')}
-                        value={t('plugins.marketPackageSizeValue', '{{value}} KB', {
-                          value: (selectedItem.entry.size / 1024).toFixed(selectedItem.entry.size >= 1024 * 100 ? 0 : 1),
-                        })}
-                      />
-                    </div>
-
-                    {selectedItem.entry.categories.length > 0 && (
-                      <>
-                        <Divider />
-                        <section className="flex flex-col gap-2">
-                          <span className="text-xs font-medium uppercase tracking-wider text-default-400">
-                            {t('plugins.marketCategories', 'Categories')}
-                          </span>
-                          <div className="flex flex-wrap gap-2">
-                            {selectedItem.entry.categories.map((category) => (
-                              <Chip key={category} size="sm" variant="flat" className="text-xs">
-                                {category}
-                              </Chip>
-                            ))}
-                          </div>
-                        </section>
-                      </>
-                    )}
-
-                    {selectedItem.entry.keywords.length > 0 && (
-                      <>
-                        <Divider />
-                        <section className="flex flex-col gap-2">
-                          <span className="text-xs font-medium uppercase tracking-wider text-default-400">
-                            {t('plugins.marketKeywords', 'Keywords')}
-                          </span>
-                          <div className="flex flex-wrap gap-2">
-                            {selectedItem.entry.keywords.map((keyword) => (
-                              <Chip key={keyword} size="sm" variant="flat" className="text-xs">
-                                {keyword}
-                              </Chip>
-                            ))}
-                          </div>
-                        </section>
-                      </>
-                    )}
-
-                    <Divider />
-                    <MarketplacePermissionRiskSection permissions={selectedItem.entry.permissions} />
-
-                    {selectedItem.entry.readmeMarkdown && (
-                      <>
-                        <Divider />
-                        <MarketplaceReadmeSection
-                          markdown={selectedItem.entry.readmeMarkdown}
-                          sourceUrl={selectedItem.entry.readmeSourceUrl}
-                        />
-                      </>
-                    )}
-
-                    <Divider />
-
-                    <div className="flex flex-wrap items-center gap-3 text-sm">
-                      <a
-                        href={selectedItem.entry.artifactUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-primary hover:underline"
-                      >
-                        {t('plugins.marketDownloadArtifact', 'Artifact')}
-                      </a>
-                      {selectedItem.entry.repository && (
-                        <a
-                          href={selectedItem.entry.repository}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-primary hover:underline"
-                        >
-                          {t('plugins.marketRepository', 'Repository')}
-                        </a>
-                      )}
-                      {selectedItem.entry.homepage && (
-                        <a
-                          href={selectedItem.entry.homepage}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-primary hover:underline"
-                        >
-                          {t('plugins.marketHomepage', 'Homepage')}
-                        </a>
-                      )}
-                    </div>
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                {listedCount === 0 ? (
+                  <div className="px-4 py-10 text-center text-xs text-default-400">
+                    {t('plugins.marketNoResults', 'No marketplace plugins match the current search.')}
                   </div>
-                </ScrollShadow>
-              ) : (
+                ) : (
+                  <>
+                    {primaryItems.length > 0 && renderListbox(primaryItems, t('plugins.viewMarketplace', 'Marketplace'))}
+                    {unsupportedItems.length > 0 && (
+                      <>
+                        <button
+                          type="button"
+                          className="flex w-full items-center justify-between gap-2 border-t border-divider px-3 py-2 text-left text-xs text-default-500 hover:bg-default-100"
+                          aria-expanded={showUnsupported}
+                          title={t('plugins.marketUnsupportedGroupHint', 'No version supports Plugin API {{version}}.', {
+                            version: pluginApiVersion,
+                          })}
+                          onClick={() => setShowUnsupported((value) => !value)}
+                        >
+                          <span className="min-w-0 truncate">
+                            {t('plugins.marketUnsupportedGroup', 'Incompatible with this TX-5DR ({{count}})', {
+                              count: unsupportedItems.length,
+                            })}
+                          </span>
+                          <FontAwesomeIcon icon={showUnsupported ? faChevronUp : faChevronDown} className="shrink-0 text-[10px]" />
+                        </button>
+                        {showUnsupported && renderListbox(
+                          unsupportedItems,
+                          t('plugins.marketUnsupportedGroup', 'Incompatible with this TX-5DR ({{count}})', {
+                            count: unsupportedItems.length,
+                          }),
+                        )}
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div className="flex shrink-0 items-center justify-between gap-2 border-t border-divider px-3 py-1.5 text-[11px] text-default-400">
+                <span>{t('plugins.marketCount', '{{count}} listed', { count: listedCount })}</span>
+                {pluginApiVersion && (
+                  <span className="truncate">Plugin API {pluginApiVersion}</span>
+                )}
+              </div>
+            </aside>
+
+            <section ref={detailScrollRef} className="min-h-0 overflow-y-auto">
+              {selectedItem ? renderDetail(selectedItem) : (
                 <div className="px-5 py-12 text-center text-sm text-default-400">
                   {t('plugins.marketNoResults', 'No marketplace plugins match the current search.')}
                 </div>
               )}
-            </div>
+            </section>
           </div>
         )}
       </div>
@@ -1062,7 +684,7 @@ export function PluginMarketplace({ isActive, onOpenInstalledPlugin }: PluginMar
                 if (!uninstallCandidate) {
                   return;
                 }
-                const item = buildMarketItemState(uninstallCandidate, channel, installedPluginsByName);
+                const item = buildMarketItemState(uninstallCandidate, installedPluginsByName);
                 void runPluginAction('uninstall', item);
               }}
               isLoading={Boolean(uninstallCandidate && pendingActionByPlugin[uninstallCandidate.name] === 'uninstall')}
@@ -1072,120 +694,381 @@ export function PluginMarketplace({ isActive, onOpenInstalledPlugin }: PluginMar
           </ModalFooter>
         </ModalContent>
       </Modal>
+
+      <Modal isOpen={Boolean(downgradeCandidate)} onClose={() => setDowngradeCandidate(null)} size="sm"
+        placement="center"
+        scrollBehavior="inside"
+      >
+        <ModalContent>
+          <ModalHeader>
+            {t('plugins.marketDowngradeConfirmTitle', 'Install an older compatible version')}
+          </ModalHeader>
+          <ModalBody>
+            <div className="space-y-3 text-sm text-default-600">
+              <p>
+                {t('plugins.marketDowngradeConfirmBody', {
+                  defaultValue: 'Replace {{title}} {{installed}} with the older version {{version}}?',
+                  title: downgradeCandidate ? getMarketplaceEntryTitle(downgradeCandidate.listing) : '',
+                  installed: downgradeCandidate?.installedVersion ?? '',
+                  version: downgradeCandidate?.target?.version ?? '',
+                })}
+              </p>
+              <p className="text-xs text-default-500">
+                {t(
+                  'plugins.marketDowngradeConfirmHint',
+                  'An older version may not read settings or data written by the newer one. Plugin data is kept, not deleted; back it up first if it matters.',
+                )}
+              </p>
+            </div>
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="flat" onPress={() => setDowngradeCandidate(null)}>
+              {t('plugins.marketActionCancel', 'Cancel')}
+            </Button>
+            <Button
+              color="warning"
+              onPress={() => {
+                if (downgradeCandidate) {
+                  void runPluginAction('update', downgradeCandidate);
+                }
+              }}
+              isLoading={Boolean(downgradeCandidate && pendingActionByPlugin[downgradeCandidate.listing.name] === 'update')}
+            >
+              {t('plugins.marketDowngradeConfirmAction', 'Install older version')}
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </>
   );
 }
 
-interface MarketplaceMetaProps {
-  label: string;
-  value: string;
-}
-
-const MarketplaceMeta: React.FC<MarketplaceMetaProps> = ({ label, value }) => (
-  <div className="min-w-0">
-    <div className="text-[11px] font-medium uppercase tracking-wider text-default-400">{label}</div>
-    <div className="mt-1 text-sm text-default-700">{value}</div>
+const MarketplaceSectionTitle: React.FC<{ children: React.ReactNode; end?: React.ReactNode }> = ({ children, end }) => (
+  <div className="mb-2 flex items-center justify-between gap-2">
+    <h5 className="text-xs font-semibold text-default-500">{children}</h5>
+    {end}
   </div>
 );
+
+const MarketplaceExternalLink: React.FC<{ href: string; children: React.ReactNode }> = ({ href, children }) => (
+  <a href={href} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
+    {children}
+    <FontAwesomeIcon icon={faArrowUpRightFromSquare} className="text-[9px]" />
+  </a>
+);
+
+const STATUS_CHIP: Record<NonNullable<MarketItemStatus>, {
+  color: 'default' | 'success' | 'warning' | 'danger';
+  labelKey: string;
+  fallback: string;
+}> = {
+  incompatible: { color: 'danger', labelKey: 'plugins.marketUnsupportedChip', fallback: 'Incompatible' },
+  update: { color: 'warning', labelKey: 'plugins.marketUpdateAvailable', fallback: 'Update available' },
+  legacy: { color: 'warning', labelKey: 'plugins.legacyPluginApi', fallback: 'Older Plugin API' },
+  installed: { color: 'success', labelKey: 'plugins.marketInstalled', fallback: 'Installed' },
+  manual: { color: 'default', labelKey: 'plugins.marketInstalledManual', fallback: 'Installed manually' },
+  unsupported: { color: 'default', labelKey: 'plugins.marketUnsupportedChip', fallback: 'Incompatible' },
+};
+
+/** One status per plugin; the list shows the version instead when there is nothing to report. */
+const MarketplaceStatusChip: React.FC<{ item: MarketItemState; compact?: boolean }> = ({ item, compact }) => {
+  const { t } = useTranslation('settings');
+  const status = getMarketItemStatus(item);
+  if (!status) {
+    return compact
+      ? <span className="shrink-0 text-[11px] text-default-400">{item.displayVersion.version}</span>
+      : null;
+  }
+  const style = STATUS_CHIP[status];
+  return (
+    <Chip
+      size="sm"
+      variant="flat"
+      color={style.color}
+      className={compact ? 'h-5 shrink-0 text-[10px]' : 'h-6 text-xs'}
+    >
+      {t(style.labelKey, style.fallback)}
+    </Chip>
+  );
+};
+
+const NOTICE_STYLE = {
+  danger: { className: 'bg-danger-50 text-danger-700', icon: faTriangleExclamation },
+  warning: { className: 'bg-warning-50 text-warning-700', icon: faTriangleExclamation },
+  primary: { className: 'bg-primary-50 text-primary-700', icon: faCircleInfo },
+  default: { className: 'bg-default-100 text-default-600', icon: faCircleInfo },
+} as const;
+
+const MarketplaceNotice: React.FC<{
+  color: keyof typeof NOTICE_STYLE;
+  title: string;
+  children: React.ReactNode;
+}> = ({ color, title, children }) => {
+  const style = NOTICE_STYLE[color];
+  return (
+    <div className={`flex gap-2 rounded-medium px-3 py-2 text-xs leading-5 ${style.className}`}>
+      <FontAwesomeIcon icon={style.icon} className="mt-1 shrink-0" />
+      <p>
+        <span className="font-semibold">{title}</span>
+        {' '}
+        {children}
+      </p>
+    </div>
+  );
+};
+
+/** Only states that change what the user can or should do here. */
+const MarketplaceNotices: React.FC<{
+  item: MarketItemState;
+  pluginApiVersion: string;
+  isAdmin: boolean;
+}> = ({ item, pluginApiVersion, isAdmin }) => {
+  const { t } = useTranslation('settings');
+  const notices: React.ReactNode[] = [];
+
+  if (item.installedIncompatible) {
+    notices.push(
+      <MarketplaceNotice key="incompatible" color="danger" title={t('plugins.marketInstalledIncompatibleTitle', 'Installed version is incompatible')}>
+        {[
+          t('plugins.marketInstalledIncompatibleDescription', {
+            defaultValue: 'The installed {{installed}} does not support Plugin API {{current}}, so TX-5DR did not load it.',
+            installed: item.installedVersion,
+            current: pluginApiVersion,
+          }),
+          item.target
+            ? t('plugins.marketInstalledIncompatibleReplaceHint', {
+              defaultValue: 'A compatible version {{version}} is available.',
+              version: item.target.version,
+            })
+            : '',
+        ].filter(Boolean).join(' ')}
+      </MarketplaceNotice>,
+    );
+  }
+  if (item.installedLegacy) {
+    notices.push(
+      <MarketplaceNotice key="legacy" color="warning" title={t('plugins.legacyPluginApi', 'Older Plugin API')}>
+        {[
+          t('plugins.marketInstalledLegacyDescription', {
+            defaultValue: 'The installed {{installed}} was built for an older Plugin API. It still runs on this TX-5DR, but may misbehave.',
+            installed: item.installedVersion,
+          }),
+          item.hasUpdate && item.target
+            ? t('plugins.marketInstalledLegacyUpdateHint', {
+              defaultValue: 'Update to {{version}}, which targets this Plugin API.',
+              version: item.target.version,
+            })
+            : t('plugins.marketInstalledLegacyNoUpdateHint', 'No updated version is available yet; ask the plugin author for one.'),
+        ].join(' ')}
+      </MarketplaceNotice>,
+    );
+  }
+  if (!item.target && item.listing.availability === 'host-upgrade-required') {
+    notices.push(
+      <MarketplaceNotice key="host-upgrade" color="warning" title={t('plugins.marketHostUpgradeRequiredTitle', 'TX-5DR update required')}>
+        {t('plugins.marketHostUpgradeRequiredDescription', {
+          defaultValue: 'This plugin requires Plugin API ^{{required}}. This TX-5DR bundles {{current}}. Update TX-5DR to install it.',
+          required: item.listing.latest.minPluginApiVersion,
+          current: pluginApiVersion,
+        })}
+      </MarketplaceNotice>,
+    );
+  }
+  if (!item.target && item.listing.availability === 'plugin-outdated') {
+    notices.push(
+      <MarketplaceNotice key="outdated" color="default" title={t('plugins.marketPluginOutdatedTitle', 'Not yet updated for this TX-5DR')}>
+        {t('plugins.marketPluginOutdatedDescription', {
+          defaultValue: 'This plugin only provides versions for Plugin API ^{{required}}. This TX-5DR bundles {{current}}. Updating TX-5DR will not help; wait for the plugin author to publish a compatible version.',
+          required: item.listing.latest.minPluginApiVersion,
+          current: pluginApiVersion,
+        })}
+      </MarketplaceNotice>,
+    );
+  }
+  if (item.newerNeedsHostUpgrade) {
+    notices.push(
+      <MarketplaceNotice key="newer" color="primary" title={t('plugins.marketNewerVersionTitle', 'A newer version is available')}>
+        {t('plugins.marketNewerNeedsHostUpgrade', {
+          defaultValue: 'Version {{version}} requires Plugin API ^{{required}}. It becomes available after updating TX-5DR.',
+          version: item.listing.latest.version,
+          required: item.listing.latest.minPluginApiVersion,
+        })}
+      </MarketplaceNotice>,
+    );
+  }
+  if (item.isManualInstall) {
+    notices.push(
+      <MarketplaceNotice key="manual" color="default" title={t('plugins.marketInstalledManual', 'Installed manually')}>
+        {t(
+          'plugins.marketManualInstallHint',
+          'This plugin is installed on disk but is not tracked by the official marketplace. Update and uninstall actions stay disabled here to avoid overwriting manual files.',
+        )}
+      </MarketplaceNotice>,
+    );
+  }
+  if (!isAdmin) {
+    notices.push(
+      <MarketplaceNotice key="browse-only" color="default" title={t('plugins.marketBrowseOnlyBadge', 'Browse only')}>
+        {t(
+          'plugins.marketAdminRequired',
+          'Browsing is available here, but installing, updating, and uninstalling requires an admin session.',
+        )}
+      </MarketplaceNotice>,
+    );
+  }
+
+  return notices.length > 0 ? <div className="flex flex-col gap-2">{notices}</div> : null;
+};
 
 function getPermissionI18nKey(permission: PluginPermission): string {
   return permission.replace(':', '.');
 }
 
-const MarketplaceInstallRiskNotice: React.FC<{ entry: PluginMarketCatalogEntry }> = ({ entry }) => {
+const MarketplacePermissionSection: React.FC<{ permissions: PluginPermission[] }> = ({ permissions }) => {
   const { t } = useTranslation('settings');
   return (
-    <Alert
-      color="warning"
-      variant="flat"
-      title={t('plugins.marketInstallRiskTitle', 'Review before installing')}
-      description={(
-        <span>
-          {t(
-            'plugins.marketInstallRiskDescription',
-            'Marketplace plugins run as local TX-5DR plugin code. Official listings are reviewed and open to community inspection, but you should still inspect the source before installing or updating.',
-          )}
-          {entry.repository && (
-            <>
-              {' '}
-              <a
-                href={entry.repository}
-                target="_blank"
-                rel="noreferrer"
-                className="font-medium text-warning-700 underline underline-offset-2 hover:text-warning-800"
-              >
-                {t('plugins.marketReviewSourceLink', 'Review source')}
-              </a>
-            </>
-          )}
-        </span>
-      )}
-    />
-  );
-};
-
-const MarketplacePermissionRiskSection: React.FC<{ permissions: PluginPermission[] }> = ({ permissions }) => {
-  const { t } = useTranslation('settings');
-  if (permissions.length === 0) {
-    return (
-      <section className="rounded-large border border-default-200 bg-default-50 px-4 py-3">
-        <div className="text-xs font-medium uppercase tracking-wider text-default-400">
-          {t('plugins.marketPermissions', 'Requested permissions')}
-        </div>
-        <div className="mt-2 text-sm font-medium text-default-700">
-          {t('plugins.marketNoSensitivePermissionsTitle', 'No sensitive permissions requested')}
-        </div>
-        <p className="mt-1 text-xs leading-5 text-default-500">
-          {t(
-            'plugins.marketNoSensitivePermissionsDescription',
-            'This plugin does not declare access to network, radio control, host dependencies, or host settings APIs.',
-          )}
-        </p>
-      </section>
-    );
-  }
-
-  return (
-    <section className="rounded-large border border-warning-200 bg-warning-50/60 px-4 py-4">
-      <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <div className="text-xs font-medium uppercase tracking-wider text-warning-700">
-            {t('plugins.marketPermissions', 'Requested permissions')}
-          </div>
-          <p className="mt-1 text-sm leading-6 text-warning-800">
-            {t(
-              'plugins.marketPermissionRiskSummary',
-              'These permissions unlock sensitive host APIs. Install only if the capability matches the plugin purpose.',
-            )}
-          </p>
-        </div>
-        <Chip size="sm" variant="flat" color="warning" className="shrink-0 text-xs">
-          {t('plugins.marketPermissionCount', '{{count}} permissions', { count: permissions.length })}
-        </Chip>
-      </div>
-      <div className="mt-3 grid gap-2 md:grid-cols-2">
+    <section>
+      <MarketplaceSectionTitle
+        end={(
+          <Chip size="sm" variant="flat" color="warning" className="h-5 text-[10px]">
+            {t('plugins.marketPermissionCount', '{{count}} permissions', { count: permissions.length })}
+          </Chip>
+        )}
+      >
+        {t('plugins.marketPermissions', 'Requested permissions')}
+      </MarketplaceSectionTitle>
+      <ul className="flex flex-col gap-2 rounded-medium border border-warning-200 px-3 py-2">
         {permissions.map((permission) => {
           const key = getPermissionI18nKey(permission);
           return (
-            <div
-              key={permission}
-              className="rounded-medium border border-warning-200/80 bg-content1/80 px-3 py-3"
-            >
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-semibold text-default-800">
+            <li key={permission} className="min-w-0">
+              <div className="flex flex-wrap items-baseline gap-x-2">
+                <span className="text-sm font-medium text-default-800">
                   {t(`plugins.permission.${key}.name`, permission)}
                 </span>
-                <code className="rounded bg-warning-100 px-1.5 py-0.5 text-[11px] text-warning-800">
-                  {permission}
-                </code>
+                <code className="text-[11px] text-default-400">{permission}</code>
               </div>
-              <p className="mt-2 text-xs leading-5 text-default-600">
+              <p className="text-xs leading-5 text-default-500">
                 {t(`plugins.permission.${key}.description`, permission)}
               </p>
-            </div>
+            </li>
           );
         })}
-      </div>
+      </ul>
+    </section>
+  );
+};
+
+const MarketplaceMeta: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
+  <div className="min-w-0">
+    <dt className="text-[11px] text-default-400">{label}</dt>
+    <dd className="truncate text-sm text-default-700">{children}</dd>
+  </div>
+);
+
+const MarketplaceDetailsSection: React.FC<{ item: MarketItemState }> = ({ item }) => {
+  const { t } = useTranslation('settings');
+  const { listing, displayVersion } = item;
+  const artifactUrl = resolveMarketplaceMarkdownUrl(displayVersion.artifactUrl);
+  return (
+    <section>
+      <MarketplaceSectionTitle>{t('plugins.marketDetails', 'Details')}</MarketplaceSectionTitle>
+      <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3">
+        {item.installedVersion && (
+          <MarketplaceMeta label={t('plugins.marketInstalledVersion', 'Installed version')}>
+            {item.installedVersion}
+          </MarketplaceMeta>
+        )}
+        {item.installRecord && (
+          <MarketplaceMeta label={t('plugins.marketInstalledAtLabel', 'Installed at')}>
+            {formatDateTime(item.installRecord.installedAt)}
+          </MarketplaceMeta>
+        )}
+        <MarketplaceMeta label={t('plugins.marketMinPluginApiVersion', 'Plugin API requirement')}>
+          ^{displayVersion.minPluginApiVersion}
+        </MarketplaceMeta>
+        <MarketplaceMeta label={t('plugins.marketPublishedAt', 'Published at')}>
+          {formatDateTime(displayVersion.publishedAt)}
+        </MarketplaceMeta>
+        {listing.license && (
+          <MarketplaceMeta label={t('plugins.marketLicense', 'License')}>{listing.license}</MarketplaceMeta>
+        )}
+        <MarketplaceMeta label={t('plugins.marketPackageSize', 'Package size')}>
+          {artifactUrl ? (
+            <MarketplaceExternalLink href={artifactUrl}>
+              {t('plugins.marketPackageSizeValue', '{{value}} KB', {
+                value: (displayVersion.size / 1024).toFixed(displayVersion.size >= 1024 * 100 ? 0 : 1),
+              })}
+            </MarketplaceExternalLink>
+          ) : t('plugins.marketPackageSizeValue', '{{value}} KB', {
+            value: (displayVersion.size / 1024).toFixed(displayVersion.size >= 1024 * 100 ? 0 : 1),
+          })}
+        </MarketplaceMeta>
+        {displayVersion.permissions.length === 0 && (
+          <MarketplaceMeta label={t('plugins.marketPermissions', 'Requested permissions')}>
+            {t('plugins.marketNoSensitivePermissionsTitle', 'No sensitive permissions requested')}
+          </MarketplaceMeta>
+        )}
+        {listing.categories.length > 0 && (
+          <MarketplaceMeta label={t('plugins.marketCategories', 'Categories')}>
+            {listing.categories.join(' · ')}
+          </MarketplaceMeta>
+        )}
+      </dl>
+    </section>
+  );
+};
+
+const VERSION_HISTORY_PREVIEW = 3;
+
+const MarketplaceVersionHistory: React.FC<{ item: MarketItemState }> = ({ item }) => {
+  const { t } = useTranslation('settings');
+  const [expanded, setExpanded] = useState(false);
+  const versions = [...item.listing.versions].sort((left, right) => compareSemverLike(right.version, left.version));
+  const shown = expanded ? versions : versions.slice(0, VERSION_HISTORY_PREVIEW);
+  return (
+    <section>
+      <MarketplaceSectionTitle
+        end={versions.length > VERSION_HISTORY_PREVIEW && (
+          <button type="button" className="text-xs text-primary hover:underline" onClick={() => setExpanded((value) => !value)}>
+            {expanded
+              ? t('plugins.marketCollapse', 'Collapse')
+              : t('plugins.marketVersionHistoryShowAll', 'Show all {{count}} versions', { count: versions.length })}
+          </button>
+        )}
+      >
+        {t('plugins.marketVersionHistory', 'Version history')}
+      </MarketplaceSectionTitle>
+      <ul className="flex flex-col divide-y divide-divider">
+        {shown.map((entry) => (
+          <li key={entry.version} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-1.5 text-xs">
+            <span className={`w-14 font-medium ${entry.yanked ? 'text-default-400 line-through' : 'text-default-700'}`}>
+              {entry.version}
+            </span>
+            <span className="text-default-500">
+              {t('plugins.marketMinPluginApiVersionShort', 'Plugin API ^{{version}}', {
+                version: entry.minPluginApiVersion,
+              })}
+            </span>
+            <span className="text-default-400">{formatDateTime(entry.publishedAt)}</span>
+            {item.target?.version === entry.version && (
+              <Chip size="sm" variant="flat" color="secondary" className="h-5 text-[10px]">
+                {t('plugins.marketVersionForThisHost', 'For this TX-5DR')}
+              </Chip>
+            )}
+            {item.installedVersion === entry.version && (
+              <Chip size="sm" variant="flat" color="success" className="h-5 text-[10px]">
+                {t('plugins.marketInstalled', 'Installed')}
+              </Chip>
+            )}
+            {entry.yanked && (
+              <Chip size="sm" variant="flat" color="danger" className="h-5 text-[10px]">
+                {t('plugins.marketVersionYanked', 'Withdrawn')}
+              </Chip>
+            )}
+          </li>
+        ))}
+      </ul>
     </section>
   );
 };
@@ -1195,24 +1078,19 @@ const MarketplaceReadmeSection: React.FC<{ markdown: string; sourceUrl?: string 
   const safeSourceUrl = resolveMarketplaceMarkdownUrl(sourceUrl);
 
   return (
-    <section className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-xs font-medium uppercase tracking-wider text-default-400">
-          {t('plugins.marketReadme', 'README')}
-        </span>
-        {safeSourceUrl && (
-          <a
-            href={safeSourceUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="text-xs text-primary hover:underline"
-          >
-            {t('plugins.marketReadmeSource', 'View README source')}
-          </a>
+    <section className="border-t border-divider pt-4">
+      <MarketplaceSectionTitle
+        end={safeSourceUrl && (
+          <MarketplaceExternalLink href={safeSourceUrl}>
+            <span className="text-xs">{t('plugins.marketReadmeSource', 'View README source')}</span>
+          </MarketplaceExternalLink>
         )}
-      </div>
-      <div className="prose prose-sm dark:prose-invert max-w-none rounded-large border border-divider bg-content2/40 px-4 py-4 text-default-700
-                      prose-headings:scroll-mt-20 prose-headings:text-default-800 prose-p:leading-7 prose-a:text-primary prose-code:text-default-800
+      >
+        {t('plugins.marketReadme', 'README')}
+      </MarketplaceSectionTitle>
+      <div className="prose prose-sm dark:prose-invert max-w-none text-default-700
+                      prose-headings:scroll-mt-20 prose-headings:text-default-800 prose-h1:text-lg prose-h2:text-base prose-h3:text-sm
+                      prose-p:leading-6 prose-a:text-primary prose-code:text-default-800
                       prose-pre:max-w-full prose-pre:overflow-x-auto prose-img:my-3 prose-img:max-h-80 prose-img:rounded-large prose-img:border prose-img:border-divider">
         <ReactMarkdown
           components={{

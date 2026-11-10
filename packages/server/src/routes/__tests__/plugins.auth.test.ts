@@ -23,6 +23,12 @@ const snapshot: PluginSystemSnapshot = {
       quickActions: [{ id: 'run', label: 'Run' }],
     },
   ],
+  loadFailures: [{
+    directoryName: 'legacy-dir',
+    reason: 'plugin-api-unsupported',
+    minPluginApiVersion: '0.9.0',
+    message: 'PLUGIN_API_VERSION_UNSUPPORTED: detail',
+  }],
   panelMeta: [],
   panelContributions: [],
 };
@@ -36,7 +42,8 @@ const setOperatorStrategy = vi.fn();
 const persistOperatorStrategy = vi.fn();
 const rescanPlugins = vi.fn();
 const installPluginFromMarketplace = vi.fn();
-const updatePluginFromMarketplace = vi.fn();
+const readInstalledMarketplaceSource = vi.fn();
+const readInstalledMarketplaceVersions = vi.fn();
 const uninstallPluginFromMarketplace = vi.fn();
 const logbookSyncHost = {
   getProviderInfo: vi.fn(),
@@ -83,7 +90,8 @@ vi.mock('../../plugin/runtime-info.js', () => ({
 
 vi.mock('../../plugin/marketplace-installer.js', () => ({
   installPluginFromMarketplace,
-  updatePluginFromMarketplace,
+  readInstalledMarketplaceSource,
+  readInstalledMarketplaceVersions,
   uninstallPluginFromMarketplace,
 }));
 
@@ -136,7 +144,8 @@ describe('pluginRoutes auth', () => {
     setOperatorStrategy.mockReset();
     rescanPlugins.mockReset().mockResolvedValue(undefined);
     installPluginFromMarketplace.mockReset();
-    updatePluginFromMarketplace.mockReset();
+    readInstalledMarketplaceSource.mockReset();
+    readInstalledMarketplaceVersions.mockReset();
     uninstallPluginFromMarketplace.mockReset();
     persistOperatorStrategy.mockReset().mockResolvedValue(undefined);
     logbookSyncHost.getProviderInfo.mockReset();
@@ -178,7 +187,12 @@ describe('pluginRoutes auth', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual(snapshot);
+    const projected = response.json();
+    expect(projected).toEqual({
+      ...snapshot,
+      loadFailures: snapshot.loadFailures?.map(({ message: _message, ...summary }) => summary),
+    });
+    expect(projected.loadFailures?.[0]).not.toHaveProperty('message');
     expect(getSnapshot).toHaveBeenCalledTimes(1);
   });
 
@@ -226,7 +240,7 @@ describe('pluginRoutes auth', () => {
 
   it('returns 409 without rescanning when the plugin requires a newer Plugin API', async () => {
     installPluginFromMarketplace.mockRejectedValue(Object.assign(
-      new Error('plugin requires Plugin API >= 2.2.0'),
+      new Error('plugin requires Plugin API ^2.2.0'),
       { code: 'PLUGIN_API_VERSION_UNSUPPORTED' },
     ));
 
@@ -234,7 +248,7 @@ describe('pluginRoutes auth', () => {
       method: 'POST',
       url: '/api/plugins/market/external-plugin/install',
       headers: { 'x-role': UserRole.ADMIN },
-      payload: { channel: 'stable' },
+      payload: { channel: 'stable', version: '1.2.0' },
     });
 
     expect(response.statusCode).toBe(409);
@@ -242,10 +256,53 @@ describe('pluginRoutes auth', () => {
     expect(installPluginFromMarketplace).toHaveBeenCalledWith(
       'external-plugin',
       '/tmp/tx5dr-plugins',
-      'stable',
-      { pluginApiVersion: '2.1.0' },
+      { version: '1.2.0', pluginApiVersion: '2.1.0' },
     );
     expect(rescanPlugins).not.toHaveBeenCalled();
+  });
+
+  it('rejects an invalid pinned marketplace version', async () => {
+    const response = await fastify.inject({
+      method: 'POST',
+      url: '/api/plugins/market/external-plugin/install',
+      headers: { 'x-role': UserRole.ADMIN },
+      payload: { version: 'latest' },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(installPluginFromMarketplace).not.toHaveBeenCalled();
+  });
+
+  it('updates and uninstalls an installed marketplace plugin that did not load', async () => {
+    readInstalledMarketplaceSource.mockResolvedValue({ kind: 'marketplace', version: '1.0.0' });
+    installPluginFromMarketplace.mockResolvedValue({
+      success: true, action: 'update', pluginName: 'external-plugin',
+    });
+    uninstallPluginFromMarketplace.mockResolvedValue({
+      success: true, action: 'uninstall', pluginName: 'external-plugin',
+    });
+
+    const update = await fastify.inject({
+      method: 'POST',
+      url: '/api/plugins/market/external-plugin/update',
+      headers: { 'x-role': UserRole.ADMIN },
+      payload: { version: '0.9.0' },
+    });
+    const uninstall = await fastify.inject({
+      method: 'DELETE',
+      url: '/api/plugins/market/external-plugin',
+      headers: { 'x-role': UserRole.ADMIN },
+    });
+
+    expect(update.statusCode).toBe(200);
+    expect(installPluginFromMarketplace).toHaveBeenCalledWith(
+      'external-plugin',
+      '/tmp/tx5dr-plugins',
+      { version: '0.9.0', pluginApiVersion: '2.1.0' },
+      'update',
+    );
+    expect(uninstall.statusCode).toBe(200);
+    expect(readInstalledMarketplaceSource).toHaveBeenCalledWith('/tmp/tx5dr-plugins', 'external-plugin');
   });
 
   it('allows operator accounts to pause their own operator transmit-control plugins', async () => {

@@ -309,6 +309,16 @@ describe('Hamlib automation recovery', () => {
     expect(encodeQueue.push).not.toHaveBeenCalled();
   });
 
+  it('preserves the same operator intent after a second Hamlib fault before restoration', async () => {
+    const { manager, operator, eventEmitter } = await recoveryFixture();
+    manager.confirmRadioRecovery();
+    manager.beginRadioRecovery();
+    manager.start();
+    manager.confirmRadioRecovery();
+    eventEmitter.emit('slotStart', createSlotInfo(15000), null);
+    expect(operator.isTransmitting).toBe(true);
+  });
+
   it('does not restore an operator explicitly stopped during recovery', async () => {
     const { manager, operator, eventEmitter } = await recoveryFixture();
     manager.stopOperator(operator.config.id);
