@@ -5,6 +5,7 @@ import type { CallsignHashSnapshot } from './CallsignHashRegistry.js';
 
 export interface MfskNativeSlotHandle {
   decode(pcmF32Le: Buffer, periodIndex?: number, earlyPrefix?: boolean): MfskNativeRow[];
+  preloadCallsigns(calls: string[]): void;
   setParameters(depth: number, averaging: boolean, rxHz?: number, toleranceHz?: number): void;
   setParallelThreads?: (threads: number) => void;
   setFrameOptions?: (apMode: string, strategy: string, syncMin?: number, maxCandidates?: number) => void;
