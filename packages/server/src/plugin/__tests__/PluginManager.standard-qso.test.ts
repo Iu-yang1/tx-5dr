@@ -4615,6 +4615,39 @@ describe('PluginManager standard-qso late re-decision', () => {
     await pluginManager.shutdown();
   });
 
+  it.each([
+    { mode: 'Q65' as const, state: 'TX4' as const },
+    { mode: 'Q65' as const, state: 'TX5' as const },
+    { mode: 'MSK144' as const, state: 'TX4' as const },
+    { mode: 'MSK144' as const, state: 'TX5' as const },
+  ])('records manual $mode $state even without a subsequent RX decode', async ({ mode, state }) => {
+    const records: RecordQSORequest['qsoRecord'][] = [];
+    const { operator, pluginManager } = await createRuntimeHarness({
+      mode: MODES[mode],
+      myCallsign: 'BG5JSU',
+      targetCallsign: 'K1ABC',
+      recordQSOHandler: request => {
+        records.push(request.qsoRecord);
+        request.resolve?.(request.qsoRecord);
+      },
+    });
+
+    setRuntimeState(pluginManager, operator.config.id, state);
+    await vi.waitFor(() => expect(records).toHaveLength(1));
+    expect(records[0]).toMatchObject({
+      callsign: 'K1ABC',
+      myCallsign: 'BG5JSU',
+      mode,
+    });
+
+    setRuntimeState(pluginManager, operator.config.id, state === 'TX4' ? 'TX5' : 'TX4');
+    await vi.waitFor(() => expect(
+      pluginManager.getOperatorRuntimeStatus(operator.config.id).currentSlot,
+    ).toBe(state === 'TX4' ? 'TX5' : 'TX4'));
+    expect(records).toHaveLength(1);
+    await pluginManager.shutdown();
+  });
+
   describe('Q65/MSK144 native decoding to automatic TX and logbook acknowledgment', () => {
     it.each([
       { mode: 'Q65' as const, periodMs: 60_000, text: 'K1ABC BG5JSU 73' },
