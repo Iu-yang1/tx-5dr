@@ -6,9 +6,15 @@ import { RadioError, RadioErrorCode } from '../../../utils/errors/RadioError.js'
 
 const retiringHosts = new Set<Promise<void>>();
 export async function waitForHamlibHostRetirement(): Promise<void> { await Promise.all(retiringHosts); }
-export function trackHamlibHostRetirement(retirement: Promise<void>): void {
+/**
+ * Do not replace an unconfirmed Hamlib host until its process exit is observed.
+ * A late exit unblocks subsequent reconnect attempts without restarting TX5DR.
+ */
+export function trackHamlibHostRetirement(retirement: Promise<void>, exited?: Promise<void>): void {
   retiringHosts.add(retirement);
-  void retirement.then(() => retiringHosts.delete(retirement), () => {});
+  void retirement.then(() => retiringHosts.delete(retirement), () => {
+    void exited?.then(() => retiringHosts.delete(retirement));
+  });
 }
 
 export abstract class HamlibTransport extends EventEmitter<HamlibEndpointEvents> {
