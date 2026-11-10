@@ -2495,8 +2495,8 @@ export class RadioOperatorManager {
       if (operator.isTransmitting) {
         // A system stop during recovery (for example the engine restore
         // cleanup) is not a user decision: keep the operator's intent.
-        if (preserveRadioRecovery) this.captureRecoveryIntent(operatorId, operator);
         const epoch = this.intentCoordinator.abortOperator(operatorId, 'all operators stopped');
+        if (preserveRadioRecovery) this.captureRecoveryIntent(operatorId, operator, epoch);
         this._pluginManager?.suspendQueueExecution?.(operatorId);
         this.releaseTargetReservation(operatorId, epoch);
         this.requestStrategyStop(operatorId, 'all operators stopped');
@@ -2537,6 +2537,21 @@ export class RadioOperatorManager {
   cancelRadioRecovery(): void {
     this.radioRecovery = null;
     if (this.transmissionMaintenanceReason === 'Hamlib recovery') this.exitTransmissionMaintenance();
+  }
+
+  /** Gate every automated TX path during maintenance and uncertain recovery. */
+  private get transmissionGateReason(): string | null {
+    if (this.transmissionMaintenanceReason) return this.transmissionMaintenanceReason;
+    return this.radioRecovery?.resumeAt === null ? RADIO_RECOVERY_MAINTENANCE_REASON : null;
+  }
+
+  /** Retain operator intent at the epoch committed by the stop transaction. */
+  private captureRecoveryIntent(operatorId: string, operator: RadioOperator, epoch: number): void {
+    this.radioRecovery?.intents.set(operatorId, {
+      operator,
+      epoch,
+      configuration: this.getRecoveryConfiguration(operator),
+    });
   }
 
   private getRecoveryConfiguration(operator: RadioOperator): string {
@@ -2799,7 +2814,9 @@ export class RadioOperatorManager {
     for (const [operatorId, operator] of this.operators) {
       // Restoring the engine after a radio recovery first completes a forced
       // stop; operators armed meanwhile resume with the saved intents.
-      if (operator.isTransmitting) this.captureRecoveryIntent(operatorId, operator);
+      if (operator.isTransmitting) {
+        this.captureRecoveryIntent(operatorId, operator, this.intentCoordinator.getCurrentEpoch(operatorId));
+      }
       operator.stop();
       this.clearSameTransmissionGuard(operatorId);
     }
