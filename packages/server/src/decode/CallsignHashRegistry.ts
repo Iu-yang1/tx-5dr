@@ -53,7 +53,11 @@ export class CallsignHashRegistry {
         const hash = callsignHash(call, bits);
         const previous = slots.get(hash);
         if (previous !== call) {
-          if (previous && !conflicts.has(hash)) conflicts.set(hash, previous);
+          // Keep a witness distinct from the current slot owner even when
+          // the latest observed callsign cycles back to an older owner.
+          if (previous && (!conflicts.has(hash) || conflicts.get(hash) === call)) {
+            conflicts.set(hash, previous);
+          }
           slots.set(hash, call);
           updated = true;
         }
