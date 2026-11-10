@@ -17,10 +17,10 @@ function received(rawMessage: string, snr = -10): ParsedFT8Message {
   };
 }
 
-function createRuntime(skipTx1 = false, myCallsign = 'W1AAA') {
+function createRuntime(skipTx1 = false, myCallsign = 'W1AAA', mode: typeof MODES.FT8 | typeof MODES.FT4 = MODES.FT8) {
   return new StandardQSOPluginRuntime({
     config: {
-      id: 'test-operator', mode: MODES.FT8, myCallsign, myGrid: 'FN31',
+      id: 'test-operator', mode, myCallsign, myGrid: 'FN31',
       frequency: 14074000, transmitCycles: [0], autoReplyToCQ: false,
       autoResumeCQAfterFail: false, autoResumeCQAfterSuccess: true,
       replyToWorkedStations: false, prioritizeNewCalls: true,
