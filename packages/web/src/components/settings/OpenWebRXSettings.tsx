@@ -580,64 +580,6 @@ export function OpenWebRXSettings() {
                         )}
                       </div>
 
-                  {/* Frequency, modulation, tune controls */}
-                  <div className="flex gap-3 items-end">
-                    <Input
-                      label={t('openwebrx.frequency')}
-                      placeholder="14074000"
-                      value={listenFrequency}
-                      onValueChange={setListenFrequency}
-                      description={listenFrequency ? `${formatFrequencyMHz(parseInt(listenFrequency))} MHz` : ''}
-                      className="flex-1"
-                      size="sm"
-                    />
-                    <Select
-                      label={t('openwebrx.modulation')}
-                      selectedKeys={[listenModulation]}
-                      onSelectionChange={(keys) => setListenModulation(Array.from(keys)[0] as string)}
-                      className="w-28"
-                      size="sm"
-                    >
-                      <SelectItem key="usb">USB</SelectItem>
-                      <SelectItem key="lsb">LSB</SelectItem>
-                      <SelectItem key="am">AM</SelectItem>
-                      <SelectItem key="fm">FM</SelectItem>
-                      <SelectItem key="cw">CW</SelectItem>
-                    </Select>
-                    <Button
-                      size="sm"
-                      variant="flat"
-                      onPress={handleTuneListen}
-                    >
-                      {t('openwebrx.applyTune')}
-                    </Button>
-                  </div>
-
-                  {/* Stream info */}
-                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-default-400">
-                    {listenStatus?.centerFreq && (
-                      <span>
-                        {t('openwebrx.centerFreq')}: {formatFrequencyMHz(listenStatus.centerFreq)} MHz
-                        {listenStatus.sampleRate && ` (BW: ${(listenStatus.sampleRate / 1000).toFixed(0)} kHz)`}
-                      </span>
-                    )}
-                    {audioPlayback.isPlaying && audioPlayback.stats?.receiver?.codec && (
-                      <span>
-                        {t('openwebrx.codec')}: <span className="font-mono uppercase">{audioPlayback.stats.receiver.codec}</span>
-                      </span>
-                    )}
-                    {audioPlayback.stats && (
-                      <>
-                        <span>
-                          {t('openwebrx.latency')}: <span className="font-mono">{audioPlayback.stats.latencyMs.toFixed(0)}ms</span>
-                        </span>
-                        <span>
-                          {t('openwebrx.buffer')}: <span className="font-mono">{audioPlayback.stats.bufferFillPercent.toFixed(0)}%</span>
-                        </span>
-                      </>
-                    )}
-                  </div>
-
                   {/* Error */}
                   {listenStatus?.error && (
                     <Alert color="danger" variant="flat">
@@ -650,6 +592,8 @@ export function OpenWebRXSettings() {
           </div>
         );
       })}
+        </div>
+      </section>
 
       {/* Add/Edit Form */}
       {isEditing && (
