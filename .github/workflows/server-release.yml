@@ -32,6 +32,8 @@ permissions:
 
 jobs:
   build-server-linux:
+    # Leave main ready for the next fixes without publishing a nightly.
+    if: ${{ !(github.event_name == 'push' && contains(github.event.head_commit.message, '[skip release]')) }}
     name: Build Server Package (Linux ${{ matrix.arch }})
     strategy:
       fail-fast: false
