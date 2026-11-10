@@ -16,6 +16,8 @@ export interface MfskNativeRow {
   frequencyHz: number;
   snrDb: number;
   dtSeconds: number;
+  /** Complete calls from accepted 77-bit fields; never parsed from display text. */
+  learnedCallsigns?: string[];
 }
 
 export interface MfskNativeWaveform {
@@ -34,6 +36,7 @@ export interface MfskNativeModule {
   encodeMsk144Standard(call1: string, call2: string, report: string, periodSeconds: number): MfskNativeWaveform;
   SlottedSession: new (mode: string) => {
     decode(pcmF32Le: Buffer, periodIndex?: number, earlyPrefix?: boolean): MfskNativeRow[];
+    preloadCallsigns(calls: string[]): void;
     setParameters(depth: number, averaging: boolean, rxHz?: number, toleranceHz?: number): void;
     setParallelThreads(threads: number): void;
     setQ65SearchOptions(seconds?: number, score?: number, maxCandidates?: number): void;
