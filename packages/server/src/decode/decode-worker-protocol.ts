@@ -5,7 +5,7 @@ const SessionId = z.string().min(1).max(63);
 const CommandId = z.number().int().positive();
 export const CallsignHashSnapshotSchema = z.object({
   version: z.number().int().nonnegative(),
-  calls: z.array(z.string().min(2).max(11)).max(1000),
+  calls: z.array(z.string().min(2).max(11)).max(12000),
 });
 
 export const DecodeWorkerCommandSchema = z.discriminatedUnion('type', [
