@@ -28,7 +28,11 @@ assert.throws(() => native.encodeMsk144Standard('K1ABC','K2ABC','-10',17), /peri
 // list until the full legacy short-ping receiver and adaptive equalizer exist.
 assert.equal(typeof native.encodeMsk40Shorthand,'function');
 assert.equal(typeof native.decodeMsk40KnownCalls,'function');
-assert(native.codecVersion().includes('tx5dr-fork/9b48880d7309'));
+// Keep the smoke oracle tied to the exact dependency the addon actually builds.
+const manifest = require('node:fs').readFileSync(path.join(__dirname, 'Cargo.toml'), 'utf8');
+const coreRev = manifest.match(/rev\s*=\s*"([0-9a-f]{40})"/)?.[1];
+assert(coreRev, 'mfsk-core Git pin missing from Cargo.toml');
+assert(native.codecVersion().includes(`tx5dr-fork/${coreRev.slice(0, 12)}`));
 const eqSession=new native.Msk144Session(1500,12);
 assert.equal(eqSession.equalizerStatus().enabled,false);
 eqSession.configureEqualizer(true,'W9XYZ');
