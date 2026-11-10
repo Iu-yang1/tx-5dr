@@ -27,8 +27,15 @@ jobs:
           test "$(git rev-parse FETCH_HEAD)" = 'd0f1c3165ca4aaebd01d1450d174b5f5314c1d8c'
           if ! git merge --no-ff -X ours -m 'chore(upstream): integrate boybook/tx-5dr [skip release]' FETCH_HEAD; then
             git status --short
-            git diff --name-only --diff-filter=U
-            exit 1
+            UNMERGED="$(git diff --name-only --diff-filter=U)"
+            # The fork deliberately deleted the legacy release.yml; upstream
+            # only changed it. Keep the deletion, not a second release pipeline.
+            if [ "$UNMERGED" != '.github/workflows/release.yml' ]; then
+              echo "Unexpected unresolved paths: $UNMERGED" >&2
+              exit 1
+            fi
+            git rm -f -- .github/workflows/release.yml
+            git -c core.editor=true commit -m 'chore(upstream): integrate boybook/tx-5dr [skip release]'
           fi
           git rm .github/workflows/one-time-upstream-merge.yml
           git commit -m 'chore: remove one-shot sync workflow [skip release]'
