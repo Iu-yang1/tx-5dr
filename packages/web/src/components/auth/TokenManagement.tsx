@@ -38,6 +38,8 @@ import {
 } from '@tx5dr/contracts';
 import type { TokenInfo, CreateTokenRequest, NetworkInfo, PermissionGrant, PresetFrequency, UpdateTokenRequest } from '@tx5dr/contracts';
 import { useOperators } from '../../store/radioStore';
+import { SettingsPage } from '../settings/SettingsLayout';
+import { SETTINGS_CARD_CLASS_NAMES, SETTINGS_CARD_PROPS } from '../settings/settingsCardStyles';
 import { formatFrequencyMHz } from '../../utils/frequencyMHz';
 
 const ROLE_COLORS: Record<string, 'default' | 'primary' | 'warning'> = {
