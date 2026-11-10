@@ -2566,11 +2566,11 @@ export const SystemSettings = forwardRef<
               </div>
             </SettingsBlock>
           )}
-          <div className="border-t border-divider pt-5">
+          <SettingsBlock>
             <DigitalDecodePreferencesPanel />
-          </div>
-        </CardBody>
-      </Card>
+          </SettingsBlock>
+        </SettingsSection>
+      </div>
 
       {/* PSKReporter 设置 */}
       <div className="order-7">
