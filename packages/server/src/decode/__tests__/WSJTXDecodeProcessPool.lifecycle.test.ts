@@ -89,6 +89,7 @@ describe('decode session cancellation and bounded waiting', () => {
     pool.cancelSession('hash-cancelled', 'transmit-skipped');
     active.finish(['BAD1CALL']);
     await expect(stale).rejects.toMatchObject({ code: 'DECODE_SESSION_CANCELLED' });
+    active.acknowledgeEnd();
     const later = pool.decode(request('hash-later', true));
     const last = workers.flatMap(w => w.commands.filter(c => c.type === 'decode'))
       .find(c => c.request?.slotId === 'hash-later');
