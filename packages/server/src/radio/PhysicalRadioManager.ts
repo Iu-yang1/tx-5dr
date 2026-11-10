@@ -2895,6 +2895,14 @@ export class PhysicalRadioManager extends EventEmitter<PhysicalRadioManagerEvent
         this.radioActor?.send({ type: 'DISCONNECT', reason: 'Hamlib host requires a server restart' });
         return;
       }
+      if (error instanceof RadioError && error.context?.hamlibHostFatal === true) {
+        // The native host is no longer usable, even if a power operation is
+        // underway. Ordinary transient CAT errors remain suppressed below.
+        if (this.radioActor && !this.isDisconnecting) {
+          this.radioActor.send({ type: 'HEALTH_CHECK_FAILED', error });
+        }
+        return;
+      }
       // 用户主动切换电源期间，底层 CAT 经常出现 "Command rejected" 类错误，
       // 不要让它们触发 HEALTH_CHECK_FAILED → 重连循环
       if (this.intentionalDisconnectFlag.active) {
