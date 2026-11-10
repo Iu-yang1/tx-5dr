@@ -9,7 +9,8 @@ import { SlotClock, SlotScheduler } from '@tx5dr/core';
 
 class ControlledWorker extends EventEmitter implements DecodeWorkerProcess {
   killed = false;
-  commands: Array<{ type: string; id: number; sessionId?: string; request?: DecodeRequest }> = [];
+  commands: Array<{ type: string; id: number; sessionId?: string; request?: DecodeRequest;
+    hashSnapshot?: { version: number; calls: string[] } }> = [];
   constructor(readonly pid: number) { super(); }
   send(message: unknown, callback?: (error: Error | null) => void): boolean {
     const command = message as ControlledWorker['commands'][number];
@@ -19,12 +20,12 @@ class ControlledWorker extends EventEmitter implements DecodeWorkerProcess {
     return true;
   }
   kill(): boolean { this.killed = true; this.emit('exit', 0, null); return true; }
-  finish(): void {
+  finish(learnedCalls: string[] = []): void {
     const command = this.commands.filter(c => c.type === 'decode').at(-1)!;
     this.emit('message', { type: 'result', id: command.id, result: {
       slotId: command.request!.slotId, windowIdx: command.request!.windowIdx,
       frames: [], timestamp: 0, processingTimeMs: 1,
-    } });
+    }, learnedCalls });
   }
   acknowledgeEnd(): void {
     const command = this.commands.filter(c => c.type === 'end-session').at(-1)!;
@@ -51,6 +52,24 @@ describe('decode session cancellation and bounded waiting', () => {
     for (const worker of workers) worker.emit('message', { type: 'ready' });
   });
   afterEach(async () => { await pool.destroy(); vi.useRealTimers(); });
+
+  it('shares verified RX calls with another worker without keeping slot state alive', async () => {
+    const first = pool.decode(request('hash-A', true));
+    const initial = workers[0].commands.filter(c => c.type === 'decode').at(-1);
+    expect(initial?.hashSnapshot?.calls).toEqual([]);
+    workers[0].finish(['5TB3Z']);
+    await first;
+
+    // Occupy worker A so the next slot is dispatched to worker B.
+    const occupied = pool.decode(request('hash-occupy'));
+    const second = pool.decode(request('hash-B', true));
+    const onB = workers[1].commands.filter(c => c.type === 'decode').at(-1);
+    expect(onB?.hashSnapshot?.calls).toContain('5TB3Z');
+    workers[1].finish();
+    await second;
+    workers[0].finish();
+    await occupied;
+  });
 
   it('reuses both workers after two sessions lose their final windows', async () => {
     const a = pool.decode(request('slot-A')); workers[0].finish(); await a;
