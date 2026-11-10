@@ -1671,14 +1671,12 @@ export const SystemSettings = forwardRef<
         />
       )}
 
-      <Card shadow="none" radius="lg" className="order-[9]" classNames={SETTINGS_CARD_CLASS_NAMES}>
-        <CardBody className={SETTINGS_CARD_BODY_CLASS}>
-          <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-            <div className="flex-1">
-              <h4 className={SETTINGS_CARD_TITLE_CLASS}>{t('system.ntpTitle')}</h4>
-              <p className={`mt-1 ${SETTINGS_CARD_DESC_CLASS}`}>{t('system.ntpDesc')}</p>
-            </div>
-            <div className="flex gap-2">
+      <div className="order-[9]">
+        <SettingsSection
+          title={t('system.ntpTitle')}
+          description={t('system.ntpDesc')}
+          actions={(
+            <>
               <Button
                 size="sm"
                 variant="flat"
