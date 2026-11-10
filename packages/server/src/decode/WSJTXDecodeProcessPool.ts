@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DecodeSessionCancelledError, type DecodeSessionCancelReason, type DecodeRequest, type DecodeResult } from '@tx5dr/core';
 import { DecodeSessionEndedSchema } from './decode-worker-protocol.js';
+import { CallsignHashRegistry } from './CallsignHashRegistry.js';
 import type { DecodeWorkerTelemetrySnapshot, DecodeWorkerTelemetryWorker } from '@tx5dr/contracts';
 import { createLogger } from '../utils/logger.js';
 
@@ -149,7 +150,7 @@ interface WorkerState {
 type WorkerMessage =
   | { type: 'ready'; workerId?: string }
   | { type: 'telemetry'; workerId?: string; metrics: DecodeWorkerTelemetryWorker }
-  | { type: 'result'; id: number; result: DecodeResult }
+  | { type: 'result'; id: number; result: DecodeResult; learnedCalls?: string[] }
   | { type: 'error'; id: number; error: SerializedWorkerError }
   | { type: 'log'; level: 'debug' | 'info' | 'warn' | 'error'; message: string; meta?: unknown };
 
@@ -325,6 +326,8 @@ function roundMs(value: number): number {
 export class WSJTXDecodeProcessPool extends EventEmitter {
   private readonly pending: PendingJob[] = [];
   private readonly workers = new Map<number, WorkerState>();
+  // Exactly one RX history per decode pool; slot/worker lifetimes are shorter.
+  private readonly hashRegistry = new CallsignHashRegistry();
   private readonly sessions = new Map<string, DecodeSessionState>();
   private readonly closedSessions = new Map<string, DecodeSessionCancelReason>();
   private readonly maintenanceTimer: NodeJS.Timeout;
@@ -754,6 +757,9 @@ export class WSJTXDecodeProcessPool extends EventEmitter {
         nativeThreadsPerWorker: this.nativeThreads,
       });
       this.recordNativeDecodeDuration(nativeProcessingTimeMs);
+      // Only an accepted response for the current job can teach the receiver.
+      // Cancelled/stale worker results are discarded before this branch.
+      this.hashRegistry.learnRx(workerMessage.learnedCalls ?? []);
       activeJob.settled = true;
       this.counters.completed++;
       this.lastProgressAt = completedAt;
@@ -870,7 +876,8 @@ export class WSJTXDecodeProcessPool extends EventEmitter {
       worker.activeJob = { ...job, request: dispatchRequest, timer, dispatchedAt };
       try {
         if (!worker.process.send) throw new Error('Decode worker IPC is unavailable');
-        const ok = worker.process.send({ type: 'decode', id: job.id, request: dispatchRequest }, error => {
+        const ok = worker.process.send({ type: 'decode', id: job.id,
+          request: dispatchRequest, hashSnapshot: this.hashRegistry.snapshot() }, error => {
           if (error && worker.activeJob?.id === job.id) this.handleWorkerFailure(worker, error);
         });
         if (!ok) logger.debug('decode worker IPC backpressure', { workerId: worker.id, jobId: job.id });
