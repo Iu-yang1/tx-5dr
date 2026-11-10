@@ -120,6 +120,43 @@ describe('standard QSO completion facts', () => {
   });
 });
 
+describe('manual final-slot QSO completion', () => {
+  it.each([
+    { name: 'FT8', mode: MODES.FT8 },
+    { name: 'FT4', mode: MODES.FT4 },
+  ])('logs a manually selected RR73 or 73 in $name and only emits one completion', async ({ mode }) => {
+    for (const slot of ['TX4', 'TX5'] as const) {
+      const runtime = createRuntime(false, 'W1AAA', mode);
+      runtime.requestCall('K1BBB', undefined);
+      runtime.patchContext({ reportSent: -10, reportReceived: -8 });
+
+      runtime.setState(slot);
+      const first = await runtime.decide([], meta());
+      expect(first.transmission).toBe(`K1BBB W1AAA ${slot === 'TX4' ? 'RR73' : '73'}`);
+      expect(first.qsoCompletion?.record).toMatchObject({
+        callsign: 'K1BBB',
+        mode: mode.name,
+        reportSent: '-10',
+        reportReceived: '-8',
+      });
+      expect((await runtime.decide([], meta())).qsoCompletion).toBeUndefined();
+
+      settle(runtime, first.qsoCompletion!);
+      runtime.setState(slot === 'TX4' ? 'TX5' : 'TX4');
+      expect((await runtime.decide([], meta())).qsoCompletion).toBeUndefined();
+      expect(runtime.hasUnsettledQSOCompletion()).toBe(false);
+    }
+  });
+
+  it('does not record a manual final slot without a target callsign', async () => {
+    const runtime = createRuntime();
+    runtime.setState('TX4');
+    expect((await runtime.decide([], meta())).qsoCompletion).toBeUndefined();
+    runtime.setState('TX5');
+    expect((await runtime.decide([], meta())).qsoCompletion).toBeUndefined();
+  });
+});
+
 describe('standard QSO transmitted report facts', () => {
   it.each([
     { snr: 2, peerReport: '+18', sentReport: '+02', receivedReport: 18 },
