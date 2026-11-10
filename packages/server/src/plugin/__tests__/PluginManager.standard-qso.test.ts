@@ -2314,7 +2314,7 @@ describe('PluginManager standard-qso late re-decision', () => {
     await pluginManager.shutdown();
   });
 
-  it('takes over a third-party direct TX2 in the same RX batch after our RR73 is answered with 73', async () => {
+  it('does not hand off to a third-party direct TX2 before manual RR73 completion is durable', async () => {
     const { operator, pluginManager } = await createRuntimeHarness({
       myCallsign: 'BG7XTV',
       myGrid: 'OL32',
@@ -2340,12 +2340,13 @@ describe('PluginManager standard-qso late re-decision', () => {
       },
     ]));
 
+    // The manually selected RR73 now creates a real completion effect.
+    // Handing off in the same RX batch would overwrite its lifecycle before
+    // the Host has confirmed that the logbook write is durable.
     const status = pluginManager.getOperatorRuntimeStatus(operator.config.id);
-    expect(status.currentSlot).toBe('TX3');
-    expect(status.context?.targetCallsign).toBe('JA1AAA');
-    expect(status.context?.reportReceived).toBe(-12);
-    expect(operator.isTransmitting).toBe(true);
-    expect(getCurrentTransmission(pluginManager, operator.config.id)).toBe('JA1AAA BG7XTV R-18');
+    expect(status.currentSlot).toBe('TX6');
+    expect(status.context?.targetCallsign).toBeUndefined();
+    expect(operator.isTransmitting).toBe(false);
 
     await pluginManager.shutdown();
   });
