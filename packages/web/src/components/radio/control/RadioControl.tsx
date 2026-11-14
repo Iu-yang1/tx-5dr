@@ -1286,14 +1286,14 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
       return;
     }
 
-    // Handle CW mode switch via WSClient
-    if (selectedModeName === 'CW') {
+    // Handle keyboard mode (CW, RTTY) switches via WSClient
+    if (selectedModeName === 'CW' || selectedModeName === 'RTTY') {
       try {
-        connection.state.radioService?.wsClientInstance.setMode({ name: 'CW' } as ModeDescriptor);
+        connection.state.radioService?.wsClientInstance.setMode({ name: selectedModeName } as ModeDescriptor);
         resetOperatorsAfterOperatingStateChange();
-        logger.info('Mode switch requested: CW');
+        logger.info(`Mode switch requested: ${selectedModeName}`);
       } catch (error) {
-        logger.error('Failed to switch to CW mode:', error);
+        logger.error(`Failed to switch to ${selectedModeName} mode:`, error);
       }
       return;
     }
@@ -1729,6 +1729,11 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
     if (!modes.some(mode => mode.name === 'CW')) {
       result.unshift({ name: 'CW' } as ModeDescriptor);
     }
+    // The select shows RTTY as selected in RTTY mode, so it must be an item
+    // even before (or without) the server's mode list.
+    if (!modes.some(mode => mode.name === 'RTTY')) {
+      result.push({ name: 'RTTY' } as ModeDescriptor);
+    }
     return result;
   }, [availableModes]);
 
@@ -1736,7 +1741,9 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
     ? getModeDisplayLabel('VOICE')
     : radioMode.engineMode === 'cw'
       ? getModeDisplayLabel('CW')
-      : (radioMode.currentMode?.name ? getModeDisplayLabel(radioMode.currentMode.name) : (modeError || t('mode.placeholder')));
+      : radioMode.engineMode === 'rtty'
+        ? getModeDisplayLabel('RTTY')
+        : (radioMode.currentMode?.name ? getModeDisplayLabel(radioMode.currentMode.name) : (modeError || t('mode.placeholder')));
 
   const { measureRef: frequencyMeasureRef, width: frequencySelectWidth } = useMeasuredSelectWidth(
     frequencySelectLabel,

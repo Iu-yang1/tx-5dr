@@ -662,12 +662,14 @@ export async function radioRoutes(fastify: FastifyInstance) {
     const lastVoiceFrequency = configManager.getLastVoiceFrequency();
     const lastImageFrequency = configManager.getLastImageFrequency();
     const lastCWFrequency = configManager.getLastCWFrequency();
+    const lastRTTYFrequency = configManager.getLastRTTYFrequency();
     return reply.send({
       success: true,
       lastFrequency,
       lastVoiceFrequency,
       lastImageFrequency,
       lastCWFrequency,
+      lastRTTYFrequency,
     });
   });
 
@@ -715,7 +717,9 @@ export async function radioRoutes(fastify: FastifyInstance) {
         ? 'VOICE'
         : engine.getEngineMode() === 'cw'
           ? 'CW'
-          : engine.getEngineMode() === 'image'
+          : engine.getEngineMode() === 'rtty'
+            ? 'RTTY'
+            : engine.getEngineMode() === 'image'
             ? engine.getCurrentMode().name
             : 'FT8');
     const normalizedRadioMode = normalizeRadioMode(radioMode);
@@ -744,10 +748,12 @@ export async function radioRoutes(fastify: FastifyInstance) {
       ? configManager.getLastVoiceFrequency()
       : effectiveMode === 'CW'
         ? configManager.getLastCWFrequency()
-        : effectiveMode === 'SSTV' || effectiveMode === 'FAX'
+        : effectiveMode === 'RTTY'
+          ? configManager.getLastRTTYFrequency()
+          : effectiveMode === 'SSTV' || effectiveMode === 'FAX'
           ? configManager.getLastImageFrequency()
           : configManager.getLastSelectedFrequency();
-    const lastMode = effectiveMode === 'VOICE' || effectiveMode === 'CW'
+    const lastMode = effectiveMode === 'VOICE' || effectiveMode === 'CW' || effectiveMode === 'RTTY'
       ? effectiveMode
       : (lastFrequency as { mode?: string } | null | undefined)?.mode;
     const isFrequencyChanged = !lastFrequency ||
@@ -786,6 +792,15 @@ export async function radioRoutes(fastify: FastifyInstance) {
           const previousCWFrequency = configManager.getLastCWFrequency();
           await configManager.updateLastCWFrequency({
             ...(previousCWFrequency ?? {}),
+            frequency,
+            band,
+            description,
+            ...(normalizedRadioMode ? { radioMode: normalizedRadioMode } : {}),
+          });
+        } else if (effectiveMode === 'RTTY') {
+          const previousRttyFrequency = configManager.getLastRTTYFrequency();
+          await configManager.updateLastRTTYFrequency({
+            ...(previousRttyFrequency ?? {}),
             frequency,
             band,
             description,
