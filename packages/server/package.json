@@ -57,11 +57,12 @@
     "node-wav": "^0.0.2",
     "onnxruntime-node": "^1.26.0",
     "pngjs": "^7.0.0",
-    "rasterwave-node": "0.5.0",
+    "rasterwave-node": "0.6.0",
     "rubato-fft-node": "^0.2.0",
     "serialport": "^13.0.0",
     "tci-client-node": "https://github.com/boybook/tci-client-node.git#commit=7359e718e4b0efe97ef7e2172754b397c36a6b16",
     "wav": "^1.0.2",
+    "wsjtx-lib": "2.2.0",
     "xstate": "^5.23.0",
     "zod": "^4.6.7",
     "zod-to-json-schema": "^3.24.5"
@@ -76,10 +77,9 @@
     "@types/pngjs": "^6.0.5",
     "autocannon": "^8.0.0",
     "clinic": "^13.0.0",
-    "eslint": "^8.0.0",
-    "tsx": "^4.0.0",
-    "typescript": "^5.0.0",
-    "vitest": "^4.1.12",
-    "wsjtx-lib": "2.2.0"
+    "eslint": "^8.57.1",
+    "tsx": "^4.23.15",
+    "typescript": "^5.8.3",
+    "vitest": "^4.1.12"
   }
 }
