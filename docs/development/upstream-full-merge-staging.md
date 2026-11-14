@@ -34,3 +34,18 @@ This report does not claim the conflict-side upstream content was ported.
 Check all package/lockfile combinations, native Node ABI, audio and PTT
 sequencing, ICOM/Yaesu CAT, all digital modes, i18n and NSIS installed
 node.exe. Do not merge this branch without green integration CI.
+
+## Reconciliation on `integration/upstream-20261114`
+
+The 14 conflicts above describe the initial automated staging, not the final reconciliation.
+
+- Dockerfile: ported upstream runtime smoke and toolchain-line changes, retained fork native codec stages.
+- Host and server manifests: reconciled upstream dependency ranges without dropping fork-specific packages; regenerated Yarn lockfile.
+- Client proxy and desktop: ported upstream startup fixes; retained the fork's more complete redacted Electron console diagnostics.
+- DigitalRadioEngine, EngineLifecycle, RadioBridge: ported RTTY-specific service, mode lifecycle and frequency routing; removed obsolete TransmissionTracker references.
+- Hamlib worker tests: integrated upstream malformed IPC and tooling message regressions.
+- CW log card and recent-QSO list: retained fork-specific working implementations rather than replacing with upstream wrapper refactor.
+- Plugin docs: retained fork-specific contract text and integrated compatible upstream text.
+- Native FT8/FT4 hash registry, FTDX10 control and manual RR73/73 logbook paths remain unchanged at their v1.0.5 source identity.
+
+CI remains the release gate; this reconciliation report alone is not proof of hardware, packaging, or QSO acceptance.
