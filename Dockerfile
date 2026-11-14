@@ -190,10 +190,14 @@ COPY scripts/audit-wsjtx-production.mjs /tmp/tx5dr-audit-wsjtx.mjs
 RUN node /tmp/tx5dr-audit-wsjtx.mjs /app && rm /tmp/tx5dr-audit-wsjtx.mjs
 
 RUN rm -rf /tmp/tx5dr-linux/
+# Run the production-runtime native smoke using the module path under /app.
+# The build-stage script is intentionally absent from the runtime by default.
+COPY --from=builder /app/scripts/smoke-image-radio.cjs ./scripts/smoke-image-radio.cjs
 RUN node -e "const a=require('audify'); const e=new a.OpusEncoder(48000,1,a.OpusApplication.OPUS_APPLICATION_RESTRICTED_LOWDELAY); const d=new a.OpusDecoder(48000,1); const p=e.encode(Buffer.alloc(960*2),960); d.decode(p,960); console.log('audify Opus runtime ok');" \
     && node -e "const n=require('./packages/mfsk-native/mfsk-native.node'); for(const m of ['FT8','FT4','WSPR','Q65-60B','MSK144','JTTY'])if(!n.supportedModes().includes(m))throw new Error('MFSK mode missing: '+m); console.log('native MFSK runtime ok',n.codecVersion())" \
     && node -e "if(require('node:fs').existsSync('node_modules/wsjtx-lib'))throw Error('legacy wsjtx-lib in production image')" \
-    && node scripts/smoke-image-radio.cjs
+    && node scripts/smoke-image-radio.cjs \
+    && rm -f scripts/smoke-image-radio.cjs
 
 # Nginx configuration: shared template + Docker-specific wrapper
 COPY docker/nginx-wrapper.conf /etc/nginx/nginx.conf
