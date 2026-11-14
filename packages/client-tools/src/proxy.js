@@ -9,7 +9,6 @@ import net from 'node:net';
 import tls from 'node:tls';
 import fs from 'node:fs';
 import path from 'node:path';
-import url from 'node:url';
 import { buildSafeForwardedHeaders, trustedForwardedContext } from './proxyForwarding.js';
 
 const DEFAULT_HTTP_PORT = 8076;
@@ -293,10 +292,16 @@ function buildHttpsRedirectUrl(req) {
   return `https://${targetHost}:${activeHttpsPort}${req.url || '/'}`;
 }
 
+// WHATWG URL replaces the deprecated url.parse() (DEP0169). The fixed origin keeps a
+// request target such as `//host/x` a path instead of turning it into an authority.
+function requestPathname(rawUrl) {
+  const target = rawUrl || '/';
+  return new URL(`http://gateway.invalid${target.startsWith('/') ? '' : '/'}${target}`).pathname;
+}
+
 function handleRequest(req, res, entryScheme) {
   try {
-    const parsed = url.parse(req.url || '/');
-    let pathname = decodeURIComponent(parsed.pathname || '/');
+    let pathname = decodeURIComponent(requestPathname(req.url));
 
     if (entryScheme === 'http' && shouldRedirectToHttps(req)) {
       res.writeHead(308, { Location: buildHttpsRedirectUrl(req) });
@@ -353,8 +358,7 @@ function handleRequest(req, res, entryScheme) {
 function attachUpgrade(server, entryScheme) {
   server.on('upgrade', (req, socket, head) => {
     try {
-      const u = url.parse(req.url || '/');
-      const pathname = u.pathname || '';
+      const pathname = requestPathname(req.url);
       const isApiUpgrade = pathname === '/api/ws' || pathname.startsWith('/api/');
       const targetBase = isApiUpgrade ? TARGET : DEV_WEB_TARGET;
       if (!targetBase) {

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { fileURLToPath } from 'node:url';
-import { ProcessHamlibTransport } from '../ProcessHamlibTransport.js';
+import { ProcessHamlibTransport, describeInvalidWorkerMessage } from '../ProcessHamlibTransport.js';
+import { HamlibWorkerMessageSchema } from '../hamlib-protocol.js';
 
 const hosts = new Set<ProcessHamlibTransport>();
 const entry = { path: fileURLToPath(new URL('./fixtures/worker.ts', import.meta.url)), execArgv: ['--import', 'tsx'] };
@@ -13,6 +14,16 @@ const config = (mode: string) => ({ type: 'network', network: { host: mode, port
 afterEach(async () => { await Promise.all([...hosts].map(value => value.close())); hosts.clear(); });
 
 describe('ProcessHamlibTransport', () => {
+  it('names the received message type when the worker protocol is violated', () => {
+    const input = { type: 'dependency', path: '/src/radio/x.ts' };
+    const parsed = HamlibWorkerMessageSchema.safeParse(input);
+    expect(parsed.success).toBe(false);
+    const text = describeInvalidWorkerMessage(input, parsed.success ? [] : parsed.error.issues);
+    expect(text).toContain('type="dependency"');
+    expect(text).toContain('keys=[type,path]');
+    expect(text.split('\n')).toHaveLength(1);
+  });
+
   it('rejects invalid operation arguments without starting a worker', async () => {
     const transport = host();
     await expect(transport.call('getFrequency', [1])).rejects.toThrow();
@@ -39,6 +50,16 @@ describe('ProcessHamlibTransport', () => {
     expect(() => process.kill(pid, 0)).toThrow();
     expect(replacement.generation).not.toBe(oldGeneration);
     await expect(replacement.call('getFrequency', [])).resolves.toBe(7100000);
+  });
+
+  it('ignores tooling messages on the IPC channel but fails on a malformed worker message', async () => {
+    const transport = host();
+    // The fixture sends a tsx-style `{ type: 'dependency' }` message before `ready`.
+    await transport.call('connect', [config('normal'), undefined]);
+    await expect(transport.call('getFrequency', [])).resolves.toBe(7100000);
+    const malformed = host();
+    await malformed.call('connect', [config('malformed'), undefined]);
+    await expect(malformed.call('getFrequency', [])).rejects.toThrow('Invalid Hamlib worker message');
   });
 
   it('transports binary spectrum while control replies keep making progress', async () => {

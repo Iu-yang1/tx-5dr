@@ -10,7 +10,7 @@ ENV CARGO_HOME=/usr/local/cargo RUSTUP_HOME=/usr/local/rustup
 ENV PATH="/usr/local/cargo/bin:${PATH}"
 
 # 设置环境变量
-ENV YARN_VERSION=4.9.1
+ENV YARN_VERSION=4.18.1
 ENV DEBIAN_FRONTEND=noninteractive
 ENV NODE_ENV=production
 ARG VCS_REF=development
@@ -193,7 +193,7 @@ RUN rm -rf /tmp/tx5dr-linux/
 RUN node -e "const a=require('audify'); const e=new a.OpusEncoder(48000,1,a.OpusApplication.OPUS_APPLICATION_RESTRICTED_LOWDELAY); const d=new a.OpusDecoder(48000,1); const p=e.encode(Buffer.alloc(960*2),960); d.decode(p,960); console.log('audify Opus runtime ok');" \
     && node -e "const n=require('./packages/mfsk-native/mfsk-native.node'); for(const m of ['FT8','FT4','WSPR','Q65-60B','MSK144','JTTY'])if(!n.supportedModes().includes(m))throw new Error('MFSK mode missing: '+m); console.log('native MFSK runtime ok',n.codecVersion())" \
     && node -e "if(require('node:fs').existsSync('node_modules/wsjtx-lib'))throw Error('legacy wsjtx-lib in production image')" \
-    && node -e "const {PNG}=require('pngjs'); if(typeof PNG.sync.read!=='function') throw new Error('pngjs unavailable'); const r=require('rasterwave-node'); if(r.sstvModes().length!==31) throw new Error('rasterwave mode catalog incomplete'); Promise.all([new r.SstvDecoder(12000,{outputMode:'continuousPaper',fallbackMode:'robot36',queueCapacitySamples:24000},()=>{}).dispose(),new r.FaxDecoder(12000,{outputMode:'continuousPaper',continuousAuto:true,queueCapacitySamples:24000},()=>{}).dispose()]).then(()=>console.log('Image Radio runtime ok')).catch(e=>{console.error(e);process.exit(1)});"
+    && node scripts/smoke-image-radio.cjs
 
 # Nginx configuration: shared template + Docker-specific wrapper
 COPY docker/nginx-wrapper.conf /etc/nginx/nginx.conf
