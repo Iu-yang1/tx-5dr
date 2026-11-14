@@ -14,7 +14,6 @@ import {
   CapabilityDescriptorsContext,
   CapabilityStatesContext,
   ConnectionContext,
-  LogbookContext,
   MyRelatedTimelineContext,
   OperatorsContext,
   OperatorSelectionContext,
@@ -40,10 +39,8 @@ import { setSelectedOperatorId } from '../../utils/operatorPreferences';
 import {
   connectionReducer,
   initialConnectionState,
-  initialLogbookState,
   initialRadioState,
   initialSlotPacksState,
-  logbookReducer,
   radioReducer,
   slotPacksReducer,
 } from './reducers';
@@ -140,7 +137,6 @@ export const RadioProvider = ({ children }: { children: ReactNode }) => {
   const [connectionState, connectionDispatch] = useReducer(connectionReducer, initialConnectionState);
   const [radioState, radioDispatch] = useReducer(radioReducer, initialRadioState);
   const [slotPacksState, slotPacksDispatch] = useReducer(slotPacksReducer, initialSlotPacksState);
-  const [logbookState, logbookDispatch] = useReducer(logbookReducer, initialLogbookState);
   const [myRelatedTimelineState, myRelatedTimelineDispatch] = useReducer(
     myRelatedTimelineReducer,
     initialMyRelatedTimelineState,
@@ -200,7 +196,6 @@ export const RadioProvider = ({ children }: { children: ReactNode }) => {
       connectionDispatch,
       radioDispatch,
       slotPacksDispatch,
-      logbookDispatch,
       authStateRef,
       radioService,
       radioServiceRef,
@@ -361,11 +356,6 @@ export const RadioProvider = ({ children }: { children: ReactNode }) => {
   const slotPacksContextValue = useMemo(
     () => ({ state: slotPacksState, dispatch: slotPacksDispatch }),
     [slotPacksState],
-  );
-
-  const logbookContextValue = useMemo(
-    () => ({ state: logbookState, dispatch: logbookDispatch }),
-    [logbookState],
   );
 
   const operatorsContextValue = useMemo(
@@ -628,7 +618,6 @@ export const RadioProvider = ({ children }: { children: ReactNode }) => {
     <ConnectionContext.Provider value={connectionContextValue}>
       <RadioStateContext.Provider value={radioStateContextValue}>
         <SlotPacksContext.Provider value={slotPacksContextValue}>
-          <LogbookContext.Provider value={logbookContextValue}>
             <OperatorsContext.Provider value={operatorsContextValue}>
               <ProfilesContext.Provider value={profilesContextValue}>
                 <RadioConnectionContext.Provider value={radioConnectionContextValue}>
@@ -674,7 +663,6 @@ export const RadioProvider = ({ children }: { children: ReactNode }) => {
                 </RadioConnectionContext.Provider>
               </ProfilesContext.Provider>
             </OperatorsContext.Provider>
-          </LogbookContext.Provider>
         </SlotPacksContext.Provider>
       </RadioStateContext.Provider>
     </ConnectionContext.Provider>

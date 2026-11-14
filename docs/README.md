@@ -33,6 +33,7 @@ site repository.
 - [TX audio input source capability](decisions/tx-audio-input-source.md)
 - [DeepCW engine integration](decisions/deepcw-engine-integration.md)
 - [WSJT-X staged decode lifecycle](decisions/wsjtx-decode-lifecycle.md)
+- [RTTY over AFSK](decisions/rtty-afsk.md)
 
 Decision records retain the accepted boundary and current consequences. They do
 not track implementation progress or branch-by-branch task history.

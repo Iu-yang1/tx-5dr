@@ -289,7 +289,9 @@ export interface PlayAudioOptions {
   txEnvelopeProfile?: TxAudioEnvelopeProfile;
 }
 
-export type PlaybackKind = 'digital' | 'voice-keyer' | 'sstv' | 'tune-tone';
+export type PlaybackKind = 'digital' | 'voice-keyer' | 'sstv' | 'rtty' | 'tune-tone';
+/** Playback kinds that use the deterministic (pull-written) session API. */
+export type DeterministicPlaybackKind = 'sstv' | 'rtty';
 
 export interface DeterministicPlaybackSession {
   /** Complete preparation must finish before start; omitted means streaming. */
@@ -863,13 +865,6 @@ export class AudioStreamManager extends EventEmitter<AudioStreamEvents> {
   }
 
   /**
-   * 获取当前采样率
-   */
-  getCurrentSampleRate(): number {
-    return this.outputSampleRate;
-  }
-
-  /**
    * 重新加载音频配置
    * 注意：需要重启音频流才能生效
    */
@@ -1048,13 +1043,6 @@ export class AudioStreamManager extends EventEmitter<AudioStreamEvents> {
       // 返回空数组作为后备
       return new Float32Array(0);
     }
-  }
-  
-  /**
-   * 清空音频缓冲区
-   */
-  clearBuffer(): void {
-    this.audioProvider.clear();
   }
   
   /**
@@ -2272,10 +2260,6 @@ export class AudioStreamManager extends EventEmitter<AudioStreamEvents> {
     return this.playing && (!kind || this.currentPlaybackKind === kind);
   }
 
-  public getCurrentPlaybackKind(): PlaybackKind | null {
-    return this.playing ? this.currentPlaybackKind : null;
-  }
-
   /**
    * 停止当前正在播放的音频（用于重新混音）
    * @returns 已播放的时间(ms)
@@ -2662,7 +2646,7 @@ export class AudioStreamManager extends EventEmitter<AudioStreamEvents> {
           started = true;
           this.playing = true;
           this.playbackStartTime = Date.now();
-          this.currentPlaybackKind = 'sstv';
+          this.currentPlaybackKind = options.playbackKind ?? 'sstv';
           this.currentPlaybackEnvelopeProfile = null;
           this.currentPlaybackPromise = completion;
           this.deterministicPlaybackWake = { playbackId, wake: pump };
@@ -2758,7 +2742,7 @@ export class AudioStreamManager extends EventEmitter<AudioStreamEvents> {
           if (totalSamples === 0) throw new Error('Prepared TCI audio is empty');
           this.playing = true;
           this.playbackStartTime = Date.now();
-          this.currentPlaybackKind = 'sstv';
+          this.currentPlaybackKind = options.playbackKind ?? 'sstv';
           this.deterministicPlaybackWake = { playbackId, wake: () => interrupt('playback interrupted') };
           completion = (async () => {
             const watchdog = setInterval(() => {
@@ -2829,7 +2813,77 @@ export class AudioStreamManager extends EventEmitter<AudioStreamEvents> {
     };
   }
 
-  public openDeterministicPlayback(options: PlayAudioOptions & { playbackKind: 'sstv' }): DeterministicPlaybackSession {
+  /**
+   * Opens a pull-written playback session. Streaming sinks accept writes while
+   * playing; TCI reports `preparation: 'complete'` and needs the whole waveform
+   * before `start`. Observers of `txAudioObservation` see the consumed PCM.
+   */
+  public openDeterministicPlayback(
+    options: PlayAudioOptions & { playbackKind: DeterministicPlaybackKind },
+  ): DeterministicPlaybackSession {
+    if (this.listenerCount('txAudioObservation') === 0) return this.openDeterministicPlaybackImpl(options);
+    const transmissionId = randomUUID();
+    const streamGeneration = this.outputStreamGeneration;
+    const stage = this.rtAudioOutput ? 'consumed' as const : 'submitted' as const;
+    let timestampMs = this.now();
+    let offset = 0;
+    let rate = 0;
+    let started = false;
+    let settled = false;
+    const publish = (phase: TxAudioObservation['phase'], samples?: Float32Array, error?: string) => {
+      this.emit('txAudioObservation', { transmissionId, streamGeneration, kind: options.playbackKind,
+        phase, timestampMs, sampleOffset: offset, sampleRate: rate, stage, samples, error });
+    };
+    const settle = (phase: 'completed' | 'interrupted', error?: string) => {
+      if (settled || !started) return;
+      settled = true;
+      publish(phase, undefined, error);
+    };
+    const session = this.openDeterministicPlaybackImpl({
+      ...options,
+      onPlaybackStarted: () => {
+        timestampMs = this.now();
+        started = true;
+        rate = session.sampleRate;
+        publish('started');
+        options.onPlaybackStarted?.();
+      },
+      onPlaybackChunk: (samples, sampleRate) => {
+        if (started && !settled) {
+          rate = sampleRate;
+          publish('samples', samples.slice());
+          offset += samples.length;
+        }
+        options.onPlaybackChunk?.(samples, sampleRate);
+      },
+    });
+    return {
+      get preparation() { return session.preparation; },
+      sampleRate: session.sampleRate,
+      frameSamples: session.frameSamples,
+      get queuedAudioMs() { return session.queuedAudioMs; },
+      write: (samples) => session.write(samples),
+      start: () => session.start(),
+      end: async () => {
+        try {
+          await session.end();
+          await new Promise<void>(resolve => setImmediate(resolve));
+          settle('completed');
+        } catch (error) {
+          settle('interrupted', error instanceof Error ? error.message : String(error));
+          throw error;
+        }
+      },
+      abort: async (reason) => {
+        await session.abort(reason);
+        settle('interrupted', reason ?? 'aborted');
+      },
+    };
+  }
+
+  private openDeterministicPlaybackImpl(
+    options: PlayAudioOptions & { playbackKind: DeterministicPlaybackKind },
+  ): DeterministicPlaybackSession {
     if (this.playing || this.hasPendingRtAudioPlayback()) throw new Error('audio output is busy');
     this.deterministicMonitorTap?.abort();
     const radioAdapter = this.usingIcomWlanOutput && this.icomWlanAudioAdapter
@@ -2888,7 +2942,7 @@ export class AudioStreamManager extends EventEmitter<AudioStreamEvents> {
     const pump = async () => {
       this.playing = true;
       this.playbackStartTime = Date.now();
-      this.currentPlaybackKind = 'sstv';
+      this.currentPlaybackKind = options.playbackKind ?? 'sstv';
       const hrStart = performance.now();
       let submittedSamples = 0;
       let playbackStarted = false;

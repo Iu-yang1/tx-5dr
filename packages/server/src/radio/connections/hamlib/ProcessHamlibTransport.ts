@@ -13,9 +13,22 @@ let rebuildPending = false;
 let rebuildCount = 0;
 const CRITICAL_REQUESTS = new Set<HamlibOperation>(['setPTT', 'setFrequency', 'setVfo', 'setMode', 'applyOperatingState', 'setPowerState', 'sendCWMessage', 'stopCWMessage', 'setSplitFreqMode']);
 
+// One line naming what arrived; the raw Zod issue dump omitted the received type.
+export function describeInvalidWorkerMessage(input: unknown, issues: ReadonlyArray<{ path: PropertyKey[]; message: string }>): string {
+  const received = input && typeof input === 'object'
+    ? `type=${JSON.stringify((input as { type?: unknown }).type) ?? 'undefined'} keys=[${Object.keys(input).slice(0, 8).join(',')}]`
+    : `non-object ${typeof input}`;
+  const reasons = issues.slice(0, 3).map(issue => `${issue.path.map(String).join('.') || '<root>'}: ${issue.message}`).join('; ');
+  return `${received}; ${reasons}`;
+}
+
 export function resolveHamlibWorkerEntry(): { path: string; execArgv: string[] } {
   const source = import.meta.url.endsWith('.ts');
   return { path: fileURLToPath(new URL(source ? './hamlib-worker-entry.ts' : './hamlib-worker-entry.js', import.meta.url)), execArgv: source ? ['--import', 'tsx'] : [] };
+}
+
+function isGenerationMessage(input: unknown, generation: string): boolean {
+  return typeof input === 'object' && input !== null && (input as { generation?: unknown }).generation === generation;
 }
 
 export interface HamlibProcessOptions {
@@ -82,8 +95,12 @@ export class ProcessHamlibTransport extends HamlibTransport {
       const timer = setTimeout(() => this.fail(new Error('Hamlib worker startup timed out')), this.options.startupTimeoutMs ?? 10000);
       child.on('message', input => {
         if (this.stopped || this.failure) return;
+        // The IPC channel is shared with tooling in the child (in development the
+        // tsx loader sends `{ type: 'dependency' }` messages): only messages that
+        // carry this host's generation belong to the worker protocol.
+        if (!isGenerationMessage(input, this.generation)) return;
         const parsed = HamlibWorkerMessageSchema.safeParse(input);
-        if (!parsed.success) { this.fail(new Error(`Invalid Hamlib worker message: ${parsed.error.message}`)); return; }
+        if (!parsed.success) { this.fail(new Error(`Invalid Hamlib worker message: ${describeInvalidWorkerMessage(input, parsed.error.issues)}`)); return; }
         const message = parsed.data;
         if (message.generation !== this.generation) return;
         this.lastSeen = performance.now();

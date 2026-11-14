@@ -1,3 +1,4 @@
+import type { EngineMode } from '@tx5dr/contracts';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // ConfigManager - 配置合并和动态类型需要使用any
 
@@ -10,9 +11,12 @@ import {
   DEFAULT_DECODE_WINDOW_SETTINGS,
   DEFAULT_RIGCTLD_BRIDGE_CONFIG,
   CWDecoderConfigSchema,
+  EngineModeSchema,
+  RttyConfigSchema,
   type RealtimeTransportPolicy,
   type RigctldBridgeConfig,
   type CWDecoderConfig,
+  type RttyConfig,
   type SpectrumPreset,
   type SpectrumCustomSettings,
   SpectrumCustomSettingsSchema,
@@ -123,6 +127,13 @@ export interface AppConfig {
     band: string;
     description?: string;
   } | null;
+  // 最后选择的 RTTY 模式频率
+  lastRTTYFrequency?: {
+    frequency: number;
+    radioMode?: string;
+    band: string;
+    description?: string;
+  } | null;
   lastImageFrequency?: {
     frequency: number;
     mode: string;
@@ -152,7 +163,7 @@ export interface AppConfig {
   /** Custom frequency presets (null/undefined = use built-in defaults for every supported preset mode) */
   customFrequencyPresets?: PresetFrequency[] | null;
   /** Last used engine mode ('digital' or 'voice'). Restored on startup. */
-  lastEngineMode?: 'digital' | 'voice' | 'cw' | 'image';
+  lastEngineMode?: EngineMode;
   /** Last used digital sub-mode name ('FT8' or 'FT4'). Restored on startup within digital mode. */
   lastDigitalModeName?: string;
   /** Voice mode operator callsign */
@@ -175,6 +186,8 @@ export interface AppConfig {
   rigctld?: RigctldBridgeConfig;
   /** CW receive-side decoder configuration. */
   cwDecoder?: CWDecoderConfig;
+  /** RTTY modem configuration (tones, profile, receive options). */
+  rtty?: RttyConfig;
   /** Site-wide spectrum analysis preset. */
   spectrum: {
     preset: SpectrumPreset;
@@ -256,6 +269,7 @@ const DEFAULT_CONFIG: AppConfig = {
   rtcDataAudioPublicUdpPort: null,
   rigctld: { ...DEFAULT_RIGCTLD_BRIDGE_CONFIG },
   cwDecoder: CWDecoderConfigSchema.parse({}),
+  rtty: RttyConfigSchema.parse({}),
   spectrum: {
     preset: 'balanced',
     tciIqSampleRate: undefined,
@@ -361,6 +375,7 @@ export function validateAppConfigCandidate(value: unknown): Record<string, unkno
   assertOptionalObject(value, 'plugins');
   assertOptionalObject(value, 'rigctld');
   assertOptionalObject(value, 'cwDecoder');
+  assertOptionalObject(value, 'rtty');
   assertOptionalObjectOrNull(value, 'decodeWindowSettings');
   assertOptionalObject(value, 'spectrum');
   assertOptionalObject(value, 'ntp');
@@ -368,6 +383,7 @@ export function validateAppConfigCandidate(value: unknown): Record<string, unkno
   assertOptionalObjectOrNull(value, 'lastSelectedFrequency');
   assertOptionalObjectOrNull(value, 'lastVoiceFrequency');
   assertOptionalObjectOrNull(value, 'lastCWFrequency');
+  assertOptionalObjectOrNull(value, 'lastRTTYFrequency');
   assertOptionalObjectOrNull(value, 'lastImageFrequency');
   assertOptionalObjectOrNull(value, 'lastVolumeGain');
   assertOptionalObjectOrNull(value, 'volumeGainMap');
@@ -375,8 +391,8 @@ export function validateAppConfigCandidate(value: unknown): Record<string, unkno
   if (value.activeProfileId !== undefined && value.activeProfileId !== null && typeof value.activeProfileId !== 'string') {
     throw new Error('config.activeProfileId must be a string or null');
   }
-  if (value.lastEngineMode !== undefined && value.lastEngineMode !== 'digital' && value.lastEngineMode !== 'voice' && value.lastEngineMode !== 'cw' && value.lastEngineMode !== 'image') {
-    throw new Error('config.lastEngineMode must be digital, voice, cw, or image');
+  if (value.lastEngineMode !== undefined && !EngineModeSchema.safeParse(value.lastEngineMode).success) {
+    throw new Error(`config.lastEngineMode must be one of ${EngineModeSchema.options.join(', ')}`);
   }
   if (value.logLevel !== undefined && !['debug', 'info', 'warn', 'error'].includes(String(value.logLevel))) {
     throw new Error('config.logLevel must be debug, info, warn, or error');
@@ -683,6 +699,7 @@ export class ConfigManager {
       lastSelectedFrequency: config.lastSelectedFrequency,
       lastVoiceFrequency: config.lastVoiceFrequency,
       lastCWFrequency: config.lastCWFrequency,
+      lastRTTYFrequency: config.lastRTTYFrequency,
       lastImageFrequency: config.lastImageFrequency,
       lastVolumeGain: config.lastVolumeGain,
       volumeGainMap: config.volumeGainMap,
@@ -1157,6 +1174,7 @@ export class ConfigManager {
         await this.setRuntimeValue('lastSelectedFrequency', null);
         await this.setRuntimeValue('lastVoiceFrequency', null);
         await this.setRuntimeValue('lastCWFrequency', null);
+        await this.setRuntimeValue('lastRTTYFrequency', null);
         await this.setRuntimeValue('lastImageFrequency', null);
         await this.setRuntimeValue('lastEngineMode', 'digital');
         await this.setRuntimeValue('lastDigitalModeName', 'FT8');
@@ -1271,10 +1289,6 @@ export class ConfigManager {
     await this.saveConfig();
   }
 
-  getSpectrumPreset(): SpectrumPreset {
-    return this.config.spectrum.preset;
-  }
-
   getSpectrumSettings(): { preset: SpectrumPreset; customSettings?: SpectrumCustomSettings; tciIqSampleRate?: number; tciSpectrum?: TciSpectrumSettings } {
     return {
       preset: this.config.spectrum.preset,
@@ -1317,10 +1331,6 @@ export class ConfigManager {
       this.config.spectrum.tciSpectrum = previous;
       throw error;
     }
-  }
-
-  async updateSpectrumPreset(preset: SpectrumPreset): Promise<void> {
-    await this.updateSpectrumSettings(preset);
   }
 
   async updateSpectrumSettings(preset: SpectrumPreset, customSettings?: SpectrumCustomSettings): Promise<void> {
@@ -1368,6 +1378,17 @@ export class ConfigManager {
     return { ...CWDecoderConfigSchema.parse(this.config.cwDecoder ?? {}), enabled: false };
   }
 
+  getRttyConfig(): RttyConfig {
+    return RttyConfigSchema.parse(this.config.rtty ?? {});
+  }
+
+  async updateRttyConfig(update: Partial<RttyConfig>): Promise<RttyConfig> {
+    const next = RttyConfigSchema.parse({ ...this.getRttyConfig(), ...update });
+    this.config.rtty = next;
+    await this.saveConfig();
+    return next;
+  }
+
   async updateCWDecoderConfig(update: Partial<CWDecoderConfig>): Promise<CWDecoderConfig> {
     const { enabled: _runtimeOnly, ...persistentUpdate } = update;
     const next = {
@@ -1388,21 +1409,6 @@ export class ConfigManager {
       return DEFAULT_CONFIG.ft8.maxSameTransmissionCount;
     }
     return Math.max(0, Math.trunc(numeric));
-  }
-
-  /**
-   * 获取服务器配置
-   */
-  getServerConfig() {
-    return { ...this.config.server };
-  }
-
-  /**
-   * 更新服务器配置
-   */
-  async updateServerConfig(serverConfig: Partial<AppConfig['server']>): Promise<void> {
-    this.config.server = { ...this.config.server, ...serverConfig };
-    await this.saveConfig();
   }
 
   /**
@@ -1430,14 +1436,6 @@ export class ConfigManager {
       profile.updatedAt = Date.now();
       await this.saveConfig();
     }
-  }
-
-  /**
-   * 重置配置为默认值
-   */
-  async resetConfig(): Promise<void> {
-    this.config = { ...DEFAULT_CONFIG };
-    await this.saveConfig();
   }
 
   /**
@@ -1505,74 +1503,6 @@ export class ConfigManager {
   }
 
   /**
-   * 验证配置的有效性
-   */
-  validateConfig(): { isValid: boolean; errors: string[] } {
-    const errors: string[] = [];
-
-    // 验证FT8配置
-    if (!this.config.ft8.myCallsign) {
-      errors.push('Callsign cannot be empty');
-    }
-
-    if (!this.config.ft8.myGrid) {
-      errors.push('Grid locator cannot be empty');
-    }
-
-    if (this.config.ft8.frequency <= 0) {
-      errors.push('Frequency must be greater than 0');
-    }
-
-    if (this.config.ft8.transmitPower <= 0 || this.config.ft8.transmitPower > 100) {
-      errors.push('Transmit power must be between 1 and 100');
-    }
-
-    // 验证操作员配置
-    this.config.operators.forEach((operator, index) => {
-      if (!operator.myCallsign) {
-        errors.push(`Operator ${index + 1}: callsign cannot be empty`);
-      }
-      if (operator.frequency < 200 || operator.frequency > 4000) {
-        errors.push(`Operator ${index + 1}: frequency must be between 200 and 4000 Hz`);
-      }
-      if (!operator.transmitCycles || operator.transmitCycles.length === 0) {
-        errors.push(`Operator ${index + 1}: transmit cycles cannot be empty`);
-      }
-    });
-
-    // 检查操作员ID唯一性
-    const operatorIds = this.config.operators.map(op => op.id);
-    const duplicateIds = operatorIds.filter((id, index) => operatorIds.indexOf(id) !== index);
-    if (duplicateIds.length > 0) {
-      errors.push(`Duplicate operator IDs: ${duplicateIds.join(', ')}`);
-    }
-
-    // 验证服务器配置
-    if (this.config.server.port <= 0 || this.config.server.port > 65535) {
-      errors.push('Port number must be between 1 and 65535');
-    }
-
-    return {
-      isValid: errors.length === 0,
-      errors,
-    };
-  }
-
-  /**
-   * 获取配置文件路径
-   */
-  getConfigPath(): string {
-    return this.configPath;
-  }
-
-  /**
-   * 设置配置文件路径
-   */
-  setConfigPath(path: string): void {
-    this.configPath = path;
-  }
-
-  /**
    * 获取最后选择的频率
    */
   getLastSelectedFrequency(): AppConfig['lastSelectedFrequency'] {
@@ -1627,22 +1557,6 @@ export class ConfigManager {
   }
 
   /**
-   * 清除最后选择的频率
-   */
-  async clearLastSelectedFrequency(): Promise<void> {
-    await this.setRuntimeValue('lastSelectedFrequency', null);
-    await this.mirrorOperatingFieldToActiveProfile({ lastSelectedFrequency: null });
-  }
-
-  /**
-   * 清除最后选择的语音频率
-   */
-  async clearLastVoiceFrequency(): Promise<void> {
-    await this.setRuntimeValue('lastVoiceFrequency', null);
-    await this.mirrorOperatingFieldToActiveProfile({ lastVoiceFrequency: null });
-  }
-
-  /**
    * 获取最后选择的 CW 频率
    */
   getLastCWFrequency(): AppConfig['lastCWFrequency'] {
@@ -1666,12 +1580,16 @@ export class ConfigManager {
     logger.debug(`Last CW frequency saved: ${frequencyConfig.description || frequencyConfig.frequency}Hz`);
   }
 
-  /**
-   * 清除最后选择的 CW 频率
-   */
-  async clearLastCWFrequency(): Promise<void> {
-    await this.setRuntimeValue('lastCWFrequency', null);
-    await this.mirrorOperatingFieldToActiveProfile({ lastCWFrequency: null });
+  getLastRTTYFrequency(): AppConfig['lastRTTYFrequency'] {
+    const runtimeValue = this.getRuntimeValue('lastRTTYFrequency');
+    const value = runtimeValue !== undefined ? runtimeValue : this.config.lastRTTYFrequency;
+    return value ? { ...value } : null;
+  }
+
+  async updateLastRTTYFrequency(frequencyConfig: NonNullable<AppConfig['lastRTTYFrequency']>): Promise<void> {
+    const next = { ...frequencyConfig };
+    await this.setRuntimeValue('lastRTTYFrequency', next);
+    await this.mirrorOperatingFieldToActiveProfile({ lastRTTYFrequency: next });
   }
 
   getLastImageFrequency(): AppConfig['lastImageFrequency'] {
@@ -1702,6 +1620,9 @@ export class ConfigManager {
       lastCWFrequency: memory.lastCWFrequency
         ? { ...memory.lastCWFrequency }
         : memory.lastCWFrequency,
+      lastRTTYFrequency: memory.lastRTTYFrequency
+        ? { ...memory.lastRTTYFrequency }
+        : memory.lastRTTYFrequency,
       lastImageFrequency: memory.lastImageFrequency
         ? { ...memory.lastImageFrequency }
         : memory.lastImageFrequency,
@@ -1719,6 +1640,7 @@ export class ConfigManager {
       lastSelectedFrequency: this.getLastSelectedFrequency(),
       lastVoiceFrequency: this.getLastVoiceFrequency(),
       lastCWFrequency: this.getLastCWFrequency(),
+      lastRTTYFrequency: this.getLastRTTYFrequency(),
       lastImageFrequency: this.getLastImageFrequency(),
       lastEngineMode: this.getLastEngineMode(),
       lastDigitalModeName: this.getLastDigitalModeName(),
@@ -1735,6 +1657,7 @@ export class ConfigManager {
       await this.setRuntimeValue('lastSelectedFrequency', null);
       await this.setRuntimeValue('lastVoiceFrequency', null);
       await this.setRuntimeValue('lastCWFrequency', null);
+      await this.setRuntimeValue('lastRTTYFrequency', null);
       await this.setRuntimeValue('lastImageFrequency', null);
       await this.setRuntimeValue('lastEngineMode', 'digital');
       await this.setRuntimeValue('lastDigitalModeName', 'FT8');
@@ -1745,6 +1668,7 @@ export class ConfigManager {
     await this.setRuntimeValue('lastSelectedFrequency', memory.lastSelectedFrequency ?? null);
     await this.setRuntimeValue('lastVoiceFrequency', memory.lastVoiceFrequency ?? null);
     await this.setRuntimeValue('lastCWFrequency', memory.lastCWFrequency ?? null);
+    await this.setRuntimeValue('lastRTTYFrequency', memory.lastRTTYFrequency ?? null);
     await this.setRuntimeValue('lastImageFrequency', memory.lastImageFrequency ?? null);
     if (memory.lastEngineMode) {
       await this.setRuntimeValue('lastEngineMode', memory.lastEngineMode);
@@ -1825,30 +1749,6 @@ export class ConfigManager {
   }
 
   /**
-   * 获取最后设置的音量增益
-   */
-  getLastVolumeGain(): AppConfig['lastVolumeGain'] {
-    const runtimeValue = this.getRuntimeValue('lastVolumeGain');
-    const value = runtimeValue !== undefined ? runtimeValue : this.config.lastVolumeGain;
-    return value ? { ...value } : null;
-  }
-
-  /**
-   * 更新最后设置的音量增益
-   */
-  async updateLastVolumeGain(gain: number, gainDb: number): Promise<void> {
-    await this.setRuntimeValue('lastVolumeGain', { gain, gainDb });
-    logger.debug(`Last volume gain saved: ${gainDb.toFixed(1)}dB (${gain.toFixed(3)})`);
-  }
-
-  /**
-   * 清除最后设置的音量增益
-   */
-  async clearLastVolumeGain(): Promise<void> {
-    await this.setRuntimeValue('lastVolumeGain', null);
-  }
-
-  /**
    * 获取指定模式+频段的音量增益
    */
   getVolumeGainForSlot(modeCategory: string, band: string): { gain: number; gainDb: number } | null {
@@ -1908,15 +1808,6 @@ export class ConfigManager {
    */
   async updatePSKReporterStats(stats: Partial<PSKReporterConfig['stats']>): Promise<void> {
     await this.setRuntimeValue('pskreporterStats', { ...this.getPSKReporterConfig().stats, ...stats });
-  }
-
-  /**
-   * 重置 PSKReporter 配置为默认值
-   */
-  async resetPSKReporterConfig(): Promise<void> {
-    this.config.pskreporter = { ...DEFAULT_CONFIG.pskreporter };
-    await this.setRuntimeValue('pskreporterStats', { ...DEFAULT_CONFIG.pskreporter.stats });
-    await this.saveConfig();
   }
 
   /**
@@ -2114,11 +2005,11 @@ export class ConfigManager {
 
   // ==================== Engine mode persistence ====================
 
-  getLastEngineMode(): 'digital' | 'voice' | 'cw' | 'image' {
+  getLastEngineMode(): EngineMode {
     return this.getRuntimeValue('lastEngineMode') ?? this.config.lastEngineMode ?? 'digital';
   }
 
-  async setLastEngineMode(mode: 'digital' | 'voice' | 'cw' | 'image'): Promise<void> {
+  async setLastEngineMode(mode: EngineMode): Promise<void> {
     await this.setRuntimeValue('lastEngineMode', mode);
     await this.mirrorOperatingFieldToActiveProfile({ lastEngineMode: mode });
   }
@@ -2213,10 +2104,6 @@ export class ConfigManager {
     await this.saveConfig();
   }
 
-  getOperatorStrategy(operatorId: string): string {
-    return this.config.plugins?.operatorStrategies?.[operatorId] ?? 'standard-qso';
-  }
-
   async setOperatorStrategy(operatorId: string, pluginName: string): Promise<void> {
     if (!this.config.plugins) {
       this.config.plugins = { configs: {}, operatorStrategies: {}, operatorSettings: {}, operatorPluginPauses: {} };
@@ -2252,10 +2139,6 @@ export class ConfigManager {
     this.config.plugins.operatorSettings[operatorId][pluginName] = settings;
     await this.saveConfig();
     logger.info('Operator plugin settings updated', { operatorId, pluginName });
-  }
-
-  getOperatorPluginPauses(operatorId: string): string[] {
-    return this.config.plugins?.operatorPluginPauses?.[operatorId] ?? [];
   }
 
   async setOperatorPluginPauses(operatorId: string, pluginNames: string[]): Promise<void> {

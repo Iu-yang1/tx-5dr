@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import fs from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -8,7 +9,7 @@ const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 
 const ROOT_PACKAGE_PATH = path.join(PROJECT_ROOT, 'package.json');
 const SEMANTIC_VERSION_PATTERN = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
-export const HOST_BASE_VERSION = '1.0.5';
+export const HOST_BASE_VERSION = '1.0.6';
 
 function parseArgs(argv) {
   const args = {};
@@ -37,6 +38,12 @@ export function normalizeHostBaseVersion(value) {
     throw new Error(`Invalid Host base version: ${String(value)}`);
   }
   return version;
+}
+
+/** Nightly build stamp: the commit's committer time as UTC `YYYYMMDDHHmm`. */
+export function commitBuildStamp(commit) {
+  const date = execFileSync('git', ['show', '-s', '--format=%cI', commit], { cwd: PROJECT_ROOT, encoding: 'utf8' }).trim();
+  return new Date(date).toISOString().replace(/[-:T]/g, '').slice(0, 12);
 }
 
 export function resolveHostVersion({
@@ -72,6 +79,10 @@ export function resolveHostVersion({
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  if (args['build-stamp-of']) {
+    process.stdout.write(`${commitBuildStamp(args['build-stamp-of'])}\n`);
+    return;
+  }
   const rootPackage = JSON.parse(await fs.readFile(ROOT_PACKAGE_PATH, 'utf8'));
   const version = resolveHostVersion({
     sourceVersion: rootPackage.version,

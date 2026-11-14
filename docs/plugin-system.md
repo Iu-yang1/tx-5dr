@@ -739,7 +739,7 @@ onLoad(ctx) {
 ```
 
 可用 slot：`operator`、`automation`、`operator-action`、`main-right`、`voice-left-top`、
-`voice-right-top`、`cw-left-top`、`cw-right-top`、`radio-control-toolbar`。
+`voice-right-top`、`cw-left-top`、`cw-right-top`、`rtty-left-top`、`rtty-right-top`、`radio-control-toolbar`。
 运行期 panel 使用 `setPanelContributions()` / `clearPanelContributions()` 管理。
 
 工具栏按钮 (`radio-control-toolbar`) 支持通过 `ctx.ui.setPanelMeta()` 动态设置 `tone` 状态色：

@@ -1,6 +1,6 @@
 {
   "name": "tx-5dr",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "A modern digital radio station for amateur radio operators. Operate FT8, FT4, and voice modes from any web browser - anywhere, anytime.",
   "private": true,
   "main": "packages/electron-main/dist/main.js",
@@ -45,10 +45,10 @@
   },
   "devDependencies": {
     "@electron/rebuild": "^4.2.1",
-    "electron": "^45.2.1",
-    "electron-builder": "26.18.0",
+    "electron": "^45.3.2",
+    "electron-builder": "26.18.1",
     "png-to-ico": "^2.1.8",
-    "turbo": "^2.9.14"
+    "turbo": "^2.11.11"
   },
   "packageManager": "yarn@4.12.0",
   "optionalDependencies": {
