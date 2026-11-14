@@ -6093,7 +6093,7 @@ __metadata:
     "@tx5dr/shared-config": "workspace:*"
     "@types/node": "npm:^20.0.0"
     "@types/node-forge": "npm:^1"
-    builder-util-runtime: "npm:9.7.0"
+    builder-util-runtime: "npm:9.7.1"
     electron: "npm:^45.3.2"
     electron-log: "npm:^5.4.3"
     electron-updater: "npm:6.8.12"
@@ -7997,16 +7997,6 @@ __metadata:
     base64-js: "npm:^1.0.2"
     ieee754: "npm:^1.1.4"
   checksum: 10c0/d7351a0bb75b6142b74baf81a7a9705a7f6ceb3ce6d4968d2dfa8268a5abce45cabe6e6256aebbe46ef075934c5ce409203c33c130ed68cc1cec9069c00cb184
-  languageName: node
-  linkType: hard
-
-"builder-util-runtime@npm:9.7.0":
-  version: 9.7.0
-  resolution: "builder-util-runtime@npm:9.7.0"
-  dependencies:
-    debug: "npm:^4.3.4"
-    sax: "npm:^1.2.4"
-  checksum: 10c0/4dac3788ce3776d268fd0cbfabe2d5168b8197fba90beda7fd2f729bfa51e689ffe0bf98b9162a1cac7f1191eb5bbcc6ca81bcbc5070df7a469fd7af511a1f31
   languageName: node
   linkType: hard
 
