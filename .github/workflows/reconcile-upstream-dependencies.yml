@@ -21,7 +21,7 @@ jobs:
       - name: Checkout staged upstream branch
         uses: actions/checkout@v4
         with:
-          ref: integration/upstream-full-20261106
+          ref: integration/upstream-20261114
           fetch-depth: 0
 
       - name: Setup Node.js 22
@@ -148,7 +148,7 @@ jobs:
             exit 0
           fi
           git commit -m "chore(upstream): reconcile security dependency upgrades and Yarn lock"
-          git push origin HEAD:refs/heads/integration/upstream-full-20261106
+          git push origin HEAD:refs/heads/integration/upstream-20261114
           echo "## Staged dependency migration" >> "$GITHUB_STEP_SUMMARY"
           echo "- Commit: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
           echo "- Main fork version and fork-only packages retained" >> "$GITHUB_STEP_SUMMARY"
