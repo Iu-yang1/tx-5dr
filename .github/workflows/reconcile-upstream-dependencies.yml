@@ -1,4 +1,5 @@
 name: Reconcile staged upstream dependency graph
+# Re-run after staging the Yarn 4.12 configuration compatibility correction.
 
 on:
   push:
