@@ -76,7 +76,6 @@ import {
   buildFrequencyOperatingStateRequest,
   resolveFrequencyRadioMode,
 } from './radio/frequencyRadioMode.js';
-import { TransmissionTracker } from './transmission/TransmissionTracker.js';
 import { DigitalFrameCoordinator } from './transmission/DigitalFrameCoordinator.js';
 import { PhysicalTxCoordinator } from './transmission/PhysicalTxCoordinator.js';
 import { OperatorIntentCoordinator } from './transmission/OperatorIntentCoordinator.js';
@@ -276,7 +275,6 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
   private radioManager: PhysicalRadioManager;
   private frequencyManager: FrequencyManager;
   private _operatorManager: RadioOperatorManager;
-  private transmissionTracker: TransmissionTracker;
   private digitalFrameCoordinator: DigitalFrameCoordinator;
   private physicalTxCoordinator: PhysicalTxCoordinator;
   private operatorIntentCoordinator: OperatorIntentCoordinator;
@@ -492,7 +490,6 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
     });
 
     this.frequencyManager = new FrequencyManager(ConfigManager.getInstance().getCustomFrequencyPresets());
-    this.transmissionTracker = new TransmissionTracker();
     this.resourceManager = new ResourceManager();
     this._callsignTracker = new CallsignContextTracker();
 
@@ -541,7 +538,6 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
           return false;
         }
       },
-      transmissionTracker: this.transmissionTracker,
       callsignTracker: this._callsignTracker,
       digitalFrameCoordinator: this.digitalFrameCoordinator,
       getTransmitCompensationMs: () => this.slotClock?.getCompensation() ?? 0,
@@ -773,7 +769,6 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
       audioMixer: this.audioMixer,
       audioStreamManager: this.audioStreamManager,
       spectrumScheduler: this.spectrumScheduler,
-      transmissionTracker: this.transmissionTracker,
       encodeQueue: this.realEncodeQueue,
       operatorManager: this._operatorManager,
       digitalFrameCoordinator: this.digitalFrameCoordinator,
@@ -1998,12 +1993,6 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
 
     // 清理操作员管理器
     await this.operatorManager.cleanup();
-
-    // 清理传输跟踪器
-    if (this.transmissionTracker) {
-      this.transmissionTracker.cleanup();
-      logger.info('Transmission tracker cleaned up');
-    }
 
     // 停止状态机
     this.engineLifecycle.destroyStateMachine();
