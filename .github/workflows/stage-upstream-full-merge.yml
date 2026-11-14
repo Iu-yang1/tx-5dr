@@ -25,7 +25,7 @@ jobs:
 
       - name: Stage upstream changes and record unresolved semantic conflicts
         env:
-          TARGET_BRANCH: integration/upstream-full-20261106
+          TARGET_BRANCH: integration/upstream-full-20261114
         shell: bash
         run: |
           set -euo pipefail
@@ -71,7 +71,7 @@ jobs:
                   choice = 'fork deletion retained'
               conflicts.append((path, choice))
           report = [
-              '# Upstream 3-way merge staging — 2026-11-06',
+              '# Upstream 3-way merge staging — 2026-11-14',
               '',
               'This branch is a real two-parent Git merge of the current TX-5DR fork',
               'and boybook/tx-5dr main. Unconflicted upstream changes are present.',
