@@ -239,7 +239,27 @@ export function MfskLiveReceiverPanel({
       setBusy(false);setError(t('codec.rxInvalidTolerance'));return;
     }
     const action=start
-      ? api.startMfskLiveRx({
+      ? (async()=>{
+          // The server intentionally ignores raw browser tuning in /live/start.
+          // An explicit Apply must save revisioned station RX preferences first.
+          const stored=await api.getNativeDecodePreferences();
+          const nativeMode=mode as NativeDigitalMode;
+          const previous=stored.preferences[nativeMode];
+          const next={
+            ...previous,
+            frequencyHz:hz,toleranceHz:tol,depth:decodeDepth,
+            ...(mode==='Q65'?{q65Submode:submode,averaging,emeDelay}:{}),
+          };
+          if(JSON.stringify(next)!==JSON.stringify(previous)){
+            await api.updateNativeDecodePreferences({
+              mode:nativeMode,expectedRevision:stored.revision,preferences:next,
+            });
+            saveNativeDecodePreferences(nativeMode,next);
+          }
+          const receiver=await api.getMfskLiveRxStatus();
+          if(receiver.ready&&receiver.mode===mode &&
+            (mode!=='Q65'||receiver.q65Submode===submode))return receiver;
+          return api.startMfskLiveRx({
           mode,...(mode==='Q65'?{
             q65Submode:submode,averaging,emeDelay,
             q65Search: (() => {
@@ -272,7 +292,8 @@ export function MfskLiveReceiverPanel({
               adaptiveEqualizer:prefs.mskAdaptiveEqualizer,
             }};
           })():{}),
-        })
+        });
+        })()
       : api.stopMfskLiveRx();
     void action.then(value=>{
       if(start)setSubmodeDirty(false);
@@ -280,7 +301,7 @@ export function MfskLiveReceiverPanel({
       if(start){setEvents([]);setWsprSpots([]);}
       // Stop is graceful for JTTY: retain final reception-ended messages.
     })
-      .catch(()=>setError(t('codec.liveOperationFailed')))
+      .catch(error=>setError(error instanceof Error?error.message:t('codec.liveOperationFailed')))
       .finally(()=>setBusy(false));
   };
 

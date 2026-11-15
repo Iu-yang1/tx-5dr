@@ -51,3 +51,16 @@ selected timing is applied after any preceding update completes. Reconfiguration
 does not implicitly enable a stopped transmitter, disarm another operator, or
 interrupt a physical on-air lease. Q65 receiver submode changes remain receiver
 restarts, for which AUTO TX must be explicitly re-enabled after RX is ready.
+
+## Q65 receiver Apply RX and submode consistency
+
+The legacy `/mfsk/live/start` endpoint intentionally loads station-wide
+preferences, not client-supplied tuning parameters. The Q65 receiver pane now
+applies explicit changes through the existing revisioned
+`/mfsk/live/preferences` save path. That server transaction restarts the
+running decoder when its RX configuration changes, and the pane waits for the
+confirmed receiver state before reporting success. An explicit start no longer
+reuses a ready Q65 decoder whose submode disagrees with the saved preference.
+Version conflicts are shown to the operator; a stale browser cannot silently
+override another client's RX tuning. The RF scheduler's existing receiver
+generation check remains authoritative after an RX restart.
