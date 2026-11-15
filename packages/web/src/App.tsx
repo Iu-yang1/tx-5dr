@@ -30,6 +30,7 @@ import { useLanguage } from './hooks/useLanguage';
 import { shouldShowServerStatusPage } from './store/radio/connectionView';
 import { useTranslation } from 'react-i18next';
 import { RttyProvider } from './hooks/useRtty';
+import { JttyProvider } from './hooks/useJtty';
 import { faBook, faImages, faPaperPlane, faSatelliteDish, faTerminal } from '@fortawesome/free-solid-svg-icons';
 
 const VoiceLeftLayout = lazy(() => import('./layout/VoiceLeftLayout').then(module => ({ default: module.VoiceLeftLayout })));
@@ -37,6 +38,8 @@ const VoiceRightLayout = lazy(() => import('./layout/VoiceRightLayout').then(mod
 const CWLeftLayout = lazy(() => import('./layout/CWLeftLayout').then(module => ({ default: module.CWLeftLayout })));
 const CWRightLayout = lazy(() => import('./layout/CWRightLayout').then(module => ({ default: module.CWRightLayout })));
 const RttyLeftLayout = lazy(() => import('./layout/RttyLeftLayout').then(module => ({ default: module.RttyLeftLayout })));
+const JttyLeftLayout = lazy(() => import('./layout/JttyLeftLayout').then(module => ({ default: module.JttyLeftLayout })));
+const JttyRightLayout = lazy(() => import('./layout/JttyRightLayout').then(module => ({ default: module.JttyRightLayout })));
 const RttyRightLayout = lazy(() => import('./layout/RttyRightLayout').then(module => ({ default: module.RttyRightLayout })));
 const ImageLeftLayout = lazy(() => import('./layout/ImageLeftLayout').then(module => ({ default: module.ImageLeftLayout })));
 const ImageRightLayout = lazy(() => import('./layout/ImageRightLayout').then(module => ({ default: module.ImageRightLayout })));
@@ -73,6 +76,7 @@ function AppContent() {
   const isVoiceMode = engineMode === 'voice';
   const isCWMode = engineMode === 'cw';
   const isRttyMode = engineMode === 'rtty';
+  const isJttyMode = engineMode === 'digital' && currentMode?.name === 'JTTY';
   const isImageMode = engineMode === 'image';
 
   return (
@@ -91,9 +95,10 @@ function AppContent() {
 
       {/* Always mounted (so the layout is not remounted on mode switches); subscribes only in RTTY mode. */}
       <RttyProvider enabled={isRttyMode}>
+      <JttyProvider enabled={isJttyMode}>
       <SplitLayout
-        leftContent={<ModePane mode={engineMode}>{isVoiceMode ? <VoiceLeftLayout /> : isCWMode ? <CWLeftLayout /> : isRttyMode ? <RttyLeftLayout /> : isImageMode ? <ImageLeftLayout /> : <LeftLayout />}</ModePane>}
-        rightContent={<ModePane mode={engineMode}>{isVoiceMode ? <VoiceRightLayout /> : isCWMode ? <CWRightLayout /> : isRttyMode ? <RttyRightLayout /> : isImageMode ? <ImageRightLayout /> : <RightLayout />}</ModePane>}
+        leftContent={<ModePane mode={engineMode}>{isVoiceMode ? <VoiceLeftLayout /> : isCWMode ? <CWLeftLayout /> : isRttyMode ? <RttyLeftLayout /> : isJttyMode ? <JttyLeftLayout /> : isImageMode ? <ImageLeftLayout /> : <LeftLayout />}</ModePane>}
+        rightContent={<ModePane mode={engineMode}>{isVoiceMode ? <VoiceRightLayout /> : isCWMode ? <CWRightLayout /> : isRttyMode ? <RttyRightLayout /> : isJttyMode ? <JttyRightLayout /> : isImageMode ? <ImageRightLayout /> : <RightLayout />}</ModePane>}
         extraContent={activeOperatorId ? (
           <MainRightPluginPane
             operatorId={activeOperatorId}
@@ -104,15 +109,16 @@ function AppContent() {
         defaultLeftWidth={isVoiceMode ? 30 : 50}
         minLeftWidth={25}
         maxLeftWidth={isVoiceMode ? 50 : 75}
-        leftLabel={isImageMode ? t('receive') : isRttyMode ? t('radio:rtty.mobile.terminalTab') : undefined}
-        rightLabel={isImageMode ? (currentMode?.name === 'FAX' ? t('history') : t('transmit')) : isRttyMode ? t('radio:rtty.mobile.logTab') : undefined}
-        leftIcon={isImageMode ? faSatelliteDish : isRttyMode ? faTerminal : undefined}
-        rightIcon={isImageMode ? (currentMode?.name === 'FAX' ? faImages : faPaperPlane) : isRttyMode ? faBook : undefined}
+        leftLabel={isImageMode ? t('receive') : (isRttyMode || isJttyMode) ? t(isRttyMode ? 'radio:rtty.mobile.terminalTab' : 'radio:jtty.workbench.terminalTab') : undefined}
+        rightLabel={isImageMode ? (currentMode?.name === 'FAX' ? t('history') : t('transmit')) : (isRttyMode || isJttyMode) ? t(isRttyMode ? 'radio:rtty.mobile.logTab' : 'radio:jtty.workbench.logTab') : undefined}
+        leftIcon={isImageMode ? faSatelliteDish : (isRttyMode || isJttyMode) ? faTerminal : undefined}
+        rightIcon={isImageMode ? (currentMode?.name === 'FAX' ? faImages : faPaperPlane) : (isRttyMode || isJttyMode) ? faBook : undefined}
         defaultExtraWidth={26}
         minExtraWidth={18}
         maxExtraWidth={38}
         className="!h-auto min-h-0 flex-1"
       />
+      </JttyProvider>
       </RttyProvider>
 
       <ObservabilityConsentBanner enabled={isAdmin && !showSetupOverlay} />

@@ -82,6 +82,9 @@ export interface ModeQSOLogCardProps {
   onCallsignKeyDown?: (event: React.KeyboardEvent<HTMLInputElement>) => void;
   /** Receives the card's log action (resolves to whether a QSO was logged/saved). */
   logActionRef?: React.MutableRefObject<(() => Promise<boolean>) | null>;
+  /** Optional native-mode new-QSO submitter. Edits continue through updateQSO. */
+  hideExtendedFields?: boolean;
+  createQso?: (body: { callsign: string; frequency: number; startTime: number; endTime: number; reportSent: string; reportReceived: string; grid?: string }) => Promise<void>;
   /** Called with the callsign right before a QSO is created or saved. */
   onBeforeLog?: (callsign: string) => void;
   /** Tooltip (title) of the log button, e.g. its keyboard shortcut. */
@@ -118,6 +121,8 @@ export const ModeQSOLogCard: React.FC<ModeQSOLogCardProps> = ({
   onCallsignKeyDown,
   logActionRef,
   onBeforeLog,
+  createQso,
+  hideExtendedFields = false,
   logButtonTitle,
   footer,
   editingQSO,
@@ -139,6 +144,7 @@ export const ModeQSOLogCard: React.FC<ModeQSOLogCardProps> = ({
   const [internalCollapsed, setInternalCollapsed] = useState(false);
   const [formData, setFormData] = useState<QSOFormData>(initialFormData);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const submitInFlightRef = useRef(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deletePopoverOpen, setDeletePopoverOpen] = useState(false);
   const [startTime, setStartTime] = useState<number | null>(null);
@@ -317,8 +323,9 @@ export const ModeQSOLogCard: React.FC<ModeQSOLogCardProps> = ({
   }, [draftRrst, draftTrst, editingQSO, rstMaxLength, syncReportsFromDraft]);
 
   const handleLogQSO = async (): Promise<boolean> => {
-    if (!formData.callsign.trim() || !hasOperator || isSubmitting) return false;
+    if (!formData.callsign.trim() || !hasOperator || submitInFlightRef.current) return false;
 
+    submitInFlightRef.current = true;
     setIsSubmitting(true);
     onBeforeLog?.(formData.callsign.toUpperCase().trim());
     try {
@@ -369,7 +376,8 @@ export const ModeQSOLogCard: React.FC<ModeQSOLogCardProps> = ({
           comment: formData.comment || undefined,
         };
 
-        await api.createQSO(myCallsign, body);
+        if (createQso) await createQso(body);
+        else await api.createQSO(myCallsign, body);
 
         addToast({
           title: t('logSuccess'),
@@ -388,6 +396,7 @@ export const ModeQSOLogCard: React.FC<ModeQSOLogCardProps> = ({
       });
       return false;
     } finally {
+      submitInFlightRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -565,7 +574,7 @@ export const ModeQSOLogCard: React.FC<ModeQSOLogCardProps> = ({
 
         {/* QTH + Grid */}
         <div className="flex gap-2">
-          <Input
+          {(!hideExtendedFields || isEditing) && <Input
             label={t('qth')}
             placeholder={t('qthPlaceholder')}
             value={formData.qth}
@@ -573,7 +582,7 @@ export const ModeQSOLogCard: React.FC<ModeQSOLogCardProps> = ({
             variant="flat"
             size="sm"
             className="w-1/2"
-          />
+          />}
           <Input
             label={t('grid')}
             placeholder={t('gridPlaceholder')}
@@ -587,7 +596,7 @@ export const ModeQSOLogCard: React.FC<ModeQSOLogCardProps> = ({
         </div>
 
         {/* Notes */}
-        <Textarea
+        {(!hideExtendedFields || isEditing) && <Textarea
           label={t('comment')}
           placeholder={t('commentPlaceholder')}
           value={formData.comment}
@@ -596,7 +605,7 @@ export const ModeQSOLogCard: React.FC<ModeQSOLogCardProps> = ({
           size="sm"
           minRows={1}
           maxRows={3}
-        />
+        />}
 
         {/* Time display */}
         <div className="flex gap-4 text-xs text-default-400">

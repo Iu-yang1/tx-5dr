@@ -13,6 +13,8 @@ export const DIGITAL_ENGINE_MODES = 'FT8,FT4,JS8,WSPR,JT65,JT9,MSK144,FST4,FST4W
 export interface ModeRecentQSOListProps {
   /** Comma-separated modes hidden from the list (server query and live events). */
   excludeModes?: string;
+  /** Optional mode-only filter, applied to fetched QSOs and live updates. */
+  includeModes?: string;
   /** i18n key prefix (namespace `radio`) for the list texts, e.g. `cw.recentQSO`. */
   i18nPrefix: string;
   /** Large glyph shown when the list is empty. */
@@ -33,6 +35,7 @@ export interface ModeRecentQSOListProps {
  */
 export const ModeRecentQSOList: React.FC<ModeRecentQSOListProps> = ({
   excludeModes = DIGITAL_ENGINE_MODES,
+  includeModes,
   i18nPrefix,
   emptyIcon = '⚡',
   selectedQSOId,
@@ -54,22 +57,24 @@ export const ModeRecentQSOList: React.FC<ModeRecentQSOListProps> = ({
 
   // Load existing QSOs from server when operator changes
   useEffect(() => {
-    if (!myCallsign) return;
+    if (!myCallsign) { setRecentQSOs([]); return; }
+    setRecentQSOs([]);
 
     api.getLogBookQSOs(myCallsign, {
-      excludeModes,
+      excludeModes: includeModes ? undefined : excludeModes,
+      mode: includeModes,
       limit: 50,
       offset: 0,
       // Required by the parsed query type; undefined options are not sent.
       dxccNeedsReview: undefined,
     }).then(result => {
       if (result.success && Array.isArray(result.data)) {
-        setRecentQSOs(result.data);
+        setRecentQSOs(includeModes ? result.data.filter(q => q.mode?.toUpperCase() === includeModes.toUpperCase()) : result.data);
       }
     }).catch(err => {
       logger.warn('Failed to load QSOs from server', err);
     });
-  }, [excludeModes, myCallsign]);
+  }, [excludeModes, includeModes, myCallsign]);
 
   // Subscribe to real-time QSO events
   useEffect(() => {
@@ -82,7 +87,7 @@ export const ModeRecentQSOList: React.FC<ModeRecentQSOListProps> = ({
     const handleQSORecordAdded: DigitalRadioEngineEvents['qsoRecordAdded'] = (data) => {
       const qsoRecord = data?.qsoRecord as QSORecord | undefined;
       if (!qsoRecord) return;
-      if (excluded.includes((qsoRecord.mode || '').toUpperCase())) return;
+      if (excluded.includes((qsoRecord.mode || '').toUpperCase()) || (includeModes && qsoRecord.mode?.toUpperCase() !== includeModes.toUpperCase())) return;
       logger.debug('QSO added', { callsign: qsoRecord.callsign });
       setRecentQSOs(prev => {
         if (prev.some(q => q.id === qsoRecord.id)) return prev;
@@ -113,7 +118,7 @@ export const ModeRecentQSOList: React.FC<ModeRecentQSOListProps> = ({
       wsClient.offWSEvent('qsoRecordAdded', handleQSORecordAdded);
       wsClient.offWSEvent('qsoRecordUpdated', handleQSORecordUpdated);
     };
-  }, [connection.state.radioService, excludeModes]);
+  }, [connection.state.radioService, excludeModes, includeModes]);
 
   // Update local list when a QSO is edited
   useEffect(() => {
