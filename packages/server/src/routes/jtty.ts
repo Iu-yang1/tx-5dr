@@ -30,7 +30,7 @@ export async function jttyRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get('/panel/:callsign', { preHandler: requirePanelAccess }, async (request, reply) => {
     const { callsign } = request.params as { callsign: string };
-    return reply.send({ success: true, panel: await panels.getPanel(callsign) });
+    return reply.send({ success: true, panel: await serializeWrite(callsign, () => panels.getPanel(callsign)) });
   });
 
   fastify.patch('/panel/:callsign', { preHandler: requirePanelAccess }, async (request, reply) => {

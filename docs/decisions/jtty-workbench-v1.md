@@ -39,3 +39,10 @@ AFC, or real-time type-ahead queue.
 Run TypeScript build, web tests, locale parity and the PR quality gate. Native
 JTTY TX/RX simulation and real-radio RF tests require their dedicated test
 workflow/hardware; they are not implied by a frontend-only build.
+
+## v1.0.7 rebuild
+
+The targeted v1.0.7 replacement is authorized by changing
+`release/official-rebuild.txt` to `v1.0.7` in the merge commit. The official
+release dispatcher verifies that the marker matches the package version and
+runs platform workflows with `replace_existing=true`; no nightly is requested.

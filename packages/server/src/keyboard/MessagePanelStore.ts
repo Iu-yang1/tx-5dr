@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs';
 import { dirname, join } from 'path';
+import { randomUUID } from 'node:crypto';
 import type { KeyboardMessagePanel, KeyboardMessageSlot, KeyboardMessageSlotUpdate } from '@tx5dr/contracts';
 
 export const MESSAGE_PANEL_MAX_SLOTS = 12;
@@ -165,11 +166,19 @@ export class MessagePanelStore {
   private async writeManifest(manifest: StoredManifest): Promise<void> {
     const manifestPath = await this.getManifestPath(manifest.callsign);
     await fs.mkdir(dirname(manifestPath), { recursive: true });
-    await fs.writeFile(
-      manifestPath,
-      JSON.stringify(this.normalizeManifest(manifest, manifest.callsign), null, 2),
-      'utf8',
-    );
+    // Write a fully validated replacement, then publish by atomic rename.
+    // Readers on another browser never see half-written JSON.
+    const temporaryPath = manifestPath + '.' + randomUUID() + '.tmp';
+    try {
+      await fs.writeFile(
+        temporaryPath,
+        JSON.stringify(this.normalizeManifest(manifest, manifest.callsign), null, 2),
+        'utf8',
+      );
+      await fs.rename(temporaryPath, manifestPath);
+    } finally {
+      await fs.rm(temporaryPath, { force: true });
+    }
   }
 
   private normalizeManifest(raw: Partial<StoredManifest>, callsign: string): StoredManifest {

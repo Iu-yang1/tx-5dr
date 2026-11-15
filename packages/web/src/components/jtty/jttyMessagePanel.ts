@@ -16,7 +16,13 @@ async function migrateBrowserPanel(callsign: string): Promise<void> {
   if (localStorage.getItem(marker)) return;
   const raw = localStorage.getItem(V1_STORAGE_PREFIX + normalized);
   if (!raw) return;
-  const parsed = JSON.parse(raw) as KeyboardMessagePanel;
+  let parsed: KeyboardMessagePanel;
+  try {
+    parsed = JSON.parse(raw) as KeyboardMessagePanel;
+  } catch {
+    // Invalid old browser data cannot block the authoritative server panel.
+    return;
+  }
   if (!Array.isArray(parsed.slots)) return;
   await api.importLegacyJttyMessagePanel(normalized, {
     slotCount: parsed.slotCount,
