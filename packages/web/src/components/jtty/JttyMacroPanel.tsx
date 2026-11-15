@@ -42,6 +42,17 @@ export function JttyMacroPanel() {
   const [activeSlotId, setActiveSlotId] = useState<string | null>(null);
   const busy = txBusy || txPhase === 'processing' || txPhase === 'transmitting';
 
+  // Read the server panel again while operating so remote edits made on a
+  // second browser become visible without disturbing an in-progress editor.
+  useEffect(() => {
+    if (macro.panelMode !== 'operate' || !myCall) return;
+    void macro.loadPanel();
+    const timer = window.setInterval(() => {
+      if (!busy) void macro.loadPanel();
+    }, 8_000);
+    return () => window.clearInterval(timer);
+  }, [busy, macro.loadPanel, macro.panelMode, myCall]);
+
   useEffect(() => {
     if (!busy) setActiveSlotId(null);
   }, [busy]);

@@ -7,6 +7,7 @@ import { confirmJttyQso } from '../jttyQsoSubmission';
 const body = {
   callsign: 'JA1ABC', frequency: 14080000, startTime: 1000, endTime: 1800,
   reportSent: '599', reportReceived: '579', grid: 'PM95',
+  qth: 'Tokyo', comment: 'Portable station',
 };
 
 describe('JTTY native QSO confirmation', () => {
@@ -18,7 +19,8 @@ describe('JTTY native QSO confirmation', () => {
     expect(mocked.confirmMfskQso).toHaveBeenCalledWith({
       mode: 'JTTY', operatorId: 'operator-1', callsign: 'JA1ABC',
       frequencyHz: 14080000, startTime: 1000, endTime: 1800,
-      reportSent: '599', reportReceived: '579', grid: 'PM95', messageHistory: [],
+      reportSent: '599', reportReceived: '579', grid: 'PM95',
+      qth: 'Tokyo', comment: 'Portable station', messageHistory: [],
     });
     expect(mocked.createQSO).not.toHaveBeenCalled();
   });

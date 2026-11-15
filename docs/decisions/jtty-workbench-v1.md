@@ -17,13 +17,18 @@ AFC, or real-time type-ahead queue.
   `disarmMfskNativeTx`. An editable buffer or F-key macro resolves one
   bounded message, then sends one native transmission request. No streaming
   interface is implied.
-- JTTY F1–F12 presets and shortcut assignments live in browser localStorage,
-  separated by mode and operator callsign. Presets are **per browser** in V1;
-  no server-side or cross-device preset synchronization is claimed.
+- JTTY F1–F12 macro content is persisted by the station server in its separate
+  `jtty-keyer` data directory, partitioned by callsign. Authorized clients on
+  the same station share presets, and the operate panel refreshes periodically.
+  Browser-local V1 presets are imported once on first access only when the server
+  has no existing panel; an existing server panel always wins. Shortcut key
+  assignments remain local browser preferences.
 - `ModeQSOLogCard` supports an optional new-record submitter. JTTY injects
   `confirmMfskQso` for new QSOs; edits/deletions continue through the shared
-  logbook API. The native confirmation schema has no QTH/notes, so these fields
-  are hidden during JTTY creation (but available when editing a saved record). Failed confirmation leaves form fields intact. It never logs
+  logbook API. The native confirmation schema accepts QTH and ADIF COMMENT
+  (alongside optional NOTES), so the creation form exposes QTH/remarks and
+  persists them in the initial native QSO transaction. Failed confirmation
+  leaves form fields intact. It never logs
   merely because a callsign was clicked.
 - Recent-QSO presentation reuses the keyboard-mode list with a JTTY-only
   filter. Recent JTTY QSOs are queried with the server-side `mode=JTTY` filter,
@@ -34,3 +39,10 @@ AFC, or real-time type-ahead queue.
 Run TypeScript build, web tests, locale parity and the PR quality gate. Native
 JTTY TX/RX simulation and real-radio RF tests require their dedicated test
 workflow/hardware; they are not implied by a frontend-only build.
+
+## v1.0.7 rebuild
+
+The targeted v1.0.7 replacement is authorized by changing
+`release/official-rebuild.txt` to `v1.0.7` in the merge commit. The official
+release dispatcher verifies that the marker matches the package version and
+runs platform workflows with `replace_existing=true`; no nightly is requested.

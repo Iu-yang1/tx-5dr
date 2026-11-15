@@ -83,8 +83,7 @@ export interface ModeQSOLogCardProps {
   /** Receives the card's log action (resolves to whether a QSO was logged/saved). */
   logActionRef?: React.MutableRefObject<(() => Promise<boolean>) | null>;
   /** Optional native-mode new-QSO submitter. Edits continue through updateQSO. */
-  hideExtendedFields?: boolean;
-  createQso?: (body: { callsign: string; frequency: number; startTime: number; endTime: number; reportSent: string; reportReceived: string; grid?: string }) => Promise<void>;
+  createQso?: (body: { callsign: string; frequency: number; startTime: number; endTime: number; reportSent: string; reportReceived: string; grid?: string; qth?: string; comment?: string }) => Promise<void>;
   /** Called with the callsign right before a QSO is created or saved. */
   onBeforeLog?: (callsign: string) => void;
   /** Tooltip (title) of the log button, e.g. its keyboard shortcut. */
@@ -122,7 +121,6 @@ export const ModeQSOLogCard: React.FC<ModeQSOLogCardProps> = ({
   logActionRef,
   onBeforeLog,
   createQso,
-  hideExtendedFields = false,
   logButtonTitle,
   footer,
   editingQSO,
@@ -574,7 +572,7 @@ export const ModeQSOLogCard: React.FC<ModeQSOLogCardProps> = ({
 
         {/* QTH + Grid */}
         <div className="flex gap-2">
-          {(!hideExtendedFields || isEditing) && <Input
+          <Input
             label={t('qth')}
             placeholder={t('qthPlaceholder')}
             value={formData.qth}
@@ -582,7 +580,7 @@ export const ModeQSOLogCard: React.FC<ModeQSOLogCardProps> = ({
             variant="flat"
             size="sm"
             className="w-1/2"
-          />}
+          />
           <Input
             label={t('grid')}
             placeholder={t('gridPlaceholder')}
@@ -596,7 +594,7 @@ export const ModeQSOLogCard: React.FC<ModeQSOLogCardProps> = ({
         </div>
 
         {/* Notes */}
-        {(!hideExtendedFields || isEditing) && <Textarea
+        <Textarea
           label={t('comment')}
           placeholder={t('commentPlaceholder')}
           value={formData.comment}
@@ -605,7 +603,7 @@ export const ModeQSOLogCard: React.FC<ModeQSOLogCardProps> = ({
           size="sm"
           minRows={1}
           maxRows={3}
-        />}
+        />
 
         {/* Time display */}
         <div className="flex gap-4 text-xs text-default-400">

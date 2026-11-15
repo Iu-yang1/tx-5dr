@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs';
 import { dirname, join } from 'path';
+import { randomUUID } from 'node:crypto';
 import type { KeyboardMessagePanel, KeyboardMessageSlot, KeyboardMessageSlotUpdate } from '@tx5dr/contracts';
 
 export const MESSAGE_PANEL_MAX_SLOTS = 12;
@@ -29,6 +30,11 @@ export interface MessagePanelStoreOptions {
   fallbackLabel: (index: number) => string;
   /** Used in error messages, e.g. `CW`. */
   modeLabel: string;
+  /** Optional mode-specific slot IDs and panel defaults. */
+  slotId?: (index: number) => string;
+  defaultSlotCount?: number;
+  maxTextLength?: number;
+  allowRepeat?: boolean;
 }
 
 /**
@@ -66,10 +72,10 @@ export class MessagePanelStore {
       slot.label = update.label.trim().slice(0, 32) || `M${slot.index}`;
     }
     if (typeof update.text === 'string') {
-      slot.text = update.text.trim().slice(0, 500);
+      slot.text = update.text.trim().slice(0, this.options.maxTextLength ?? 500);
     }
     if (typeof update.repeatEnabled === 'boolean') {
-      slot.repeatEnabled = update.repeatEnabled;
+      slot.repeatEnabled = this.options.allowRepeat === false ? false : update.repeatEnabled;
     }
     if (typeof update.repeatIntervalSec === 'number') {
       slot.repeatIntervalSec = Math.max(1, Math.min(300, Math.round(update.repeatIntervalSec)));
@@ -97,6 +103,25 @@ export class MessagePanelStore {
     Object.assign(slotB, contentA);
     await this.writeManifest(manifest);
     return this.toPanel(manifest);
+  }
+
+  /**
+   * One-time migration of a browser-local V1 panel. Exclusive creation makes a
+   * server panel authoritative when two devices connect at the same time.
+   */
+  async seedIfAbsent(callsign: string, panel: Pick<KeyboardMessagePanel, 'slotCount' | 'slots'>): Promise<KeyboardMessagePanel> {
+    const normalized = this.requireCallsign(callsign);
+    const manifestPath = await this.getManifestPath(normalized);
+    const manifest = this.normalizeManifest({
+      version: 1, callsign: normalized, slotCount: panel.slotCount, slots: panel.slots,
+    }, normalized);
+    await fs.mkdir(dirname(manifestPath), { recursive: true });
+    try {
+      await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), { encoding: 'utf8', flag: 'wx' });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    }
+    return this.getPanel(normalized);
   }
 
   /** Returns a slot or throws for an unknown slot id. */
@@ -141,11 +166,19 @@ export class MessagePanelStore {
   private async writeManifest(manifest: StoredManifest): Promise<void> {
     const manifestPath = await this.getManifestPath(manifest.callsign);
     await fs.mkdir(dirname(manifestPath), { recursive: true });
-    await fs.writeFile(
-      manifestPath,
-      JSON.stringify(this.normalizeManifest(manifest, manifest.callsign), null, 2),
-      'utf8',
-    );
+    // Write a fully validated replacement, then publish by atomic rename.
+    // Readers on another browser never see half-written JSON.
+    const temporaryPath = manifestPath + '.' + randomUUID() + '.tmp';
+    try {
+      await fs.writeFile(
+        temporaryPath,
+        JSON.stringify(this.normalizeManifest(manifest, manifest.callsign), null, 2),
+        'utf8',
+      );
+      await fs.rename(temporaryPath, manifestPath);
+    } finally {
+      await fs.rm(temporaryPath, { force: true });
+    }
   }
 
   private normalizeManifest(raw: Partial<StoredManifest>, callsign: string): StoredManifest {
@@ -158,8 +191,8 @@ export class MessagePanelStore {
         index: slot.index,
         label: typeof existing?.label === 'string' && existing.label.trim()
           ? existing.label.trim().slice(0, 32) : slot.label,
-        text: typeof existing?.text === 'string' ? existing.text.trim().slice(0, 500) : '',
-        repeatEnabled: Boolean(existing?.repeatEnabled),
+        text: typeof existing?.text === 'string' ? existing.text.trim().slice(0, this.options.maxTextLength ?? 500) : '',
+        repeatEnabled: this.options.allowRepeat !== false && Boolean(existing?.repeatEnabled),
         repeatIntervalSec: Math.max(
           1,
           Math.min(300, Math.round(Number(existing?.repeatIntervalSec ?? DEFAULT_REPEAT_INTERVAL_SEC))),
@@ -169,7 +202,7 @@ export class MessagePanelStore {
     return {
       version: 1,
       callsign,
-      slotCount: clampSlotCount(Number(raw.slotCount ?? DEFAULT_SLOT_COUNT)),
+      slotCount: clampSlotCount(Number(raw.slotCount ?? this.options.defaultSlotCount ?? DEFAULT_SLOT_COUNT)),
       slots,
     };
   }
@@ -178,11 +211,11 @@ export class MessagePanelStore {
     return {
       version: 1,
       callsign,
-      slotCount: DEFAULT_SLOT_COUNT,
+      slotCount: this.options.defaultSlotCount ?? DEFAULT_SLOT_COUNT,
       slots: Array.from({ length: MESSAGE_PANEL_MAX_SLOTS }, (_, index) => {
         const preset = this.options.presets[index];
         return {
-          id: String(index + 1),
+          id: this.options.slotId?.(index + 1) ?? String(index + 1),
           index: index + 1,
           label: preset?.label ?? this.options.fallbackLabel(index + 1),
           text: preset?.text ?? '',

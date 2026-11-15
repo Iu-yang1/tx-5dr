@@ -21,6 +21,7 @@ export function JttyQSOLogCard(props: Props) {
   const createQso = useCallback(async (body: {
     callsign: string; frequency: number; startTime: number; endTime: number;
     reportSent: string; reportReceived: string; grid?: string;
+    qth?: string; comment?: string;
   }) => {
     if (!currentOperatorId) throw new Error('JTTY operator required');
     if (!currentRadioFrequency || currentRadioFrequency < 1000) throw new Error('Radio frequency unavailable');
@@ -32,7 +33,7 @@ export function JttyQSOLogCard(props: Props) {
     txActive={txBusy || txPhase === 'processing' || txPhase === 'transmitting'}
     draftStore={jttyQsoDraftStore}
     i18nPrefix="radio:jtty.qso"
-    syncReportsFromDraft startTimeFromCallsign hideExtendedFields
+    syncReportsFromDraft startTimeFromCallsign
     createQso={createQso}
   />;
 }
