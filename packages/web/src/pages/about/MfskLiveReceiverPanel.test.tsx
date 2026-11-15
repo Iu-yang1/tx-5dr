@@ -269,3 +269,48 @@ it('WSPR AUTO TX keeps the explicit beacon identity and power', async () => {
     }),
   ));
 });
+
+it('reconfigures an active MSK144 AUTO TX session when the T/R period changes', async () => {
+  selected.mode = 'MSK144';
+  mock.autoStatus.mockResolvedValueOnce({
+    enabled: true, running: true, mode: 'MSK144', operatorId: 'op1',
+    pending: false, lastScheduledStartMs: null,
+    lastPhysicalTxConfirmed: null, lastError: null,
+  });
+  render(<MfskLiveReceiverPanel surface="operator" />);
+  await waitFor(() => expect(screen.getByText('STOP AUTO')).toBeTruthy());
+  fireEvent.click(screen.getAllByText('⋯')[0]);
+  fireEvent.change(screen.getByLabelText('codec.mskPeriod'), { target: { value: '30' } });
+  await waitFor(() => expect(mock.autoStart).toHaveBeenCalledWith(expect.objectContaining({
+    mode: 'MSK144', operatorId: 'op1', mskPeriodSeconds: 30, audioHz: 1500,
+  })));
+  expect(mock.autoStart).toHaveBeenCalledTimes(1);
+  expect(mock.autoStop).not.toHaveBeenCalled();
+});
+
+it('reconfigures an active Q65 AUTO TX session on Tx First changes', async () => {
+  mock.autoStatus.mockResolvedValueOnce({
+    enabled: true, running: true, mode: 'Q65', operatorId: 'op1',
+    pending: false, lastScheduledStartMs: null,
+    lastPhysicalTxConfirmed: null, lastError: null,
+  });
+  render(<MfskLiveReceiverPanel surface="operator" />);
+  await waitFor(() => expect(screen.getByText('STOP AUTO')).toBeTruthy());
+  fireEvent.click(screen.getAllByText('⋯')[0]);
+  const first = screen.getByLabelText('codec.q65TxFirst') as HTMLInputElement;
+  fireEvent.click(first);
+  await waitFor(() => expect(mock.autoStart).toHaveBeenCalledWith(expect.objectContaining({
+    mode: 'Q65', operatorId: 'op1', q65Submode: 'Q65-120D', q65TxFirst: false,
+  })));
+  expect(mock.autoStart).toHaveBeenCalledTimes(1);
+  expect(mock.autoStop).not.toHaveBeenCalled();
+});
+
+it('does not automatically start TX after merely editing a stopped MSK144 period', async () => {
+  selected.mode = 'MSK144';
+  render(<MfskLiveReceiverPanel surface="operator" />);
+  await waitFor(() => expect(screen.getByText('AUTO TX')).toBeTruthy());
+  fireEvent.click(screen.getAllByText('⋯')[0]);
+  fireEvent.change(screen.getByLabelText('codec.mskPeriod'), { target: { value: '15' } });
+  expect(mock.autoStart).not.toHaveBeenCalled();
+});
