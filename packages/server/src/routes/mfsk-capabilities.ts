@@ -27,7 +27,7 @@ import { isMfskPhysicalTxConfirmed } from '../decode/MfskNativeTxService.js';
 import { DigitalRadioEngine } from '../DigitalRadioEngine.js';
 import { ConfigManager } from '../config/config-manager.js';
 import { nativeRxConfigFromPreferences, nativeRxTuningFingerprint } from '../decode/nativeRxPreferences.js';
-import { randomUUID } from 'node:crypto';
+import { buildMfskManualQsoRecord } from './mfskQsoRecord.js';
 import { z } from 'zod';
 
 const NativeAutomaticTxStartSchema = z.object({
@@ -386,26 +386,7 @@ export async function mfskCapabilityRoutes(fastify:FastifyInstance):Promise<void
     const record=await engine.operatorManager.submitQsoCompletion({
       operatorId:item.operatorId,
       persistencePolicy:'preserve-distinct',
-      qsoRecord:{
-        id:randomUUID(),
-        callsign:item.callsign,
-        ...(item.grid?{grid:item.grid}:{}),
-        ...(item.qth?{qth:item.qth}:{}),
-        ...(item.comment?{comment:item.comment}:{}),
-        frequency:item.frequencyHz,
-        mode:item.mode,
-        startTime:item.startTime,endTime:item.endTime,
-        ...(item.reportSent?{reportSent:item.reportSent}:{}),
-        ...(item.reportReceived?{reportReceived:item.reportReceived}:{}),
-        messageHistory:item.messageHistory,
-        myCallsign:op.config.myCallsign,
-        ...(op.config.myGrid?{myGrid:op.config.myGrid}:{}),
-        ...(item.q65Submode?{notes:`Q65 submode: ${item.q65Submode}`}:{}),
-        ...(item.mode==='JTTY'?{notes:'Experimental JTTY continuous mode; ADIF compatibility projection applies'}:{}),
-        ...(item.notes?{notes:item.notes}:{}),
-        lotwQslSent:'N',lotwQslReceived:'N',
-        qrzQslSent:'N',qrzQslReceived:'N',
-      },
+      qsoRecord:buildMfskManualQsoRecord(item, op.config),
     });
     return reply.send({success:true,id:record.id});
   });

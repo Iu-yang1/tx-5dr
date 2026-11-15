@@ -603,7 +603,7 @@ export const ModeQSOLogCard: React.FC<ModeQSOLogCardProps> = ({
           size="sm"
           minRows={1}
           maxRows={3}
-        />}
+        />
 
         {/* Time display */}
         <div className="flex gap-4 text-xs text-default-400">
