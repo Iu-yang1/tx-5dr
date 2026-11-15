@@ -82,6 +82,7 @@ vi.mock('../auth/authPlugin.js', () => {
     requireRole: () => async () => undefined,
     requireAbility: () => async () => undefined,
     requireOperatorAbility: () => async () => undefined,
+    requireCallsignAccess: () => async () => undefined,
     requireExistingLogbookAccess: (logManager: LogManager) => async (request: FastifyRequest) => {
       const id = (request.params as { id?: string }).id;
       const resolvedId = id ? logManager.resolveLogBookId(id) : null;
@@ -163,6 +164,7 @@ vi.mock('../routes/slotpack.js', () => emptyRouteModule('slotpackRoutes'));
 vi.mock('../routes/voice.js', () => emptyRouteModule('voiceRoutes'));
 vi.mock('../routes/cw.js', () => emptyRouteModule('cwRoutes'));
 vi.mock('../routes/rtty.js', () => emptyRouteModule('rttyRoutes'));
+vi.mock('../routes/jtty.js', () => emptyRouteModule('jttyRoutes'));
 vi.mock('../routes/callsigns.js', () => emptyRouteModule('callsignRoutes'));
 vi.mock('../routes/plugins.js', () => emptyRouteModule('pluginRoutes'));
 vi.mock('../routes/auth.js', () => emptyRouteModule('authRoutes'));
