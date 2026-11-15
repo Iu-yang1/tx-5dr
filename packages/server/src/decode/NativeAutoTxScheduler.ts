@@ -67,8 +67,9 @@ export function nextNativeAutoSlot(nowMs: number, periodMs: number, txFirst?: bo
  * unless the authenticated native operator panel enabled this controller AND
  * the same operator's TX switch is currently armed. One operator, one waveform.
  *
- * Q65/MSK144 text always comes from the active QSO strategy and is refreshed
- * before each UTC slot. WSPR uses a user-entered beacon identity/power message
+ * Q65/MSK144 prefer the active QSO strategy at each UTC slot, with an
+ * explicit operator-entered message when the strategy has no TX text.
+ * WSPR uses a user-entered beacon identity/power message
  * and never contributes to the QSO completion or logbook pipeline.
  */
 export class NativeAutoTxScheduler {
@@ -212,7 +213,7 @@ export class NativeAutoTxScheduler {
       this.cancelPending();
       return;
     }
-    const strategy = transmissions[0];
+    const strategy = transmissions[0]?.text.trim() ? transmissions[0] : undefined;
     const text = cfg.mode === 'WSPR' ? cfg.beaconText!.trim().toUpperCase()
       : strategy?.text.trim() || cfg.manualText?.trim() || '';
     const af = cfg.mode === 'MSK144' ? 1500

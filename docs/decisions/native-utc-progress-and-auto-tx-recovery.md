@@ -1,0 +1,42 @@
+# Native digital UTC progress and automatic TX recovery
+
+Q65, MSK144, WSPR and JTTY use the dedicated native RX / physical TX
+pipeline. They must not start the FT8/FT4 `SlotClock` or fake decoder slots.
+
+## Operator progress (UI only)
+
+- Q65 display period follows **receiver-confirmed** Q65 submode, including
+  15/30/60/120/300-second variants. If RX is not ready, no Q65 period is
+  fabricated.
+- WSPR uses true 120-second UTC periods.
+- MSK144 displays selected 5/10/15/30-second T/R progress; its receive bursts
+  remain asynchronous and are not projected as fixed decode slots.
+- Progress is computed from local UTC for visualization only. Actual
+  transmission remains anchored to the native TX scheduler's UTC clock,
+  configured T/R parity, and physical PTT transaction.
+- The progress animation owns its own component timer, and is restarted only
+  when UTC period or submode changes. The operator controls do not rerender
+  with every progress tick.
+
+## AUTO TX recovery
+
+- A canceled pending auto-TX operation releases the logical scheduler token
+  **immediately**. Late encode/UTC-wait completion may not take ownership
+  of a newer mode, phase or receiver generation.
+- Active physical PTT is never interrupted solely because new text appeared.
+  Existing abort, PTT arbitration, mode/generation, and ownership checks remain.
+- Q65/MSK144 prefer one active QSO strategy message. If none exists, the
+  operator's explicitly entered text is used as a native whole-message TX.
+  Multiple active streams are never implicitly mixed.
+- WSPR retains its explicit CALL GRID POWER validation, with 120-second slots.
+- The AUTO TX status exposes a concrete no-message diagnostic instead of
+  appearing enabled indefinitely while no strategy or operator message exists.
+- Switching the operator TX control OFF disarms auto TX; re-enabling the
+  operator alone does not silently resume a previous automatic transmission.
+
+## Acceptance
+
+Focused web/Node tests cover Q65 period selection, MSK144 T/R values,
+WSPR period, message-source priority, null text reporting, stale completion
+isolation and canceled scheduler state. Native-mode CI smoke checks are not
+a substitute for actual RF validation on a connected radio.

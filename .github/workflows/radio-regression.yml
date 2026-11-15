@@ -95,6 +95,7 @@ jobs:
           cd packages/web
           TESTS=(
             src/pages/about/MfskLiveReceiverPanel.test.tsx
+            src/components/radio/operators/NativeOperatorProgress.test.ts
             src/components/radio/digital/JttyReceiveTerminal.test.ts
             src/components/jtty/__tests__/jttyMessagePanel.test.ts
             src/components/jtty/__tests__/jttyQsoSubmission.test.ts
