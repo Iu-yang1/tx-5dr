@@ -25,6 +25,7 @@ function harness(mode:'Q65'|'MSK144'|'WSPR'='Q65') {
   });
   return {service,send,rx,op,cancelNativeTx,
     setMessages:(text:string)=>{messages=[{text,audioFrequencyHz:1500}];},
+    clearMessages:()=>{messages=[];},
     setNow:(v:number)=>{now=v;},
     setMode:(v:typeof mode)=>{currentMode=v;},
     setPhase:(v:string)=>{physicalPhase=v;},
@@ -150,6 +151,79 @@ describe('native automatic UTC transmit scheduling',()=>{
     h.rx.generation+=1;
     await h.service.poll();
     expect(h.service.status().enabled).toBe(false);
+    h.service.stop();
+  });
+});
+
+describe('native TX recovery after repeated mode/period changes', () => {
+  it('uses explicitly entered Q65 text when the QSO strategy is empty', async () => {
+    const h = harness('Q65');
+    h.op.isTransmitting = true; h.clearMessages(); h.service.start(0);
+    h.service.enable({mode:'Q65',operatorId:'op1',audioHz:1800,manualText:'CQ BG5JSU OL79'});
+    await vi.waitFor(() => expect(h.send).toHaveBeenCalledTimes(1));
+    expect(h.send).toHaveBeenCalledWith(expect.objectContaining({
+      mode:'Q65',text:'CQ BG5JSU OL79',audioHz:1800,
+    }));
+    h.service.stop();
+  });
+
+  it('uses explicit MSK144 text with updated 10s T/R settings', async () => {
+    const h = harness('MSK144');
+    h.op.isTransmitting = true; h.clearMessages(); h.service.start(0);
+    h.service.enable({mode:'MSK144',operatorId:'op1',audioHz:1500,
+      manualText:'CQ BG5JSU OL79',mskPeriodSeconds:10,mskTxFirst:false});
+    await vi.waitFor(() => expect(h.send).toHaveBeenCalledTimes(1));
+    expect(h.send).toHaveBeenCalledWith(expect.objectContaining({
+      mode:'MSK144',text:'CQ BG5JSU OL79',mskPeriodSeconds:10,mskTxFirst:false,
+    }));
+    h.service.stop();
+  });
+
+  it('gives a live QSO strategy priority over explicit manual text', async () => {
+    const h = harness();
+    h.op.isTransmitting = true; h.service.start(0);
+    h.service.enable({mode:'Q65',operatorId:'op1',audioHz:1800,manualText:'ANOTHER'});
+    await vi.waitFor(() => expect(h.send).toHaveBeenCalledTimes(1));
+    expect(h.send).toHaveBeenCalledWith(expect.objectContaining({
+      text:'CQ BG5JSU OL79',audioHz:1500,
+    }));
+    h.service.stop();
+  });
+
+  it('clears stale pending ownership after Q65 submode/phase changes', async () => {
+    const h = harness();
+    h.op.isTransmitting = true;
+    let resolveOld: ((result: MfskTxOutcome) => void) | undefined;
+    h.send.mockImplementationOnce(() => new Promise<MfskTxOutcome>(resolve => { resolveOld = resolve; }));
+    h.service.start(0);
+    h.service.enable({mode:'Q65',operatorId:'op1',audioHz:1500});
+    expect(h.send).toHaveBeenCalledTimes(1);
+    h.service.disable();
+    expect(h.cancelNativeTx).toHaveBeenCalledTimes(1);
+    h.rx.generation += 1;
+    h.service.enable({mode:'Q65',operatorId:'op1',audioHz:1500,q65TxFirst:false});
+    expect(h.send).toHaveBeenCalledTimes(2);
+    resolveOld!({
+      mode:'Q65',scheduledStartMs:1,durationMs:100,
+      result:{leaseId:'stale',source:'digital',operatorIds:['op1'],
+        success:false,physicalConfirmed:false,reason:'cancelled'},
+    });
+    await Promise.resolve();
+    expect(h.service.status()).toMatchObject({enabled:true,operatorId:'op1',lastError:null});
+    h.service.stop();
+  });
+
+  it('reports the absence of a TX message rather than remaining silently idle', async () => {
+    const h = harness('MSK144');
+    h.op.isTransmitting = true; h.clearMessages(); h.service.start(0);
+    h.service.enable({mode:'MSK144',operatorId:'op1',audioHz:1500});
+    await h.service.poll();
+    expect(h.send).not.toHaveBeenCalled();
+    expect(h.service.status().lastError).toMatch(/No native QSO strategy message/);
+    h.setMessages('CQ BG5JSU OL79');
+    await h.service.poll();
+    await vi.waitFor(() => expect(h.send).toHaveBeenCalledTimes(1));
+    expect(h.service.status().lastError).toBeNull();
     h.service.stop();
   });
 });

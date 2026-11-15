@@ -279,7 +279,7 @@ export async function mfskCapabilityRoutes(fastify:FastifyInstance):Promise<void
       return reply.send(controller.enable({
         mode:config.mode,operatorId:config.operatorId,
         audioHz:config.audioHz,
-        ...(config.mode==='WSPR'?{beaconText:config.text}:{}),
+        ...(config.mode==='WSPR'?{beaconText:config.text}:{manualText:config.text}),
         ...(config.mode==='Q65'?{
           q65Submode:config.q65Submode,q65TxFirst:config.q65TxFirst,
         }:{}),
