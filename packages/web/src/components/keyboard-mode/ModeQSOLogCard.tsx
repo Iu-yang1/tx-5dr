@@ -82,6 +82,8 @@ export interface ModeQSOLogCardProps {
   onCallsignKeyDown?: (event: React.KeyboardEvent<HTMLInputElement>) => void;
   /** Receives the card's log action (resolves to whether a QSO was logged/saved). */
   logActionRef?: React.MutableRefObject<(() => Promise<boolean>) | null>;
+  /** Optional native-mode new-QSO submitter. Edits continue through updateQSO. */
+  createQso?: (body: { callsign: string; frequency: number; startTime: number; endTime: number; reportSent: string; reportReceived: string; grid?: string }) => Promise<void>;
   /** Called with the callsign right before a QSO is created or saved. */
   onBeforeLog?: (callsign: string) => void;
   /** Tooltip (title) of the log button, e.g. its keyboard shortcut. */
@@ -118,6 +120,7 @@ export const ModeQSOLogCard: React.FC<ModeQSOLogCardProps> = ({
   onCallsignKeyDown,
   logActionRef,
   onBeforeLog,
+  createQso,
   logButtonTitle,
   footer,
   editingQSO,
@@ -369,7 +372,8 @@ export const ModeQSOLogCard: React.FC<ModeQSOLogCardProps> = ({
           comment: formData.comment || undefined,
         };
 
-        await api.createQSO(myCallsign, body);
+        if (createQso) await createQso(body);
+        else await api.createQSO(myCallsign, body);
 
         addToast({
           title: t('logSuccess'),
