@@ -21,7 +21,9 @@ export function projectJttyTranscript(events: readonly DigitalRxEvent[]) {
 /** Recognise callsigns in arbitrary (not just CQ) text without confusing grids or RST. */
 export function jttyCallsignToken(token: string): string | null {
   const value = token.toUpperCase().replace(/^[^A-Z0-9/]+|[^A-Z0-9/]+$/g, '');
-  if (!/^[A-Z0-9/]{3,24}$/.test(value) || !/[A-Z]/.test(value) || !/[0-9]/.test(value)) return null;
+  // Require a prefix, call-area digit and alphabetic suffix, with optional
+  // portable prefix/suffix. This rejects RST shorthand such as "5NN".
+  if (!/^(?:[A-Z0-9]{1,3}\/)?[A-Z0-9]{1,4}[0-9][A-Z]{1,4}(?:\/[A-Z0-9]{1,5})?$/.test(value)) return null;
   if (/^[A-R]{2}[0-9]{2}(?:[A-X]{2})?$/.test(value)) return null;
   return value;
 }

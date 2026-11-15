@@ -34,6 +34,7 @@ export function JttyProvider({ enabled, children }: { enabled: boolean; children
   const [txError, setTxError] = useState<string | null>(null);
   const pendingRef = useRef(false);
   const stopRevisionRef = useRef(0);
+  const stopRequestedRef = useRef(false);
 
   useEffect(() => {
     if (!enabled) return;
@@ -78,8 +79,10 @@ export function JttyProvider({ enabled, children }: { enabled: boolean; children
         const result = await api.getMfskNativeTxStatus(currentOperatorId ?? undefined);
         if (!active) return;
         setTxBusy(result.busy);
-        if (result.busy) setTxPhase('transmitting');
-        else setTxPhase(phase => phase === 'transmitting' ? 'complete' : phase);
+        setTxPhase(phase => {
+          if (stopRequestedRef.current) return phase === 'failed' ? phase : 'stopped';
+          return result.busy ? 'transmitting' : phase === 'transmitting' ? 'complete' : phase;
+        });
       } catch {
         if (active) setTxBusy(false);
       }
@@ -99,6 +102,7 @@ export function JttyProvider({ enabled, children }: { enabled: boolean; children
       return false;
     }
     pendingRef.current = true;
+    stopRequestedRef.current = false;
     const sendRevision = stopRevisionRef.current;
     setTxPhase('processing');
     setTxError(null);
@@ -119,6 +123,7 @@ export function JttyProvider({ enabled, children }: { enabled: boolean; children
 
   const stop = useCallback(async () => {
     stopRevisionRef.current += 1;
+    stopRequestedRef.current = true;
     try {
       await api.disarmMfskNativeTx();
       setTxPhase('stopped');

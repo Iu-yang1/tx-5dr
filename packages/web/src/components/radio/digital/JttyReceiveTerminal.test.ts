@@ -33,5 +33,9 @@ describe('JTTY streaming transcript', () => {
     expect(jttyCallsignToken('JA1ABC')).toBe('JA1ABC');
     expect(jttyCallsignToken('PM95')).toBeNull();
     expect(jttyCallsignToken('599')).toBeNull();
+    expect(jttyCallsignToken('5NN')).toBeNull();
+    expect(jttyCallsignToken('R599')).toBeNull();
+    expect(jttyCallsignToken('BA8AFK/9')).toBe('BA8AFK/9');
+    expect(jttyCallsignToken('EA8/ON4ABC')).toBe('EA8/ON4ABC');
   });
 });
