@@ -140,6 +140,7 @@ jobs:
             src/realtime/__tests__/RtcTurnCredentials.test.ts
             src/decode/__tests__/MfskLiveRxService.test.ts
             src/routes/__tests__/mfskQsoRecord.test.ts
+            src/__tests__/server-logbook-startup-isolation.test.ts
             src/jtty/__tests__/JttyMessagePanels.test.ts
             src/utils/__tests__/frequencyMHz.test.ts
             src/audio/__tests__/AudioHotplugRecovery.test.ts
