@@ -2701,6 +2701,27 @@ export const api = {
     return apiRequest('/rtty/decoder/clear', { method: 'POST' }, apiBase);
   },
 
+
+  /** JTTY macros are stored by the station server under a separate per-callsign directory. */
+  async getJttyMessagePanel(callsign: string, apiBase?: string): Promise<{ success: boolean; panel: import('@tx5dr/contracts').KeyboardMessagePanel }> {
+    return apiRequest(`/jtty/panel/${encodeURIComponent(callsign)}`, undefined, apiBase);
+  },
+  async updateJttyMessagePanel(callsign: string, update: { slotCount: number }, apiBase?: string): Promise<{ success: boolean; panel: import('@tx5dr/contracts').KeyboardMessagePanel }> {
+    return apiRequest(`/jtty/panel/${encodeURIComponent(callsign)}`, { method: 'PATCH', body: JSON.stringify(update) }, apiBase);
+  },
+  async updateJttyMessageSlot(callsign: string, slotId: string, update: import('@tx5dr/contracts').KeyboardMessageSlotUpdate, apiBase?: string): Promise<{ success: boolean; panel: import('@tx5dr/contracts').KeyboardMessagePanel }> {
+    return apiRequest(`/jtty/panel/${encodeURIComponent(callsign)}/slots/${encodeURIComponent(slotId)}`, { method: 'PATCH', body: JSON.stringify(update) }, apiBase);
+  },
+  async deleteJttyMessageSlot(callsign: string, slotId: string, apiBase?: string): Promise<{ success: boolean; panel: import('@tx5dr/contracts').KeyboardMessagePanel }> {
+    return apiRequest(`/jtty/panel/${encodeURIComponent(callsign)}/slots/${encodeURIComponent(slotId)}`, { method: 'DELETE' }, apiBase);
+  },
+  async swapJttyMessageSlots(callsign: string, slotIdA: string, slotIdB: string, apiBase?: string): Promise<{ success: boolean; panel: import('@tx5dr/contracts').KeyboardMessagePanel }> {
+    return apiRequest(`/jtty/panel/${encodeURIComponent(callsign)}/slots/swap`, { method: 'POST', body: JSON.stringify({ slotIdA, slotIdB }) }, apiBase);
+  },
+  async importLegacyJttyMessagePanel(callsign: string, panel: Pick<import('@tx5dr/contracts').KeyboardMessagePanel, 'slotCount' | 'slots'>, apiBase?: string): Promise<{ success: boolean; panel: import('@tx5dr/contracts').KeyboardMessagePanel }> {
+    return apiRequest(`/jtty/panel/${encodeURIComponent(callsign)}/import-legacy`, { method: 'POST', body: JSON.stringify(panel) }, apiBase);
+  },
+
   async getRttyMessagePanel(callsign: string, apiBase?: string): Promise<{ success: boolean; panel: import('@tx5dr/contracts').KeyboardMessagePanel }> {
     return apiRequest(`/rtty/panel/${encodeURIComponent(callsign)}`, undefined, apiBase);
   },
