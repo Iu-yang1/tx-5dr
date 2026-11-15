@@ -307,6 +307,9 @@ export const MfskManualQsoSchema = z.object({
   reportSent:z.string().trim().max(16).optional(),
   reportReceived:z.string().trim().max(16).optional(),
   q65Submode:Q65SubmodeSchema.optional(),
+  qth:z.string().trim().max(256).optional(),
+  comment:z.string().trim().max(2048).optional(),
+  notes:z.string().trim().max(2048).optional(),
   messageHistory:z.array(z.string().max(128)).max(128).default([]),
 }).superRefine((data,ctx)=>{
   if(data.endTime<data.startTime){
