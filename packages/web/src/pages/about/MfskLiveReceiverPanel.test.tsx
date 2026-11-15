@@ -271,6 +271,7 @@ it('WSPR AUTO TX keeps the explicit beacon identity and power', async () => {
 });
 
 it('reconfigures an active MSK144 AUTO TX session when the T/R period changes', async () => {
+  localStorage.clear();
   selected.mode = 'MSK144';
   mock.autoStatus.mockResolvedValueOnce({
     enabled: true, running: true, mode: 'MSK144', operatorId: 'op1',
@@ -289,6 +290,7 @@ it('reconfigures an active MSK144 AUTO TX session when the T/R period changes', 
 });
 
 it('reconfigures an active Q65 AUTO TX session on Tx First changes', async () => {
+  localStorage.clear();
   mock.autoStatus.mockResolvedValueOnce({
     enabled: true, running: true, mode: 'Q65', operatorId: 'op1',
     pending: false, lastScheduledStartMs: null,
@@ -307,6 +309,7 @@ it('reconfigures an active Q65 AUTO TX session on Tx First changes', async () =>
 });
 
 it('does not automatically start TX after merely editing a stopped MSK144 period', async () => {
+  localStorage.clear();
   selected.mode = 'MSK144';
   render(<MfskLiveReceiverPanel surface="operator" />);
   await waitFor(() => expect(screen.getByText('AUTO TX')).toBeTruthy());
