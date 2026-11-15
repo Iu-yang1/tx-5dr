@@ -77,7 +77,7 @@ export function JttyProvider({ enabled, children }: { enabled: boolean; children
         const result = await api.getMfskNativeTxStatus(currentOperatorId ?? undefined);
         if (!active) return;
         setTxBusy(result.busy);
-        if (result.busy) setTxPhase(phase => phase === 'processing' ? 'processing' : 'transmitting');
+        if (result.busy) setTxPhase('transmitting');
         else setTxPhase(phase => phase === 'transmitting' ? 'complete' : phase);
       } catch {
         if (active) setTxBusy(false);
