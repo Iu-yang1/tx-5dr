@@ -144,6 +144,7 @@ export const ModeQSOLogCard: React.FC<ModeQSOLogCardProps> = ({
   const [internalCollapsed, setInternalCollapsed] = useState(false);
   const [formData, setFormData] = useState<QSOFormData>(initialFormData);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const submitInFlightRef = useRef(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deletePopoverOpen, setDeletePopoverOpen] = useState(false);
   const [startTime, setStartTime] = useState<number | null>(null);
@@ -322,8 +323,9 @@ export const ModeQSOLogCard: React.FC<ModeQSOLogCardProps> = ({
   }, [draftRrst, draftTrst, editingQSO, rstMaxLength, syncReportsFromDraft]);
 
   const handleLogQSO = async (): Promise<boolean> => {
-    if (!formData.callsign.trim() || !hasOperator || isSubmitting) return false;
+    if (!formData.callsign.trim() || !hasOperator || submitInFlightRef.current) return false;
 
+    submitInFlightRef.current = true;
     setIsSubmitting(true);
     onBeforeLog?.(formData.callsign.toUpperCase().trim());
     try {
@@ -394,6 +396,7 @@ export const ModeQSOLogCard: React.FC<ModeQSOLogCardProps> = ({
       });
       return false;
     } finally {
+      submitInFlightRef.current = false;
       setIsSubmitting(false);
     }
   };

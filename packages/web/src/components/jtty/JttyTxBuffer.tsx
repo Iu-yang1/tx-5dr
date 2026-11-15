@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Button, Input } from '@heroui/react';
 import { useTranslation } from 'react-i18next';
 import { useJtty } from '../../hooks/useJtty';

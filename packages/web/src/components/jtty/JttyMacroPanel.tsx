@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Chip } from '@heroui/react';
 import { faKeyboard } from '@fortawesome/free-solid-svg-icons';
 import { useCurrentOperatorId, useOperators } from '../../store/radioStore';

@@ -1,4 +1,3 @@
-import React from 'react';
 import { Input } from '@heroui/react';
 import { useTranslation } from 'react-i18next';
 import { jttyQsoDraftStore, useJttyQSODraft } from '../../store/jttyQsoDraftStore';
