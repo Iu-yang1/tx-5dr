@@ -49,7 +49,10 @@ export function JttyProvider({ enabled, children }: { enabled: boolean; children
   useEffect(() => {
     if (!enabled) return;
     let active = true;
+    let polling = false;
     const poll = async () => {
+      if (polling) return;
+      polling = true;
       try {
         const result = await api.getMfskLiveRxEvents(0);
         if (!active) return;
@@ -57,6 +60,8 @@ export function JttyProvider({ enabled, children }: { enabled: boolean; children
         setEvents(result.status.mode === 'JTTY' ? result.events : []);
       } catch {
         if (active) setRxStatus(null);
+      } finally {
+        polling = false;
       }
     };
     void poll();

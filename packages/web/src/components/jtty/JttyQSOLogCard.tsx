@@ -42,7 +42,7 @@ export function JttyQSOLogCard(props: Props) {
     txActive={txBusy || txPhase === 'processing' || txPhase === 'transmitting'}
     draftStore={jttyQsoDraftStore}
     i18nPrefix="radio:jtty.qso"
-    syncReportsFromDraft startTimeFromCallsign
+    syncReportsFromDraft startTimeFromCallsign hideExtendedFields
     createQso={createQso}
   />;
 }

@@ -22,11 +22,12 @@ AFC, or real-time type-ahead queue.
   no server-side or cross-device preset synchronization is claimed.
 - `ModeQSOLogCard` supports an optional new-record submitter. JTTY injects
   `confirmMfskQso` for new QSOs; edits/deletions continue through the shared
-  logbook API. Failed confirmation leaves form fields intact. It never logs
+  logbook API. The native confirmation schema has no QTH/notes, so these fields
+  are hidden during JTTY creation (but available when editing a saved record). Failed confirmation leaves form fields intact. It never logs
   merely because a callsign was clicked.
 - Recent-QSO presentation reuses the keyboard-mode list with a JTTY-only
-  filter. Current server logbook queries still fetch a bounded page before
-  this UI-side filter; a server-side mode query is a separate improvement.
+  filter. Recent JTTY QSOs are queried with the server-side `mode=JTTY` filter,
+  with an additional UI-side filter for live event isolation.
 
 ## Validation scope
 

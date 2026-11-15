@@ -57,10 +57,12 @@ export const ModeRecentQSOList: React.FC<ModeRecentQSOListProps> = ({
 
   // Load existing QSOs from server when operator changes
   useEffect(() => {
-    if (!myCallsign) return;
+    if (!myCallsign) { setRecentQSOs([]); return; }
+    setRecentQSOs([]);
 
     api.getLogBookQSOs(myCallsign, {
-      excludeModes,
+      excludeModes: includeModes ? undefined : excludeModes,
+      mode: includeModes,
       limit: 50,
       offset: 0,
       // Required by the parsed query type; undefined options are not sent.
