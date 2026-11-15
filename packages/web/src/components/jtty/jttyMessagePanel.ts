@@ -68,7 +68,9 @@ export const jttyMessagePanelAdapter: MacroPanelAdapter = {
     return save(callsign, {
       ...current,
       slots: current.slots.map(slot => slot.id === slotId ? {
-        ...slot, ...update, repeatEnabled: false,
+        ...slot, ...update,
+        ...(update.text !== undefined ? { text: update.text.slice(0, 64) } : {}),
+        repeatEnabled: false,
       } : slot),
     });
   },

@@ -33,6 +33,7 @@ export function JttyProvider({ enabled, children }: { enabled: boolean; children
   const [txBusy, setTxBusy] = useState(false);
   const [txError, setTxError] = useState<string | null>(null);
   const pendingRef = useRef(false);
+  const stopRevisionRef = useRef(0);
 
   useEffect(() => {
     if (!enabled) return;
@@ -98,13 +99,16 @@ export function JttyProvider({ enabled, children }: { enabled: boolean; children
       return false;
     }
     pendingRef.current = true;
+    const sendRevision = stopRevisionRef.current;
     setTxPhase('processing');
     setTxError(null);
     try {
       await api.transmitMfsk({ mode: 'JTTY', operatorId: currentOperatorId, text: text.trim(), audioHz: frequency });
+      if (sendRevision !== stopRevisionRef.current) return false;
       setTxPhase('complete');
       return true;
     } catch (error) {
+      if (sendRevision !== stopRevisionRef.current) return false;
       setTxError(error instanceof Error ? error.message : String(error));
       setTxPhase('failed');
       return false;
@@ -114,6 +118,7 @@ export function JttyProvider({ enabled, children }: { enabled: boolean; children
   }, [afHz, canTransmit, currentOperatorId, txBusy]);
 
   const stop = useCallback(async () => {
+    stopRevisionRef.current += 1;
     try {
       await api.disarmMfskNativeTx();
       setTxPhase('stopped');
