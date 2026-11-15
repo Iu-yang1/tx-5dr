@@ -227,3 +227,38 @@ describe('native TX recovery after repeated mode/period changes', () => {
     h.service.stop();
   });
 });
+
+describe('reconfiguration of an active native AUTO TX session', () => {
+  it('updates a live MSK144 T/R period without interrupting an on-air waveform', async () => {
+    const h = harness('MSK144');
+    h.op.isTransmitting = true;
+    let finishOld: ((result: MfskTxOutcome) => void) | undefined;
+    h.send.mockImplementationOnce(() => new Promise<MfskTxOutcome>(resolve => {
+      finishOld = resolve;
+    }));
+    h.service.start(0);
+    h.service.enable({ mode: 'MSK144', operatorId: 'op1', audioHz: 1500,
+      mskPeriodSeconds: 5, mskTxFirst: true });
+    expect(h.send).toHaveBeenCalledTimes(1);
+    h.setPhase('active');
+    h.service.enable({ mode: 'MSK144', operatorId: 'op1', audioHz: 1500,
+      mskPeriodSeconds: 30, mskTxFirst: false });
+    expect(h.cancelNativeTx).not.toHaveBeenCalled();
+    expect(h.service.status()).toMatchObject({ enabled: true, operatorId: 'op1' });
+    await h.service.poll();
+    expect(h.send).toHaveBeenCalledTimes(1);
+    finishOld!({
+      mode: 'MSK144', scheduledStartMs: 100, durationMs: 100,
+      result: { leaseId: 'old', source: 'digital', operatorIds: ['op1'],
+        success: true, physicalConfirmed: true, reason: 'done' },
+    });
+    await Promise.resolve();
+    h.setPhase('idle');
+    await h.service.poll();
+    await vi.waitFor(() => expect(h.send).toHaveBeenCalledTimes(2));
+    expect(h.send).toHaveBeenLastCalledWith(expect.objectContaining({
+      mode: 'MSK144', mskPeriodSeconds: 30, mskTxFirst: false,
+    }));
+    h.service.stop();
+  });
+});

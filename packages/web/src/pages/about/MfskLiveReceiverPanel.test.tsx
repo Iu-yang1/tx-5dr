@@ -25,6 +25,17 @@ const mock = vi.hoisted(() => ({
     pending:false,lastScheduledStartMs:null,lastPhysicalTxConfirmed:null,lastError:null })),
   autoStart: vi.fn(async () => ({ enabled:true })),
   autoStop: vi.fn(async () => ({ enabled:false })),
+  preferences: vi.fn(async () => ({ revision: 7, preferences: {
+    Q65: { frequencyHz: 1500, toleranceHz: 200, depth: 3, q65Submode: 'Q65-60B',
+      q65TimeToleranceSec: null, q65SyncScore: null, q65MaxCandidates: null,
+      averaging: false, emeDelay: false,
+      mskShorthand: false, mskAdaptiveEqualizer: false, mskMyCall: '', mskDxCall: '',
+      txAudioHz: 1500, q65TxFirst: true, mskPeriodSeconds: 5, mskTxFirst: true },
+  } })),
+  savePreferences: vi.fn(async () => ({ revision: 8 })),
+  receiverStatus: vi.fn(async () => ({
+    mode: 'Q65', q65Submode: 'Q65-15A', ready: true, running: true, generation: 9,
+  })),
   wsprSpots: vi.fn(async () => ({ spots: [] as unknown[] })),
 }));
 
@@ -57,6 +68,9 @@ vi.mock('@tx5dr/core', () => ({ api: {
   stopMfskLiveRx:mock.stop,
   transmitMfsk:mock.transmit,
   getMfskLiveWsprSpots:mock.wsprSpots,
+  getNativeDecodePreferences:mock.preferences,
+  updateNativeDecodePreferences:mock.savePreferences,
+  getMfskLiveRxStatus:mock.receiverStatus,
 }}));
 
 afterEach(()=>{cleanup();vi.clearAllMocks();selected.mode='Q65';});
@@ -268,4 +282,82 @@ it('WSPR AUTO TX keeps the explicit beacon identity and power', async () => {
       mode: 'WSPR', operatorId: 'op1', text: 'K1ABC FN42 37',
     }),
   ));
+});
+
+it('reconfigures an active MSK144 AUTO TX session when the T/R period changes', async () => {
+  localStorage.clear();
+  selected.mode = 'MSK144';
+  mock.autoStatus.mockResolvedValueOnce({
+    enabled: true, running: true, mode: 'MSK144', operatorId: 'op1',
+    pending: false, lastScheduledStartMs: null,
+    lastPhysicalTxConfirmed: null, lastError: null,
+  });
+  render(<MfskLiveReceiverPanel surface="operator" />);
+  await waitFor(() => expect(screen.getByText('STOP AUTO')).toBeTruthy());
+  fireEvent.click(screen.getAllByText('⋯')[0]);
+  fireEvent.change(screen.getByLabelText('codec.mskPeriod'), { target: { value: '30' } });
+  await waitFor(() => expect(mock.autoStart).toHaveBeenCalledWith(expect.objectContaining({
+    mode: 'MSK144', operatorId: 'op1', mskPeriodSeconds: 30, audioHz: 1500,
+  })));
+  expect(mock.autoStart).toHaveBeenCalledTimes(1);
+  expect(mock.autoStop).not.toHaveBeenCalled();
+});
+
+it('reconfigures an active Q65 AUTO TX session on Tx First changes', async () => {
+  localStorage.clear();
+  mock.autoStatus.mockResolvedValueOnce({
+    enabled: true, running: true, mode: 'Q65', operatorId: 'op1',
+    pending: false, lastScheduledStartMs: null,
+    lastPhysicalTxConfirmed: null, lastError: null,
+  });
+  render(<MfskLiveReceiverPanel surface="operator" />);
+  await waitFor(() => expect(screen.getByText('STOP AUTO')).toBeTruthy());
+  fireEvent.click(screen.getAllByText('⋯')[0]);
+  const first = screen.getByLabelText('codec.q65TxFirst') as HTMLInputElement;
+  fireEvent.click(first);
+  await waitFor(() => expect(mock.autoStart).toHaveBeenCalledWith(expect.objectContaining({
+    mode: 'Q65', operatorId: 'op1', q65Submode: 'Q65-120D', q65TxFirst: false,
+  })));
+  expect(mock.autoStart).toHaveBeenCalledTimes(1);
+  expect(mock.autoStop).not.toHaveBeenCalled();
+});
+
+it('does not automatically start TX after merely editing a stopped MSK144 period', async () => {
+  localStorage.clear();
+  selected.mode = 'MSK144';
+  render(<MfskLiveReceiverPanel surface="operator" />);
+  await waitFor(() => expect(screen.getByText('AUTO TX')).toBeTruthy());
+  fireEvent.click(screen.getAllByText('⋯')[0]);
+  fireEvent.change(screen.getByLabelText('codec.mskPeriod'), { target: { value: '15' } });
+  expect(mock.autoStart).not.toHaveBeenCalled();
+});
+
+it('Apply RX persists a Q65 submode change before reporting the new receiver period', async () => {
+  localStorage.clear();
+  render(<MfskLiveReceiverPanel initialMode="Q65" surface="receiver" />);
+  await waitFor(() => expect(screen.getByText('codec.applyRx')).toBeTruthy());
+  fireEvent.change(screen.getByLabelText('codec.submode'), {
+    target: { value: 'Q65-15A' },
+  });
+  fireEvent.click(screen.getByText('codec.applyRx'));
+  await waitFor(() => expect(mock.savePreferences).toHaveBeenCalledWith(
+    expect.objectContaining({
+      mode: 'Q65', expectedRevision: 7,
+      preferences: expect.objectContaining({ q65Submode: 'Q65-15A' }),
+    }),
+  ));
+  expect(mock.start).not.toHaveBeenCalled();
+});
+
+it('Apply RX preserves the server revision on concurrent tuning changes', async () => {
+  localStorage.clear();
+  mock.savePreferences.mockRejectedValueOnce(new Error('NATIVE_DECODE_PREFERENCES_VERSION_CONFLICT'));
+  render(<MfskLiveReceiverPanel initialMode="Q65" surface="receiver" />);
+  await waitFor(() => expect(screen.getByText('codec.applyRx')).toBeTruthy());
+  fireEvent.change(screen.getByLabelText('codec.submode'), {
+    target: { value: 'Q65-15A' },
+  });
+  fireEvent.click(screen.getByText('codec.applyRx'));
+  await waitFor(() => expect(screen.getByText('NATIVE_DECODE_PREFERENCES_VERSION_CONFLICT')).toBeTruthy());
+  expect(mock.start).not.toHaveBeenCalled();
 });

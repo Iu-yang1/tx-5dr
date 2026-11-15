@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   NATIVE_DIGITAL_SELECTION_EVENT,
   extractCqCallsign,
@@ -239,7 +239,27 @@ export function MfskLiveReceiverPanel({
       setBusy(false);setError(t('codec.rxInvalidTolerance'));return;
     }
     const action=start
-      ? api.startMfskLiveRx({
+      ? (async()=>{
+          // The server intentionally ignores raw browser tuning in /live/start.
+          // An explicit Apply must save revisioned station RX preferences first.
+          const stored=await api.getNativeDecodePreferences();
+          const nativeMode=mode as NativeDigitalMode;
+          const previous=stored.preferences[nativeMode];
+          const next={
+            ...previous,
+            frequencyHz:hz,toleranceHz:tol,depth:decodeDepth,
+            ...(mode==='Q65'?{q65Submode:submode,averaging,emeDelay}:{}),
+          };
+          if(JSON.stringify(next)!==JSON.stringify(previous)){
+            await api.updateNativeDecodePreferences({
+              mode:nativeMode,expectedRevision:stored.revision,preferences:next,
+            });
+            saveNativeDecodePreferences(nativeMode,next);
+          }
+          const receiver=await api.getMfskLiveRxStatus();
+          if(receiver.ready&&receiver.mode===mode &&
+            (mode!=='Q65'||receiver.q65Submode===submode))return receiver;
+          return api.startMfskLiveRx({
           mode,...(mode==='Q65'?{
             q65Submode:submode,averaging,emeDelay,
             q65Search: (() => {
@@ -272,7 +292,8 @@ export function MfskLiveReceiverPanel({
               adaptiveEqualizer:prefs.mskAdaptiveEqualizer,
             }};
           })():{}),
-        })
+        });
+        })()
       : api.stopMfskLiveRx();
     void action.then(value=>{
       if(start)setSubmodeDirty(false);
@@ -280,7 +301,7 @@ export function MfskLiveReceiverPanel({
       if(start){setEvents([]);setWsprSpots([]);}
       // Stop is graceful for JTTY: retain final reception-ended messages.
     })
-      .catch(()=>setError(t('codec.liveOperationFailed')))
+      .catch(error=>setError(error instanceof Error?error.message:t('codec.liveOperationFailed')))
       .finally(()=>setBusy(false));
   };
 
@@ -319,22 +340,55 @@ export function MfskLiveReceiverPanel({
 
   const autoActive=autoStatus?.enabled===true && autoStatus.mode===mode
     && autoStatus.operatorId===currentOperatorId;
+  const autoTimingKey = mode === 'Q65'
+    ? `Q65:${activeSubmode}:${q65TxFirst}`
+    : mode === 'MSK144' ? `MSK144:${mskPeriod}:${mskTxFirst}` : mode;
+  const activeAutoTimingRef = useRef<{ owner: string; key: string } | null>(null);
+  const autoTxConfig = useMemo(() => ({
+    mode: mode as 'Q65'|'MSK144'|'WSPR',
+    operatorId: currentOperatorId ?? '',
+    audioHz: Number(mode === 'MSK144' ? 1500 : txFrequency),
+    ...(mode === 'WSPR' || mode === 'Q65' || mode === 'MSK144'
+      ? { text: text.trim() } : {}),
+    ...(mode === 'Q65' ? { q65Submode: activeSubmode, q65TxFirst } : {}),
+    ...(mode === 'MSK144' ? { mskPeriodSeconds: mskPeriod, mskTxFirst } : {}),
+  }), [mode, currentOperatorId, txFrequency, text, activeSubmode, q65TxFirst, mskPeriod, mskTxFirst]);
+
+  // Reconfigure an already active auto-TX session when the user changes its
+  // T/R timing. The same-operator server update cancels only pre-PTT work;
+  // it never interrupts a waveform that is already on air.
+  useEffect(() => {
+    if (surface !== 'operator' || !autoActive || !currentOperatorId) {
+      activeAutoTimingRef.current = null;
+      return;
+    }
+    const owner = mode + ':' + currentOperatorId;
+    const previous = activeAutoTimingRef.current;
+    if (!previous || previous.owner !== owner) {
+      activeAutoTimingRef.current = { owner, key: autoTimingKey };
+      return;
+    }
+    if (previous.key === autoTimingKey || autoPending || !receiverMatches || !mayArmRf) return;
+    activeAutoTimingRef.current = { owner, key: autoTimingKey };
+    setAutoPending(true);
+    setTxNotice(null);
+    void api.startMfskNativeAutoTx(autoTxConfig)
+      .then(() => api.getMfskNativeAutoTxStatus()).then(setAutoStatus)
+      .catch(error => setTxNotice(error instanceof Error ? error.message : String(error)))
+      .finally(() => setAutoPending(false));
+  }, [surface, autoActive, currentOperatorId, mode, autoTimingKey,
+    autoPending, receiverMatches, mayArmRf, autoTxConfig]);
+
   const startAutomaticTransmission=()=>{
     if(autoPending||!mayArmRf||!receiverMatches||!currentOperatorId||autoActive)return;
-    const audioHz=Number(mode==='MSK144'?1500:txFrequency);
-    if(!Number.isFinite(audioHz)||audioHz<100||audioHz>5500){
+    if(!Number.isFinite(autoTxConfig.audioHz) || autoTxConfig.audioHz<100
+      || autoTxConfig.audioHz>5500){
       setTxNotice(t('codec.liveInvalidFrequency'));return;
     }
     setAutoPending(true);
     setTxNotice(null);
-    void api.startMfskNativeAutoTx({
-      mode:mode as 'Q65'|'MSK144'|'WSPR',
-      operatorId:currentOperatorId,
-      audioHz,
-      ...(mode==='WSPR'||mode==='Q65'||mode==='MSK144'?{text:text.trim()}:{}),
-      ...(mode==='Q65'?{q65Submode:activeSubmode,q65TxFirst}:{}),
-      ...(mode==='MSK144'?{mskPeriodSeconds:mskPeriod,mskTxFirst}:{}),
-    }).then(()=>api.getMfskNativeAutoTxStatus()).then(setAutoStatus)
+    void api.startMfskNativeAutoTx(autoTxConfig)
+      .then(()=>api.getMfskNativeAutoTxStatus()).then(setAutoStatus)
       .catch(error=>setTxNotice(error instanceof Error?error.message:String(error)))
       .finally(()=>setAutoPending(false));
   };

@@ -141,10 +141,15 @@ export async function mfskCapabilityRoutes(fastify:FastifyInstance):Promise<void
       if (!mode.success) return reply.code(400).send({success:false,error:'Invalid native receiver mode'});
       const live=engine.getMfskLiveRxService();
       const status=live.status();
-      if(status.running && status.ready && status.mode===mode.data) return reply.send(status);
       const state=ConfigManager.getInstance().getNativeDecodePreferencesState();
-      return reply.send(MfskLiveRxStatusSchema.parse(live.start(
-        nativeRxConfigFromPreferences(mode.data,state.preferences[mode.data]))));
+      const expected=nativeRxConfigFromPreferences(mode.data,state.preferences[mode.data]);
+      if(status.running && status.ready && status.mode===mode.data
+        && (mode.data!=='Q65'||status.q65Submode===expected.q65Submode)){
+        return reply.send(status);
+      }
+      // A ready Q65 receiver with a different persisted submode is not
+      // reusable: its decoder period and any paired TX period are wrong.
+      return reply.send(MfskLiveRxStatusSchema.parse(live.start(expected)));
     });
 
   fastify.get('/live/preferences',{preHandler:[requireAbility('read','all')]},

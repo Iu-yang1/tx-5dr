@@ -40,3 +40,27 @@ Focused web/Node tests cover Q65 period selection, MSK144 T/R values,
 WSPR period, message-source priority, null text reporting, stale completion
 isolation and canceled scheduler state. Native-mode CI smoke checks are not
 a substitute for actual RF validation on a connected radio.
+
+## Changing timing while AUTO TX is enabled
+
+The operator panel reconciles explicit changes to MSK144 T/R period, MSK144
+Tx First and Q65 Tx First with the currently owned automatic transmitter,
+using the existing same-operator `/mfsk/tx/auto/start` configuration update.
+Rapid changes are serialized by the UI's pending flag; the most recently
+selected timing is applied after any preceding update completes. Reconfiguration
+does not implicitly enable a stopped transmitter, disarm another operator, or
+interrupt a physical on-air lease. Q65 receiver submode changes remain receiver
+restarts, for which AUTO TX must be explicitly re-enabled after RX is ready.
+
+## Q65 receiver Apply RX and submode consistency
+
+The legacy `/mfsk/live/start` endpoint intentionally loads station-wide
+preferences, not client-supplied tuning parameters. The Q65 receiver pane now
+applies explicit changes through the existing revisioned
+`/mfsk/live/preferences` save path. That server transaction restarts the
+running decoder when its RX configuration changes, and the pane waits for the
+confirmed receiver state before reporting success. An explicit start no longer
+reuses a ready Q65 decoder whose submode disagrees with the saved preference.
+Version conflicts are shown to the operator; a stale browser cannot silently
+override another client's RX tuning. The RF scheduler's existing receiver
+generation check remains authoritative after an RX restart.
