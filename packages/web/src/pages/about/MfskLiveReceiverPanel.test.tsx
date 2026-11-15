@@ -220,3 +220,52 @@ it('stops automatic native transmit only for the current operator',async()=>{
   fireEvent.click(screen.getByText('STOP AUTO'));
   await waitFor(()=>expect(mock.autoStop).toHaveBeenCalledWith('op1'));
 });
+
+it('AUTO TX forwards a typed Q65 fallback message after repeated RX submode changes', async () => {
+  render(<MfskLiveReceiverPanel surface="operator" />);
+  await waitFor(() => expect(screen.getByText(/Q65-120D/)).toBeTruthy());
+  fireEvent.change(screen.getByLabelText('codec.message'), {
+    target: { value: 'CQ K1ABC FN42' },
+  });
+  fireEvent.click(screen.getByText('AUTO TX'));
+  await waitFor(() => expect(mock.autoStart).toHaveBeenCalledWith(
+    expect.objectContaining({
+      mode: 'Q65', operatorId: 'op1', q65Submode: 'Q65-120D',
+      text: 'CQ K1ABC FN42',
+    }),
+  ));
+});
+
+it('AUTO TX forwards the selected MSK144 T/R period and fallback text', async () => {
+  selected.mode = 'MSK144';
+  render(<MfskLiveReceiverPanel surface="operator" />);
+  await waitFor(() => expect(screen.getByText('codec.mskFixedTxAf')).toBeTruthy());
+  fireEvent.click(screen.getAllByText('⋯')[0]);
+  fireEvent.change(screen.getByLabelText('codec.mskPeriod'), {target: {value: '30'}});
+  fireEvent.change(screen.getByLabelText('codec.message'), {
+    target: {value: 'CQ K1ABC FN42'},
+  });
+  fireEvent.click(screen.getByText('AUTO TX'));
+  await waitFor(() => expect(mock.autoStart).toHaveBeenCalledWith(
+    expect.objectContaining({
+      mode: 'MSK144', operatorId: 'op1', audioHz: 1500,
+      mskPeriodSeconds: 30, text: 'CQ K1ABC FN42',
+    }),
+  ));
+});
+
+it('WSPR AUTO TX keeps the explicit beacon identity and power', async () => {
+  selected.mode = 'WSPR';
+  render(<MfskLiveReceiverPanel surface="operator" />);
+  fireEvent.change(screen.getByLabelText('codec.message'), {
+    target: {value: 'K1ABC FN42 37'},
+  });
+  const button = screen.getByText('AUTO TX') as HTMLButtonElement;
+  await waitFor(() => expect(button.disabled).toBe(false));
+  fireEvent.click(button);
+  await waitFor(() => expect(mock.autoStart).toHaveBeenCalledWith(
+    expect.objectContaining({
+      mode: 'WSPR', operatorId: 'op1', text: 'K1ABC FN42 37',
+    }),
+  ));
+});

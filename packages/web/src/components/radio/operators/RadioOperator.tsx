@@ -52,6 +52,7 @@ import { OperatorStrategyActions } from './OperatorStrategyActions';
 import { OperatorStrategyAttention, resolveStandaloneActions } from './OperatorStrategyAttention';
 import { requestStrategyFrequencyPick } from '../../../utils/strategyFrequencyPick';
 import { OperatorTransmissionStack } from './OperatorTransmissionStack';
+import { NativeOperatorProgress, type NativeTimedMode } from './NativeOperatorProgress';
 
 const logger = createLogger('RadioOperator');
 
@@ -97,6 +98,10 @@ export const RadioOperator: React.FC<RadioOperatorProps> = React.memo(({
   const operatorCallsign = operatorStatus.context.myCall || 'N0CALL';
   const currentSlotInfo = radio.currentSlotInfo;
   const currentSlotMs = radio.currentMode?.slotMs ?? null;
+  const modeName = radio.currentMode?.name;
+  const nativeTimedMode: NativeTimedMode | null =
+    modeName === 'Q65' || modeName === 'WSPR' || modeName === 'MSK144'
+      ? modeName : null;
   const isCurrentTransmitCycle = React.useMemo(() => {
     if (!currentSlotInfo || !currentSlotMs) {
       return false;
@@ -1169,20 +1174,22 @@ export const RadioOperator: React.FC<RadioOperatorProps> = React.memo(({
           : undefined}
       >
         {/* 进度条颜色层 - 仅在解码时显示 */}
-        {radio.isDecoding && (
+        {radio.isDecoding && !nativeTimedMode && (
           <div
             className="absolute inset-0 transition-colors duration-200"
             style={{ backgroundColor: cyclePresentation.progressColor }}
           />
         )}
         {/* 进度条遮罩层 - 仅在解码时显示 */}
-        {radio.isDecoding && (
+        {radio.isDecoding && !nativeTimedMode && (
           <div
             key={currentSlotInfo?.id ?? 'idle'}
             className="absolute inset-0 progress-bar-mask"
             style={progressAnimation}
           />
         )}
+        {nativeTimedMode && <NativeOperatorProgress mode={nativeTimedMode}
+          enabled={radio.isDecoding} onAir={operatorStatus.isInActivePTT} />}
         <div className="relative flex items-center justify-between h-full">
           {/* 左侧 - 发射内容或监听状态 */}
           <div className="min-w-0 flex-1">

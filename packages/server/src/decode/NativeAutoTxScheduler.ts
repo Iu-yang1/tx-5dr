@@ -11,6 +11,8 @@ export interface NativeAutoTxConfiguration {
   operatorId: string;
   /** A WSPR beacon must supply a user-entered CALL GRID POWER message. */
   beaconText?: string;
+  /** Explicit TX text if the QSO strategy has no current message. */
+  manualText?: string;
   audioHz: number;
   q65Submode?: Q65Submode;
   q65TxFirst?: boolean;
@@ -65,8 +67,9 @@ export function nextNativeAutoSlot(nowMs: number, periodMs: number, txFirst?: bo
  * unless the authenticated native operator panel enabled this controller AND
  * the same operator's TX switch is currently armed. One operator, one waveform.
  *
- * Q65/MSK144 text always comes from the active QSO strategy and is refreshed
- * before each UTC slot. WSPR uses a user-entered beacon identity/power message
+ * Q65/MSK144 prefer the active QSO strategy at each UTC slot, with an
+ * explicit operator-entered message when the strategy has no TX text.
+ * WSPR uses a user-entered beacon identity/power message
  * and never contributes to the QSO completion or logbook pipeline.
  */
 export class NativeAutoTxScheduler {
@@ -103,6 +106,8 @@ export class NativeAutoTxScheduler {
     this.configuredGeneration = null;
     this.lastAttemptKey = null;
     this.cancelPending();
+    // A stale send promise must never own the next mode's pending slot.
+    this.pending = null;
   }
 
   enable(config: NativeAutoTxConfiguration): NativeAutoTxStatus {
@@ -142,6 +147,7 @@ export class NativeAutoTxScheduler {
       }
     }
     this.cancelPending();
+    this.pending = null;
     this.config = { ...config };
     this.configuredGeneration = rx.generation;
     this.lastAttemptKey = null;
@@ -166,6 +172,9 @@ export class NativeAutoTxScheduler {
 
   private cancelPending(): void {
     if (this.pending && this.deps.physicalPhase() === 'idle') {
+      // Release logical ownership synchronously, not when the aborted
+      // native encoder/UTC wait eventually settles its promise.
+      this.pending = null;
       this.deps.cancelNativeTx();
     }
   }
@@ -197,18 +206,26 @@ export class NativeAutoTxScheduler {
       : cfg.mode === 'MSK144' ? (cfg.mskTxFirst ?? true) : undefined;
     const slotStart = nextNativeAutoSlot(this.deps.now(), period, first);
     const transmissions = cfg.mode === 'WSPR' ? [] : this.deps.transmissions(cfg.operatorId);
-    // A mixed/multistream native waveform would need a dedicated native mixer,
-    // not a fallback to the legacy FT8 encoder.
-    if (cfg.mode !== 'WSPR' && transmissions.length !== 1) {
+    // A mixed/multistream native waveform needs a separate mixer. Explicit
+    // text is used only when no QSO strategy currently owns the waveform.
+    if (cfg.mode !== 'WSPR' && transmissions.length > 1) {
+      this.lastError = 'Multiple strategy transmissions cannot share one native TX waveform';
       this.cancelPending();
       return;
     }
+    const strategy = transmissions[0]?.text.trim() ? transmissions[0] : undefined;
     const text = cfg.mode === 'WSPR' ? cfg.beaconText!.trim().toUpperCase()
-      : transmissions[0]!.text.trim();
+      : strategy?.text.trim() || cfg.manualText?.trim() || '';
     const af = cfg.mode === 'MSK144' ? 1500
-      : cfg.mode === 'WSPR' ? cfg.audioHz
-      : transmissions[0]!.audioFrequencyHz;
-    if (!text || !Number.isFinite(af)) return;
+      : strategy ? strategy.audioFrequencyHz : cfg.audioHz;
+    if (!text || !Number.isFinite(af)) {
+      this.lastError = 'No native QSO strategy message or explicit TX text is available';
+      this.cancelPending();
+      return;
+    }
+    if (this.lastError === 'No native QSO strategy message or explicit TX text is available') {
+      this.lastError = null;
+    }
     const key = [rx.generation, cfg.operatorId, cfg.mode, slotStart, text, af].join('|');
     if (this.pending) {
       // A QSO response may change while an encoder is waiting for its UTC

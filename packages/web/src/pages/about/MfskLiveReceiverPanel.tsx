@@ -331,7 +331,7 @@ export function MfskLiveReceiverPanel({
       mode:mode as 'Q65'|'MSK144'|'WSPR',
       operatorId:currentOperatorId,
       audioHz,
-      ...(mode==='WSPR'?{text:text.trim()}:{}),
+      ...(mode==='WSPR'||mode==='Q65'||mode==='MSK144'?{text:text.trim()}:{}),
       ...(mode==='Q65'?{q65Submode:activeSubmode,q65TxFirst}:{}),
       ...(mode==='MSK144'?{mskPeriodSeconds:mskPeriod,mskTxFirst}:{}),
     }).then(()=>api.getMfskNativeAutoTxStatus()).then(setAutoStatus)
