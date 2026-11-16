@@ -122,7 +122,7 @@ export function DigitalDecodePreferencesPanel({ fixedMode, compact = false }: Di
   ) => <NativeNumberInput key={field} label={label} value={value[field]} min={min} max={max}
     onCommit={number => { if (number !== value[field]) update({ [field]: number }); }} />;
 
-  return <section className="space-y-4" aria-label={t('system.nativeDecode.aria')}>
+  return <section className="min-w-0 space-y-4" aria-label={t('system.nativeDecode.aria')}>
     {!compact && <div>
       <h4 className="text-sm font-semibold">{t('system.nativeDecode.title')}</h4>
       <p className="mt-1 text-xs leading-5 text-default-500">
@@ -248,16 +248,16 @@ export function DigitalDecodePreferencesPanel({ fixedMode, compact = false }: Di
       && (!value.mskMyCall || !value.mskDxCall) && <p className="text-xs text-warning" role="status">
       {t('system.nativeDecode.mskRequiresCalls')}
     </p>}
-    {mode === 'MSK144' && <p className="text-xs text-default-500">{t('system.nativeDecode.mskTxFixed')}</p>}
+    {mode === 'MSK144' && <p className="min-w-0 break-words text-xs leading-relaxed text-default-500">{t('system.nativeDecode.mskTxFixed')}</p>}
     {mode === 'WSPR' && <p className="text-xs text-default-500">{t('system.nativeDecode.wsprFixed')}</p>}
     {mode === 'JTTY' && <p className="text-xs text-default-500">
       {t('system.nativeDecode.jttyStream')}
     </p>}
     </fieldset>
-    <div className="flex items-center justify-end gap-2">
+    <div className="flex flex-wrap items-center justify-end gap-2">
       <button type="button" className="rounded-lg border border-default-300 px-3 py-1.5 text-xs"
         disabled={busy || loading} onClick={() => void reload()}>
-        {t('action.refresh')}
+        {t('button.refresh')}
       </button>
       <button type="button" className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-50"
         disabled={!canEdit || busy || loading || revision === null || !modified}
