@@ -26,6 +26,7 @@ on:
       - "packages/server/src/radio/**"
       - "packages/web/src/components/radio/control/**"
       - "packages/web/src/components/settings/FrequencyPreset*.tsx"
+      - "packages/web/src/components/settings/DigitalDecodePreferencesPanel*.tsx"
       - "packages/web/src/utils/radioControl.ts"
       - "packages/web/src/pages/about/**"
       - ".github/workflows/aislop-native-auto-qso-review.yml"
