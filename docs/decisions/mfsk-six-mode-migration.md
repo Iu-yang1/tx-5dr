@@ -5,7 +5,7 @@ Status: **P2–P8 implemented on PR #23; P9 pending current-head acceptance and 
 ## Fixed upstream and application baselines
 
 - Application: `Iu-yang1/tx-5dr` `main` at `d684a561bf775a91be276049cd49e9642bcce259` (2026-11-03).
-- Rust upstream: `jl1nie/mfsk-core` `v0.15.1` at `a26c7de6246eb2a7a44d2529cb24981b1f867d16`.
+- Rust upstream: `jl1nie/mfsk-core` `v0.16.1`, integrated through `df4bb0b349917352c220a442d84bf4661281367f` (post-release WSPR parity alignment). The pinned fork merge is `Iu-yang1/mfsk-core-tx5dr` at `4d1d15835bd35327e20aad3ea4eee3dd98cb2997`.
 - Legacy reference: `wsjtx-lib@2.2.0` is now a test/development-only dependency in `packages/server/package.json`. Production uses the pinned Rust addon and fails closed if it is absent.
 - Desired release: FT8, FT4, Q65 (ten actual submodes), WSPR, MSK144, JTTY; RX and TX for all six. `wsjtx-lib` must not remain a production codec after P9.
 
@@ -24,13 +24,13 @@ Status: **P2–P8 implemented on PR #23; P9 pending current-head acceptance and 
 
 ## Verified protocol boundary
 
-The `mfsk-ffi` v0.15.1 header provides `mfsk_decoder_*` for slotted modes, `mfsk_jtty_*` and `mfsk_msk144_*` for non-slotted modes, plus separate encoding and synthesis calls. JTTY cannot be forced through the slotted API; the JTTY upstream analysis describes a variable-frame continuous mode. Modes compiled into the native library are **not** equal to operational capabilities in TX-5DR.
+The `mfsk-ffi` v0.16.1 header provides `mfsk_decoder_*` for slotted modes, `mfsk_jtty_*` and `mfsk_msk144_*` for non-slotted modes, plus separate encoding and synthesis calls. JTTY cannot be forced through the slotted API; the JTTY upstream analysis describes a variable-frame continuous mode. Modes compiled into the native library are **not** equal to operational capabilities in TX-5DR.
 
 Exact Q65 names in mfsk-core are `Q65-15A`, `Q65-30A`, `Q65-60A` through `Q65-60E`, `Q65-120D/E`, and `Q65-300A`. FT8 early-prefix handling is not equivalent to every legacy 41/47/49/50 checkpoint; a silent remap is forbidden.
 
 ## Resolved package licensing audit
 
-The root package metadata now declares `GPL-3.0-only` consistently with the existing repository `LICENSE` and the pinned `mfsk-core v0.15.1`. This metadata fix does not alter ownership or imply that unrelated third-party components share the same copyright holder.
+The root package metadata now declares `GPL-3.0-only` consistently with the existing repository `LICENSE` and the pinned `mfsk-core v0.16.1`. This metadata fix does not alter ownership or imply that unrelated third-party components share the same copyright holder.
 
 ## P0–P9 simulated acceptance gates
 
@@ -128,3 +128,22 @@ DSP source of truth for TX-5DR MSK40 short-message RX/TX and guarded MSK144 adap
 ### Guarded live RX controls
 
 `POST /mfsk/live/start` accepts an optional `msk144Rx` object for MSK144 only, e.g. `{"dxCall":"K2ABC","myCall":"K1ABC","shorthand":true,"adaptiveEqualizer":true}`. Omission disables both features; shorthand is rejected unless both call identities are known. These parameters belong to the isolated receive child and do not grant transmit/PTT authorization. On session restart/reset training is cleared and the validated configuration is re-applied. `equalizerStatus()` is exposed through the native session for diagnostics. The experimental MSK40 known-call receiver must pass independent off-air/golden sensitivity tests before claiming production parity.
+
+
+## mfsk-core 0.16.1 + TX5DR fork merge (2026-11-16)
+
+- Upstream exact main SHA: `df4bb0b349917352c220a442d84bf4661281367f`.
+- TX5DR merge (two parents) exact SHA: `4d1d15835bd35327e20aad3ea4eee3dd98cb2997`.
+  Common ancestor: `d68de35f52e693d572188420f69da7b6583bd88b`.
+- Git three-way analysis imported 402 paths changed only upstream and preserved nine
+  TX5DR-specific paths (including MSK40 burst acquisition, adaptive MSK144
+  equalizer and receiver-hash learning); zero concurrent-path conflicts.
+- Upstream additions include WSPR `wsprd` compatibility scanning/output,
+  JT9/FT4 changes, waveform generation refinements and newly added regression
+  fixtures. These do not imply BER/weak-signal gains without measurement.
+- TX5DR must resolve this immutable fork commit, **not** an upstream Git
+  commit or a floating `main` branch. Manifest version, Node-API codec
+  identity, server readiness probes, six-mode acceptance, packaging and
+  golden WAV tests must all agree on the identical SHA.
+- Offline compilation and controlled-fading or independent-reference tests
+  prove simulation only; no claims of real RF measurements.

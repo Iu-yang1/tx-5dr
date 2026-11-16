@@ -73,7 +73,7 @@ jobs:
           esac
           actual="$(node -p 'process.arch')"
           test "$actual" = "$expected" || { echo "Expected $expected but Node is $actual" >&2; exit 1; }
-      - name: Build Rust Node-API addon (fixed mfsk-core v0.15.1)
+      - name: Build Rust Node-API addon (fixed mfsk-core v0.16.1)
         shell: bash
         run: |
           # Node-API symbols are resolved by the hosting Node process on Linux.

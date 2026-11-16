@@ -88,7 +88,7 @@ fn from_pcm(pcm: &Buffer) -> Result<Vec<f32>> {
 
 #[napi]
 pub fn codec_version() -> String {
-    "mfsk-core/0.15.1; tx5dr-fork/ded17b31a2f88; tx5dr-napi/0.1.0".to_owned()
+    "mfsk-core/0.16.1; tx5dr-fork/4d1d15835bd3; tx5dr-napi/0.1.0".to_owned()
 }
 
 #[napi]
