@@ -21,18 +21,19 @@ vi.mock('@tx5dr/core', () => ({
   },
 }));
 vi.mock('../../store/authStore', () => ({ useCan: () => true }));
+// The panel memoizes reload with [t]; keep translation function identity stable
+// across re-renders, just like react-i18next in production.
+const translate = (key: string) => {
+  const resources = { zh, en, ja };
+  const result = key.split('.').reduce<unknown>(
+    (value, part) => value && typeof value === 'object'
+      ? (value as Record<string, unknown>)[part] : undefined,
+    resources[locale.code],
+  );
+  return typeof result === 'string' ? result : key;
+};
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({
-    t: (key: string) => {
-      const resources = { zh, en, ja };
-      const result = key.split('.').reduce<unknown>(
-        (value, part) => value && typeof value === 'object'
-          ? (value as Record<string, unknown>)[part] : undefined,
-        resources[locale.code],
-      );
-      return typeof result === 'string' ? result : key;
-    },
-  }),
+  useTranslation: () => ({ t: translate }),
 }));
 
 function preferences() {
