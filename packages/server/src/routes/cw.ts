@@ -56,7 +56,7 @@ export async function cwRoutes(fastify: FastifyInstance) {
   fastify.addHook('onReady', async () => { contestReceiver.start(); });
   fastify.addHook('onClose', async () => { contestReceiver.close(); });
   fastify.get('/contest/n1mm', { preHandler: [requireRole(UserRole.OPERATOR)] }, async (_req, reply) => {
-    return reply.send({ ...contestReceiver.snapshot(), cat: engine.getN1MMCatStatus() });
+    return reply.send({ ...contestReceiver.snapshot(), cat: engine.getN1MMCatStatus(), winkey: engine.getN1MMWinKeyStatus() });
   });
 
   fastify.get('/decoder/backends', async (_req, reply) => {
