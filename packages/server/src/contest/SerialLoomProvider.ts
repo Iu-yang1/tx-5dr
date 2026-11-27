@@ -17,7 +17,12 @@ type Invoke=(request:Record<string,unknown>)=>Promise<unknown>;
 
 async function invokeCli(request:Record<string,unknown>):Promise<unknown>{
   const exe=join(process.env.ProgramFiles??'C:\\Program Files','SerialLoom','serialloom-cli.exe');
-  const {stdout}=await execute(exe,['--timeout','10','send',JSON.stringify(request)],{windowsHide:true,timeout:15000,maxBuffer:1024*1024});
+  // USB creation and renumbering each have a 20 s upstream enumeration window.
+  // Keep mutations alive through those windows and helper/device restart latency;
+  // allow additional time for the CLI's own connection/startup handshake.
+  const mutating=request.command==='createHub'||request.command==='startHub'||request.command==='stopHub'||request.command==='deleteHub';
+  const responseTimeout=mutating?120:10;
+  const {stdout}=await execute(exe,['--timeout',String(responseTimeout),'send',JSON.stringify(request)],{windowsHide:true,timeout:(responseTimeout+45)*1000,maxBuffer:1024*1024});
   const response=z.object({ok:z.boolean(),result:z.unknown().optional(),error:z.string().optional()}).parse(JSON.parse(stdout));
   if(!response.ok)throw new Error(response.error??'SerialLoom request failed');
   return response.result;

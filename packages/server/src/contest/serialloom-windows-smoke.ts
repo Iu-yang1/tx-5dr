@@ -48,11 +48,15 @@ async function main(){
   try{
     await until(async()=>(await provider.status()).available,'SerialLoom automation');
     assert.equal((await provider.status()).connections.length,0,'Dedicated clean test VM required');
-    await provider.apply({channel:'cat',action:'start'},config);
-    await provider.apply({channel:'winkey',action:'start'},config);
-    await until(async()=>{const ports=await SerialPort.list();return ['COM91','COM92'].every(name=>ports.some(p=>p.path.toUpperCase()===name));},'real COM enumeration');
+    for(const channel of ['cat','winkey'] as const){
+      const state=await provider.apply({channel,action:'start'},config);
+      logger.info('SerialLoom bridge created', {channel,state,ports:await SerialPort.list()});
+      const name=config[channel].com;
+      await until(async()=>{const ports=await SerialPort.list();return ports.some(p=>p.path.toUpperCase()===name);},'real COM enumeration for '+name,60000);
+    }
     await until(()=>cat.status().clients===1&&wk.status().connected,'COM-to-TCP connections');
-    catPort=await openPort('COM91',9600,1);wkPort=await openPort('COM92',1200,2);
+    catPort=await openPort(config.cat.com,9600,1);wkPort=await openPort(config.winkey.com,1200,2);
+    await until(async()=>{const status=await provider.status();return status.connections.length===2&&status.connections.every(c=>c.peerOpen&&c.connected);},'real COM opened and attached to TCP');
     let catData='';const wkData:number[]=[];
     catPort.on('data',data=>{catData+=data.toString('ascii');});
     wkPort.on('data',data=>{wkData.push(...data);});
@@ -72,7 +76,12 @@ async function main(){
     throw error;
   }finally{
     await Promise.allSettled([closePort(catPort),closePort(wkPort)]);
-    await Promise.allSettled([provider.apply({channel:'cat',action:'remove'},config),provider.apply({channel:'winkey',action:'remove'},config)]);
+    // The upstream driver performs device removal/renumbering against shared Windows state.
+    // Serialize cleanup and preserve the original protocol failure if cleanup also fails.
+    for(const channel of ['cat','winkey'] as const){
+      try{await provider.apply({channel,action:'remove'},config);}
+      catch(error){logger.warn('SerialLoom cleanup failed',{channel,error:String(error)});}
+    }
     await Promise.allSettled([cat.stop(),wk.stop()]);
   }
 }
