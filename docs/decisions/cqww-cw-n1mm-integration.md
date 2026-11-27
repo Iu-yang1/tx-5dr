@@ -42,10 +42,23 @@ $env:N1MM_CW_STATION_CALL = "BG8GLR"
 Configure N1MM Configurer > Broadcast Data: Radio, Contacts, External Callsign
 Lookup -> 127.0.0.1:12060. On a remote RF server, bind only a trusted private
 interface and point N1MM to that address. The receiver is read-only and has no
-RF or log write capability. The existing rigctld bridge is unchanged and is
-not asserted to be N1MM-compatible. Physical VFO changes remain handled by
-PhysicalRadioManager/RadioBridge; no extra CAT polling or stale writeback.
+RF or log write capability. The existing rigctld bridge is unchanged and is not asserted to be directly
+N1MM-compatible. Enable the experimental single-logical-VFO TS-590S CAT subset
+with N1MM_CAT_ENABLED=1, N1MM_CAT_BIND=127.0.0.1, N1MM_CAT_PORT=4533. Use N1MM
+SO1V and the TS-590S radio protocol over TCP (or a verified serial/TCP bridge).
+CW keying remains on its independent native hardware interface; keep software
+PTT disabled in N1MM unless explicitly required. N1MM_CAT_PTT_ENABLED=1 enables
+CAT PTT using the existing TX coordinator, with session-owned release on close.
+The virtual protocol supports ID, FA, IF, MD, FR0, FT0, AI0, KS, RX and optional
+TX; it does not represent physical split, VFO B, or automatic AI reports.
+Physical dial changes remain handled by PhysicalRadioManager/RadioBridge; set
+N1MM_CW_FAST_POLL=1 for the optional faster existing CW polling cycle. No extra
+CAT poller or stale writeback. The CAT subset is based on Kenwood TS-590S/SG PC
+Control Command Reference (ID, FA, IF, MD, KS); actual N1MM compatibility must
+be tested before use. The active CQ WW CW tab substitutes the station callsign
+in existing CW message placeholders while the preset storage and authorization
+continue using the actual operator account.
 
-This initial implementation does not emulate WinKeyer or Kenwood CAT, inject
-Windows keys, recover missed UDP contacts, or derive official contest scores.
-Those interfaces require independent protocol and real N1MM client verification.
+The initial implementation does not emulate WinKeyer, inject Windows keys,
+recover missed UDP contacts, or derive official contest scores. Those interfaces
+require independent protocol and real N1MM client verification.

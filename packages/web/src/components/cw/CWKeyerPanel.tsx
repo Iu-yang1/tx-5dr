@@ -35,6 +35,7 @@ import { useOperators, useCurrentOperatorId, useRadioConnectionState } from '../
 import { CWSidetone, type CWSidetoneHandle } from './CWSidetone';
 import { cwKeyerShortcutPreferences } from '../../utils/cwKeyerShortcutPreferences';
 import { useCWQSODraft } from '../../store/cwQsoDraftStore';
+import { useCWContestProfile } from '../../store/cwContestProfileStore';
 import { KeyboardMacroPanel, type MacroSlotPhase } from '../keyboard-mode/KeyboardMacroPanel';
 import { useMessagePlaceholders } from '../keyboard-mode/useMessagePlaceholders';
 import type { KeyboardModeI18n } from '../keyboard-mode/modeText';
@@ -163,12 +164,14 @@ export function CWKeyerPanel({ embedded = false }: CWKeyerPanelProps = {}) {
   const showCatAlert = backend === 'cat' && Boolean(catUnavailableReason);
 
   const myCallsign = operators.find(o => o.id === currentOperatorId)?.context?.myCall?.trim() || '';
+  const contestProfile = useCWContestProfile();
+  const messageCallsign = contestProfile.active ? contestProfile.stationCall.trim().toUpperCase() : myCallsign;
   const placeholderValues = useMemo<CWPlaceholderValues>(() => ({
-    myCall: myCallsign || undefined,
+    myCall: messageCallsign || undefined,
     hisCall: hisCallsign || undefined,
     trst: trst || undefined,
     rrst: rrst || undefined,
-  }), [hisCallsign, myCallsign, trst, rrst]);
+  }), [hisCallsign, messageCallsign, trst, rrst]);
   const isActive = cwKeyerStatus?.active ?? false;
   const statusMode = cwKeyerStatus?.mode ?? 'idle';
   const activeSlotId = (statusMode === 'playing' || statusMode === 'repeat-waiting')

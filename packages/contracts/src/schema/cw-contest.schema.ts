@@ -17,6 +17,7 @@ export const ContestContactSchema = z.object({
 export const CWContestSnapshotSchema = z.object({
   enabled: z.boolean(), listening: z.boolean(), bind: z.string(), port: z.number(),
   stationCall: z.string(), error: z.string().optional(),
+  cat: z.object({ enabled: z.boolean(), listening: z.boolean(), host: z.string(), port: z.number(), clients: z.number(), error: z.string().optional() }).optional(),
   radio: ContestRadioInfoSchema.optional(),
   lookup: z.object({ call: z.string(), zone: z.string(), receivedAt: z.number() }).optional(),
   contacts: z.array(ContestContactSchema),

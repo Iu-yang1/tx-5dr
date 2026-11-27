@@ -135,6 +135,8 @@ import { tx5drPaths } from './utils/app-paths.js';
 import { CallsignContextTracker } from './slot/CallsignContextTracker.js';
 import { NtpCalibrationService } from './services/NtpCalibrationService.js';
 import { RigctldBridge } from './rigctld/RigctldBridge.js';
+import { RadioControllerAdapter } from './rigctld/RadioControllerAdapter.js';
+import { KenwoodCatBridge } from './contest/KenwoodCatBridge.js';
 import { SquelchStatusMonitor } from './radio/SquelchStatusMonitor.js';
 import { PhysicalPttMonitor } from './radio/PhysicalPttMonitor.js';
 import type { RigctldBridgeConfig, RigctldStatus } from '@tx5dr/contracts';
@@ -307,6 +309,7 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
   private audioSidecar: AudioSidecarController;
   private radioBridge: RadioBridge;
   private rigctldBridge: RigctldBridge;
+  private n1mmCatBridge: KenwoodCatBridge;
   private squelchStatusMonitor: SquelchStatusMonitor;
   private physicalPttMonitor: PhysicalPttMonitor;
   private transmissionPipeline: TransmissionPipeline;
@@ -836,6 +839,16 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
     });
 
     this.rigctldBridge = new RigctldBridge(this.radioManager, this.physicalTxCoordinator);
+    const catPort = Number(process.env.N1MM_CAT_PORT ?? 4533);
+    this.n1mmCatBridge = new KenwoodCatBridge({
+      enabled: process.env.N1MM_CAT_ENABLED === '1',
+      host: process.env.N1MM_CAT_BIND ?? '127.0.0.1',
+      port: Number.isInteger(catPort) && catPort > 0 && catPort <= 65535 ? catPort : 4533,
+      allowPtt: process.env.N1MM_CAT_PTT_ENABLED === '1',
+    }, () => new RadioControllerAdapter(this.radioManager, this.physicalTxCoordinator), {
+      get: async () => (await this.getCWKeyerManager().getConfigAsync()).wpm,
+      set: async wpm => { await this.getCWKeyerManager().updateConfig({ wpm }); },
+    });
     this.rigctldBridge.on('statusChanged', (status) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       this.emit('rigctldStatus' as any, status);
@@ -1485,8 +1498,11 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
       logger.warn('rigctld bridge initial apply failed', { error: (error as Error).message });
     });
 
+    void this.n1mmCatBridge.start().catch(error => logger.warn('N1MM CAT start failed', { error: String(error) }));
     logger.info(`Initialization complete, current mode: ${this.currentMode.name}, engine mode: ${this.engineMode}`);
   }
+
+  getN1MMCatStatus() { return this.n1mmCatBridge.status(); }
 
   /** Current rigctld bridge status snapshot (for /api/rigctld/status). */
   getRigctldStatus(): RigctldStatus {
@@ -1936,6 +1952,7 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
 
     // rigctld bridge: tear down outside the engine resource pipeline so we
     // stop accepting external connections before the radio is torn down.
+    await this.n1mmCatBridge.stop().catch(error => logger.warn('N1MM CAT stop failed', { error: String(error) }));
     await this.rigctldBridge.stop().catch((error) => {
       logger.warn('rigctld bridge stop failed during shutdown', { error: (error as Error).message });
     });

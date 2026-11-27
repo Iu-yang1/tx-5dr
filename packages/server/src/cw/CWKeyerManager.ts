@@ -204,7 +204,8 @@ export class CWKeyerManager extends EventEmitter<CWKeyerManagerEvents> {
     await this.writePersistedConfig();
     logger.info('CW keyer config updated', { config: this.config });
     this.emit('cwConfigChanged', this.getConfig());
-    this.setStatus(this.idleStatus());
+    // Updating WPM alone must not advertise RX while an existing message is still active.
+    if (!this.active) this.setStatus(this.idleStatus());
   }
 
   /**

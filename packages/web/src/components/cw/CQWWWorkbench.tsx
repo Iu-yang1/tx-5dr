@@ -7,13 +7,7 @@ import { useCWKeyer } from '../../hooks/useCWKeyer';
 import { useOperators, useCurrentOperatorId, useRadioConnectionState } from '../../store/radioStore';
 import { useCWQSODraft, setCWQSOHisCallsign } from '../../store/cwQsoDraftStore';
 import { cqwwMessages } from './contestMessages';
-
-function stored(key: string, fallback: string): string {
-  try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; }
-}
-function save(key: string, value: string): void {
-  try { localStorage.setItem(key, value); } catch { /* storage may be unavailable */ }
-}
+import { useCWContestProfile, updateCWContestProfile } from '../../store/cwContestProfileStore';
 
 export function CQWWWorkbench() {
   const { t } = useTranslation('radio');
@@ -23,9 +17,7 @@ export function CQWWWorkbench() {
   const { hisCallsign } = useCWQSODraft();
   const { cwKeyerStatus, isCWMode, sendText, stopMessage } = useCWKeyer();
   const operator = operators.find(op => op.id === currentOperatorId)?.context?.myCall ?? '';
-  const [stationCall, setStationCall] = useState(() => stored('tx5dr_cqww_station_call', ''));
-  const [sentZone, setSentZone] = useState(() => stored('tx5dr_cqww_sent_zone', ''));
-  const [run, setRun] = useState(() => stored('tx5dr_cqww_run', 'true') === 'true');
+  const { stationCall, sentZone, run } = useCWContestProfile();
   const [snapshot, setSnapshot] = useState<CWContestSnapshot>();
   const [unavailable, setUnavailable] = useState(false);
   useEffect(() => {
@@ -55,19 +47,20 @@ export function CQWWWorkbench() {
     <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto p-1">
       <div className="flex flex-wrap items-center gap-1 text-xs">
         <Chip size="sm" variant="flat" color={fresh ? 'success' : 'default'}>N1MM {fresh ? 'RX' : '—'}</Chip>
+        <Chip size="sm" variant="flat" color={snapshot?.cat?.clients ? 'success' : 'default'}>CAT {snapshot?.cat?.clients ?? 0}</Chip>
         <span className="font-mono">OP: {operator || '—'}</span>
         {radio && <span className="font-mono">{radio.operator || '—'} · {(radio.frequencyHz / 1e6).toFixed(5)} MHz · {radio.running ? 'RUN' : 'S&P'}</span>}
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <Input size="sm" label={t('cw.contest.stationCall')} value={stationCall} onValueChange={value => { const next = value.toUpperCase(); setStationCall(next); save('tx5dr_cqww_station_call', next); }} />
-        <Input size="sm" label={t('cw.contest.sentZone')} value={sentZone} onValueChange={value => { setSentZone(value); save('tx5dr_cqww_sent_zone', value); }} />
+        <Input size="sm" label={t('cw.contest.stationCall')} value={stationCall} onValueChange={value => updateCWContestProfile({ stationCall: value.toUpperCase() })} />
+        <Input size="sm" label={t('cw.contest.sentZone')} value={sentZone} onValueChange={value => updateCWContestProfile({ sentZone: value })} />
         <Input size="sm" label={t('cw.contest.hisCall')} value={hisCallsign} onValueChange={setCWQSOHisCallsign} />
         <div className="flex items-center gap-1">
-          <Button size="sm" variant={run ? 'solid' : 'flat'} onPress={() => { setRun(true); save('tx5dr_cqww_run', 'true'); }}>RUN</Button>
-          <Button size="sm" variant={!run ? 'solid' : 'flat'} onPress={() => { setRun(false); save('tx5dr_cqww_run', 'false'); }}>S&amp;P</Button>
+          <Button size="sm" variant={run ? 'solid' : 'flat'} onPress={() => updateCWContestProfile({ run: true })}>RUN</Button>
+          <Button size="sm" variant={!run ? 'solid' : 'flat'} onPress={() => updateCWContestProfile({ run: false })}>S&amp;P</Button>
         </div>
       </div>
-      {fresh && snapshot?.lookup && <Button size="sm" variant="flat" onPress={() => setCWQSOHisCallsign(snapshot.lookup!.call)}>{t('cw.contest.useLookup')}: {snapshot.lookup.call}</Button>}
+      {fresh && snapshot?.lookup && Date.now() - snapshot.lookup.receivedAt < 30000 && <Button size="sm" variant="flat" onPress={() => setCWQSOHisCallsign(snapshot.lookup!.call)}>{t('cw.contest.useLookup')}: {snapshot.lookup.call}</Button>}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
         {messages.map(message => <Button key={message.key} size="sm" variant="flat" className="h-auto min-h-8 min-w-0 justify-start whitespace-normal py-1 text-left text-xs"
           isDisabled={!canSend || !message.text}

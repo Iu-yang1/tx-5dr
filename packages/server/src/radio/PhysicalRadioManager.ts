@@ -3549,9 +3549,13 @@ export class PhysicalRadioManager extends EventEmitter<PhysicalRadioManagerEvent
   }
 
   private getFrequencyPollingDelayMs(): number {
-    return Date.now() < this.fastFrequencyPollingUntil
-      ? FAST_FREQUENCY_POLL_MS
-      : NORMAL_FREQUENCY_POLL_MS;
+    const fast = Date.now() < this.fastFrequencyPollingUntil;
+    // Opt-in CW contest station profile: use the existing non-overlapping CAT
+    // monitoring cycle, never a second poller. Backend busy/PTT guards remain.
+    if (process.env.N1MM_CW_FAST_POLL === '1' && this.configManager.getLastEngineMode() === 'cw') {
+      return fast ? 100 : 250;
+    }
+    return fast ? FAST_FREQUENCY_POLL_MS : NORMAL_FREQUENCY_POLL_MS;
   }
 
   /**
