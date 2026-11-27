@@ -2594,14 +2594,14 @@ export const api = {
   },
 
   // ===== CW Contest API =====
-  async getCWContestSnapshot(apiBase?: string): Promise<import('@tx5dr/contracts').CWContestSnapshot> {
-    return apiRequest<import('@tx5dr/contracts').CWContestSnapshot>('/cw/contest/n1mm', undefined, apiBase);
+  async getCWContestSnapshot(apiBase?: string, call?:string): Promise<import('@tx5dr/contracts').CWContestSnapshot> {
+    return apiRequest<import('@tx5dr/contracts').CWContestSnapshot>('/cw/contest/n1mm'+(call?'?call='+encodeURIComponent(call):''), undefined, apiBase);
   },
 
   async getN1MMEntry(apiBase?: string): Promise<import('@tx5dr/contracts').N1MMEntryState> {
     return apiRequest('/cw/contest/entry', undefined, apiBase);
   },
-  async updateN1MMEntry(fields: import('@tx5dr/contracts').N1MMEntryFields, apiBase?: string): Promise<import('@tx5dr/contracts').N1MMEntryState> {
+  async updateN1MMEntry(fields: import('@tx5dr/contracts').N1MMEntryFields & {action?:import('@tx5dr/contracts').N1MMEntryAction}, apiBase?: string): Promise<import('@tx5dr/contracts').N1MMEntryState> {
     return apiRequest('/cw/contest/entry', {method:'PUT',body:JSON.stringify(fields)}, apiBase);
   },
 

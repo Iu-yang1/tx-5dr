@@ -24,10 +24,18 @@ def main():
     ap.add_argument("--call-id", required=True)
     ap.add_argument("--zone-id", required=True)
     ap.add_argument("--exe", default="N1MMLogger.net.exe")
+    ap.add_argument("--actions", help="JSON file mapping action names to exact N1MM control AutomationIds")
     a = ap.parse_args()
     token = os.environ.get("TX5DR_N1MM_TOKEN", "")
     if not token:
         ap.error("Set TX5DR_N1MM_TOKEN to an authorized operator session token")
+    action_ids = {}
+    if a.actions:
+        with open(a.actions, encoding="utf-8") as stream:
+            action_ids = json.load(stream)
+    allowed = {"STOP","LOG","WIPE","MARK","STORE","SPOT","RUN","S&P"} | {"F"+str(i) for i in range(1,13)}
+    if not isinstance(action_ids, dict) or any(k not in allowed or not isinstance(v,str) or not v for k,v in action_ids.items()):
+        ap.error("Invalid action mapping")
     from pywinauto import Desktop
     import psutil
     def controls():
@@ -48,25 +56,46 @@ def main():
             if len(items) != 1:
                 raise RuntimeError("Missing or ambiguous N1MM field: " + auto_id)
             return items[0]
-        return edit(a.call_id), edit(a.zone_id)
+        buttons = {}
+        for name, auto_id in action_ids.items():
+            items = [x for x in win.descendants() if x.element_info.automation_id == auto_id and x.element_info.control_type in ("Button","RadioButton")]
+            if len(items) == 1:
+                buttons[name] = items[0]
+        return edit(a.call_id), edit(a.zone_id), buttons
     def read(c,z):
         return {"call":re.sub(r"[^A-Z0-9/]","",c.get_value().upper())[:20],
                 "zone":re.sub(r"\D","",z.get_value())[:2]}
     acknowledged = None
+    last_action = None
     while True:
         try:
-            c,z = controls()
-            state = request(a.api,token,{"fields":read(c,z),**(acknowledged or {})})
+            c,z,buttons = controls()
+            state = request(a.api,token,{"fields":read(c,z),"actions":list(buttons),**(acknowledged or {})})
             acknowledged = None
             pending = state.get("pending")
             if pending and pending["expiresAt"] > time.time()*1000:
                 fields = pending["fields"]
                 # Re-resolve target before edits; never send keys to the foreground.
-                c,z = controls()
+                c,z,buttons = controls()
                 try:
-                    c.set_edit_text(fields["call"])
-                    z.set_edit_text(fields["zone"])
-                    acknowledged = {"appliedRevision":pending["revision"]}
+                    action = pending.get("action")
+                    rev = pending["revision"]
+                    if action and rev == last_action:
+                        # Never invoke a one-shot action twice after an HTTP retry.
+                        acknowledged = {"appliedRevision":rev,"error":"Action already attempted; inspect N1MM"}
+                        continue
+                    if action != "STOP":
+                        previous = read(c,z)
+                        if previous["call"] != fields["call"]: c.set_edit_text(fields["call"])
+                        if previous["zone"] != fields["zone"]: z.set_edit_text(fields["zone"])
+                        if read(c,z) != fields: raise RuntimeError("N1MM fields did not match requested values")
+                    if action:
+                        if action not in buttons: raise RuntimeError("N1MM action control unavailable")
+                        last_action = rev
+                        button = buttons[action]
+                        if button.element_info.control_type == "RadioButton": button.select()
+                        else: button.invoke()
+                    acknowledged = {"appliedRevision":rev}
                 except Exception as exc:
                     acknowledged = {"appliedRevision":pending["revision"],"error":str(exc)[:400]}
             time.sleep(0.15)

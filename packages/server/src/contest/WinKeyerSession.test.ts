@@ -11,7 +11,7 @@ describe('WinKeyer host framing',()=>{
     s.feed(Buffer.from([0]));s.feed(Buffer.from([2,2,30]));s.feed(Buffer.from('CQ TEST','ascii'));
     s.feed(Buffer.from([0x1c,20]));s.feed(Buffer.from('BG8GLR','ascii'));
     await vi.waitFor(()=>expect(sent).toEqual([['CQ TEST',30],['BG8GLR',20]]));
-    expect(out[0]).toBe(23);expect(out).toContain(0xc4);expect(out.at(-1)).toBe(0xc0);
+    expect(out[0]).toBe(23);expect(out).toContain(0xc4);expect(out[out.length-1]).toBe(0xc0);
     await s.close();
   });
   it('clear cancels the pending send without echo and prevents queued text',async()=>{

@@ -147,15 +147,26 @@ export class N1MMContestReceiver {
       stationCall, operator: call(f.operator), call: call(f.call), timestamp: f.timestamp,
       frequencyHz, mode: 'CW', band: f.band ?? '', rstSent: f.snt ?? '', rstReceived: f.rcv ?? '',
       zoneSent: f.sentexchange || f.sntnr || '', zoneReceived: f.zone || f.rcvnr || '',
-      points: integer(f.points) });
+      points: integer(f.points), countryPrefix:f.countryprefix || undefined });
   }
 
-  snapshot(): CWContestSnapshot {
+  snapshot(queryCall?:string): CWContestSnapshot {
+    const now=Date.now();const observed=[...this.contacts.values()];
+    const bands=new Map<string,{qsos:number;zones:Set<string>;countries:Set<string>}>();
+    let last10=0,last60=0;
+    for(const q of observed){
+      let band=bands.get(q.band);if(!band){band={qsos:0,zones:new Set(),countries:new Set()};bands.set(q.band,band);}
+      band.qsos++;if(q.zoneReceived)band.zones.add(q.zoneReceived);if(q.countryPrefix)band.countries.add(q.countryPrefix);
+      const stamp=Date.parse(q.timestamp.replace(' ','T')+(q.timestamp.endsWith('Z')?'':'Z'));
+      const age=now-stamp;if(age>=0&&age<3600000){last60++;if(age<600000)last10++;}
+    }
     return { enabled: this.config.enabled, listening: this.listening, bind: this.config.bind,
       port: this.listening && this.socket ? this.socket.address().port : this.config.port,
       stationCall: this.config.stationCall, error: this.error,
       radio: this.radio, lookup: this.lookup, observedContacts: this.contacts.size,
+      workedBands:queryCall?[...new Set(observed.filter(q=>q.call===call(queryCall)).map(q=>q.band))]:[],
+      rate:{last10,last60},observedBands:[...bands].map(([band,v])=>({band,qsos:v.qsos,zones:v.zones.size,countries:v.countries.size})),
       score:this.score,spots:[...this.spots.values()].filter(s=>Date.now()-s.receivedAt<30*60*1000).sort((a,b)=>a.frequencyHz-b.frequencyHz),
-      contacts: [...this.contacts.values()].sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 100) };
+      contacts: observed.sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 100) };
   }
 }

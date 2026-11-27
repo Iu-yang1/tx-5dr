@@ -1,8 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Button, Chip, Input } from '@heroui/react';
 import { useTranslation } from 'react-i18next';
-import { api } from '@tx5dr/core';
-import type { CWContestSnapshot, N1MMEntryFields, N1MMEntryState } from '@tx5dr/contracts';
+import { api, getBandFromFrequency } from '@tx5dr/core';
+import { setRadioFrequencyWithIntent } from '../../utils/radioFrequencyIntent';
+import { useAbility, useCan } from '../../store/authStore';
+import { canExecuteRadioFrequency, canWriteRadioFrequency } from '../../utils/radioControl';
+import type { CWContestSnapshot, N1MMEntryFields, N1MMEntryState, N1MMEntryAction } from '@tx5dr/contracts';
 import { useCWKeyer } from '../../hooks/useCWKeyer';
 import { useOperators, useCurrentOperatorId, useRadioConnectionState } from '../../store/radioStore';
 import { useCWQSODraft, setCWQSOHisCallsign } from '../../store/cwQsoDraftStore';
@@ -13,7 +16,9 @@ export function CQWWWorkbench() {
   const { t } = useTranslation('radio');
   const { operators } = useOperators();
   const { currentOperatorId } = useCurrentOperatorId();
-  const { radioConnected } = useRadioConnectionState();
+  const connectionState = useRadioConnectionState();
+  const { radioConnected } = connectionState;
+  const ability=useAbility();const canSetFrequency=useCan('execute','RadioFrequency');
   const { hisCallsign } = useCWQSODraft();
   const { cwKeyerStatus, isCWMode, sendText, stopMessage } = useCWKeyer();
   const operator = operators.find(op => op.id === currentOperatorId)?.context?.myCall ?? '';
@@ -23,8 +28,10 @@ export function CQWWWorkbench() {
   const [zone,setZone] = useState('');
   const [spotFilter,setSpotFilter] = useState<'all'|'mult'|'new'>('all');
   const [entryError,setEntryError] = useState('');
+  const [nativeMacros,setNativeMacros] = useState(false);
+  const [actionBusy,setActionBusy] = useState(false);
   const editing=useRef(false);
-  const editTimer=useRef<ReturnType<typeof setTimeout>>();
+  const editTimer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
   const tail=useRef(Promise.resolve());
   const wanted=useRef<N1MMEntryFields>({call:'',zone:''});
   const sequence=useRef(0);
@@ -54,13 +61,29 @@ export function CQWWWorkbench() {
     };
     void poll();return()=>{disposed=true;clearTimeout(timer);if(editTimer.current)clearTimeout(editTimer.current);sequence.current++;};
   },[]);
+  // The existing decoder and ordinary CW log card write the same draft store.
+  // Project only locally originated changes; applying remote readback updates wanted first.
+  useEffect(()=>{if(hisCallsign!==wanted.current.call)requestEntry({call:hisCallsign.toUpperCase().replace(/[^A-Z0-9/]/g,'').slice(0,20),zone});},[hisCallsign]);
+  const action = async (name:N1MMEntryAction)=>{
+    if(actionBusy||!entry?.online||!entry.actions?.includes(name))return;
+    if(editTimer.current)clearTimeout(editTimer.current);
+    sequence.current++;editing.current=true;setActionBusy(true);
+    try{await tail.current.catch(()=>undefined);const state=await api.updateN1MMEntry({...wanted.current,action:name});setEntry(state);setEntryError('');}
+    catch(error){setEntryError(String(error));}
+    finally{editing.current=false;setActionBusy(false);}
+  };
+  const qsy=async(frequency:number)=>{
+    if(!canWriteRadioFrequency(canSetFrequency,connectionState.coreCapabilities)||!canExecuteRadioFrequency(ability,frequency))return;
+    try{const result=await setRadioFrequencyWithIntent({frequency,mode:'CW',band:getBandFromFrequency(frequency),description:(frequency/1e6).toFixed(6)+' MHz'});if(!result.success)throw new Error('QSY rejected');setEntryError('');}
+    catch(error){setEntryError(String(error));}
+  };
   const [unavailable, setUnavailable] = useState(false);
   useEffect(() => {
     let disposed = false;
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
       try {
-        const next = await api.getCWContestSnapshot();
+        const next = await api.getCWContestSnapshot(undefined,hisCallsign);
         if (!disposed) { setSnapshot(next); setUnavailable(false); }
       } catch {
         if (!disposed) setUnavailable(true);
@@ -70,14 +93,15 @@ export function CQWWWorkbench() {
     };
     void poll();
     return () => { disposed = true; clearTimeout(timer); };
-  }, []);
+  }, [hisCallsign]);
   const messages = cqwwMessages({ stationCall, hisCall: hisCallsign, sentZone, run });
   const busy = Boolean(cwKeyerStatus?.active);
   const canSend = Boolean(operator && radioConnected && isCWMode && !busy && cwKeyerStatus?.backendAvailable !== false);
   const radio = snapshot?.radio;
   const fresh = !unavailable && radio && Date.now() - radio.receivedAt < 30000;
   const filtered = snapshot?.contacts.filter(q => !stationCall || q.stationCall === stationCall.trim().toUpperCase()) ?? [];
-  const matching = filtered.filter(q => q.call === hisCallsign.trim().toUpperCase());
+  const workedBands = snapshot?.workedBands ?? [];
+  const nativeActionEnabled=(name:N1MMEntryAction)=>Boolean(entry?.online&&entry.actions?.includes(name)&&!entry.pending?.action&&!actionBusy);
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto p-1">
       <div className="flex flex-wrap items-center gap-1 text-xs">
@@ -99,22 +123,26 @@ export function CQWWWorkbench() {
         </div>
       </div>
       {fresh && snapshot?.lookup && Date.now() - snapshot.lookup.receivedAt < 30000 && <Button size="sm" variant="flat" onPress={() => requestEntry({call:snapshot.lookup!.call,zone:snapshot.lookup!.zone.replace(/\D/g,'').slice(0,2)})}>{t('cw.contest.useLookup')}: {snapshot.lookup.call}</Button>}
+      <div className="flex gap-1 text-xs"><Button size="sm" variant={!nativeMacros?'solid':'flat'} onPress={()=>setNativeMacros(false)}>TX-5DR</Button><Button size="sm" variant={nativeMacros?'solid':'flat'} onPress={()=>setNativeMacros(true)}>N1MM</Button></div>
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
         {messages.map(message => <Button key={message.key} size="sm" variant="flat" className="h-auto min-h-8 min-w-0 justify-start whitespace-normal py-1 text-left text-xs"
-          isDisabled={!canSend || !message.text}
-          onPress={() => sendText(message.text, operator)}>
-          <span className="shrink-0 font-semibold">{message.key}</span><span className="min-w-0 break-all">{message.text || '—'}</span>
+          isDisabled={nativeMacros?!nativeActionEnabled(message.key as N1MMEntryAction):!canSend||!message.text}
+          onPress={() => nativeMacros?void action(message.key as N1MMEntryAction):sendText(message.text,operator)}>
+          <span className="shrink-0 font-semibold">{message.key}</span><span className="min-w-0 break-all">{nativeMacros?'N1MM':message.text || '—'}</span>
         </Button>)}
-        <Button size="sm" color="danger" variant="flat" onPress={stopMessage}>STOP</Button>
+        <Button size="sm" color="danger" variant="flat" onPress={()=>{stopMessage();if(nativeActionEnabled('STOP'))void action('STOP');}}>STOP</Button>
       </div>
+      <div className="flex flex-wrap gap-1">{(['LOG','WIPE','MARK','STORE','SPOT','RUN','S&P'] as const).map(name=><Button key={name} size="sm" variant="flat" color={name==='LOG'?'primary':'default'} isDisabled={!nativeActionEnabled(name)} onPress={()=>void action(name)}>{name}</Button>)}</div>
       {(entryError||entry?.error||snapshot?.winkey?.error)&&<p className="text-xs text-warning">{entryError||entry?.error||snapshot?.winkey?.error}</p>}
       <p className="text-xs text-default-500">{t('cw.contest.logAuthority')}</p>
-      {snapshot?.score&&<div className="rounded-md bg-content2 p-2 text-xs"><strong>{t('cw.contest.score')}: {snapshot.score.score.toLocaleString()}</strong> <span className="text-default-500">{snapshot.score.timestamp}</span><div className="flex flex-wrap gap-2">{snapshot.score.breakdown.filter(x=>x.kind==='qso'&&x.mode==='CW').map((x,i)=><span key={i}>{x.band}: {x.value}</span>)}</div></div>}
+      {snapshot?.score&&<div className="rounded-md bg-content2 p-2 text-xs"><strong>{t('cw.contest.score')}: {snapshot.score.score.toLocaleString()}</strong> <span className="text-default-500">{snapshot.score.timestamp}</span><div className="flex flex-wrap gap-2">{snapshot.score.breakdown.filter(x=>x.mode==='CW'||x.mode==='ALL').map((x,i)=><span key={i}>{x.band} {x.type||x.kind}: {x.value}</span>)}</div></div>}
+      {snapshot?.rate&&<div className="text-xs font-mono">Observed rate: {snapshot.rate.last10*6}/h (10m) · {snapshot.rate.last60}/h (60m)</div>}
+      <div className="flex flex-wrap gap-2 text-xs">{snapshot?.observedBands?.map(b=><span key={b.band}>{b.band}: Q {b.qsos} / Z {b.zones} / DX {b.countries}</span>)}</div>
       <div className="flex items-center gap-1 text-xs"><strong className="flex-1">Bandmap / RBN</strong>{(['all','mult','new'] as const).map(value=><Button key={value} size="sm" variant={spotFilter===value?'solid':'flat'} onPress={()=>setSpotFilter(value)}>{value.toUpperCase()}</Button>)}</div>
-      <div className="max-h-48 overflow-auto">{snapshot?.spots?.filter(s=>spotFilter==='all'||(spotFilter==='mult'?s.status.includes('mult'):s.status==='new qso')).map(s=><button key={s.call+':'+s.frequencyHz} type="button" title={s.comment+' / '+s.spotter} className="grid w-full grid-cols-3 gap-1 border-b border-default-100 py-1 text-left text-xs font-mono hover:bg-content2" onClick={()=>requestEntry({call:s.call,zone:''})}><span>{(s.frequencyHz/1000).toFixed(2)}</span><span>{s.call}</span><span>{s.status}</span></button>)}</div>
+      <div className="max-h-48 overflow-auto">{snapshot?.spots?.filter(s=>spotFilter==='all'||(spotFilter==='mult'?s.status.includes('mult'):s.status==='new qso')).map(s=><div key={s.call+':'+s.frequencyHz} title={s.comment+' / '+s.spotter} className="grid w-full grid-cols-4 gap-1 border-b border-default-100 py-1 text-left text-xs font-mono"><button type="button" onClick={()=>void qsy(s.frequencyHz)}>{(s.frequencyHz/1000).toFixed(2)}</button><button type="button" onClick={()=>requestEntry({call:s.call,zone:''})}>{s.call}</button><span className={s.status.includes('mult')?'text-success':s.status==='dupe'?'text-default-400':''}>{s.status}</span><span className="truncate">{s.spotter}</span></div>)}</div>
       <div className="flex items-center justify-between text-xs">
         <span>{t('cw.contest.observed')}: {snapshot?.observedContacts ?? 0}</span>
-        {matching.length > 0 && <Chip size="sm" color="warning" variant="flat">{t('cw.contest.workedCandidate')}: {matching.map(q => q.band).filter((b, i, a) => a.indexOf(b) === i).join(', ')}</Chip>}
+        {workedBands.length>0&&<Chip size="sm" color="warning" variant="flat">{t('cw.contest.workedCandidate')}: {workedBands.join(', ')}</Chip>}
       </div>
       {(!snapshot?.listening || unavailable || !fresh) && <p className="text-xs text-warning">{t('cw.contest.mirrorUnavailable')}{snapshot?.error ? ': ' + snapshot.error : ''}</p>}
       <div className="min-h-0 overflow-auto">

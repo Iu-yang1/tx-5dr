@@ -37,7 +37,7 @@ export class WinKeyerSession {
   private queuedChars() { return this.draft.length + this.queue.reduce((n,j) => n + ('text' in j ? j.text.length : 1),0); }
   feed(bytes: Buffer) {
     if (this.closed) return;
-    this.input.push(...bytes);
+    for(const byte of bytes)this.input.push(byte);
     while (this.input.length) {
       const code = this.input[0];
       let count = 1;
@@ -127,7 +127,7 @@ export class WinKeyerSession {
           if(valid()&&this.echo) this.reply(...Buffer.from(job.text,'ascii'));
         }
       }
-    } catch(error) { this.error=String(error); this.queue=[];this.draft=''; }
+    } catch(error) { if(valid()){this.error=String(error);this.queue=[];this.draft='';} }
     finally {this.running=false;this.releaseWait=undefined;if(this.waitTimer)clearTimeout(this.waitTimer);this.report();if(this.queue.length&&this.opened&&!this.paused&&!this.closed)this.schedule();}
   }
   private cancel() {

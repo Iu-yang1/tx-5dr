@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import {
   UserRole,
-  N1MMEntryFieldsSchema,
+  N1MMEntryRequestSchema,
   N1MMEntryAgentUpdateSchema,
   CWKeyerBackendSchema,
   CWDecoderConfigPatchSchema,
@@ -59,14 +59,15 @@ export async function cwRoutes(fastify: FastifyInstance) {
   });
   fastify.addHook('onReady', async () => { contestReceiver.start(); });
   fastify.addHook('onClose', async () => { contestReceiver.close(); });
-  fastify.get('/contest/n1mm', { preHandler: [requireRole(UserRole.OPERATOR)] }, async (_req, reply) => {
-    return reply.send({ ...contestReceiver.snapshot(), cat: engine.getN1MMCatStatus(), winkey: engine.getN1MMWinKeyStatus(), entry: entryBridge.snapshot() });
+  fastify.get('/contest/n1mm', { preHandler: [requireRole(UserRole.OPERATOR)] }, async (req, reply) => {
+    const query=req.query as {call?:string};
+    return reply.send({ ...contestReceiver.snapshot(typeof query.call==='string'?query.call:undefined), cat: engine.getN1MMCatStatus(), winkey: engine.getN1MMWinKeyStatus(), entry: entryBridge.snapshot() });
   });
 
   fastify.get('/contest/entry', { preHandler: [requireRole(UserRole.OPERATOR)] }, async (_req, reply) => reply.send(entryBridge.snapshot()));
   fastify.put('/contest/entry', { preHandler: [requireRole(UserRole.OPERATOR)] }, async (req, reply) => {
-    const fields = N1MMEntryFieldsSchema.parse(req.body);
-    try { return reply.send(entryBridge.request(fields)); }
+    const {action,...fields} = N1MMEntryRequestSchema.parse(req.body);
+    try { return reply.send(entryBridge.request(fields,action)); }
     catch(error) { return reply.code(409).send({success:false,error:{message:String(error)}}); }
   });
   fastify.post('/contest/entry/agent', { preHandler: [requireRole(UserRole.OPERATOR)] }, async (req, reply) => {
