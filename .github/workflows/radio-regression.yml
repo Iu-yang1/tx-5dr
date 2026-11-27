@@ -98,6 +98,13 @@ jobs:
             src/components/settings/DigitalDecodePreferencesPanel.test.tsx
             src/components/radio/operators/NativeOperatorProgress.test.ts
             src/components/radio/digital/JttyReceiveTerminal.test.ts
+            src/components/cw/__tests__/contestMessages.test.ts
+            src/components/cw/__tests__/contestCheck.test.ts
+            src/components/cw/__tests__/CQWWWorkbench.test.tsx
+            src/components/cw/__tests__/CWQSOLogCard.test.tsx
+            src/components/cw/__tests__/CWKeyerPanel.test.tsx
+            src/components/cw/__tests__/CWDecoderPanel.test.tsx
+            src/components/cw/__tests__/CWFrequencyControl.test.tsx
             src/components/jtty/__tests__/jttyMessagePanel.test.ts
             src/components/jtty/__tests__/jttyQsoSubmission.test.ts
             src/audio/__tests__/softwareSquelchPreference.test.ts
@@ -108,7 +115,15 @@ jobs:
           EXISTING=()
           for f in "${TESTS[@]}"; do if test -f "$f"; then EXISTING+=("$f"); fi; done
           if test ${#EXISTING[@]} -eq 0; then exit 1; fi
-          yarn exec vitest run "${EXISTING[@]}" --maxWorkers=2
+          CW_CONSOLE_RENDER_DIR="$GITHUB_WORKSPACE/contest-console-render" yarn exec vitest run "${EXISTING[@]}" --maxWorkers=2
+      - name: Render simulated CW console at desktop and narrow widths
+        run: node scripts/render-contest-console.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cqww-console-render
+          path: contest-console-render/
+          if-no-files-found: warn
 
   backend:
     runs-on: ubuntu-24.04
@@ -134,6 +149,8 @@ jobs:
         run: yarn install --immutable
       - name: Build
         run: yarn build
+      - name: Simulated N1MM Windows entry adapter
+        run: python3 -m unittest discover -s packages/client-tools/src -p 'test_n1mm*.py'
       - name: Focused Backend tests
         run: |
           set -euo pipefail
@@ -143,6 +160,15 @@ jobs:
             src/decode/__tests__/MfskLiveRxService.test.ts
             src/routes/__tests__/mfskQsoRecord.test.ts
             src/__tests__/server-logbook-startup-isolation.test.ts
+            src/contest/SerialLoomProvider.test.ts
+            src/contest/N1MMEntryBridge.test.ts
+            src/contest/N1MMAssisted.test.ts
+            src/contest/WinKeyerSession.test.ts
+            src/contest/KenwoodCatBridge.test.ts
+            src/contest/N1MMContestReceiver.test.ts
+            src/cw/__tests__/CWKeyerManager.test.ts
+            src/cw/__tests__/RadioCatCWKeyerBackend.test.ts
+            src/cw-decoder/__tests__/CWDecoderManager.test.ts
             src/jtty/__tests__/JttyMessagePanels.test.ts
             src/utils/__tests__/frequencyMHz.test.ts
             src/audio/__tests__/AudioHotplugRecovery.test.ts

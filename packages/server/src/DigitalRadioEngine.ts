@@ -135,9 +135,12 @@ import { tx5drPaths } from './utils/app-paths.js';
 import { CallsignContextTracker } from './slot/CallsignContextTracker.js';
 import { NtpCalibrationService } from './services/NtpCalibrationService.js';
 import { RigctldBridge } from './rigctld/RigctldBridge.js';
+import { RadioControllerAdapter } from './rigctld/RadioControllerAdapter.js';
+import { KenwoodCatBridge } from './contest/KenwoodCatBridge.js';
+import { WinKeyerBridge } from './contest/WinKeyerBridge.js';
 import { SquelchStatusMonitor } from './radio/SquelchStatusMonitor.js';
 import { PhysicalPttMonitor } from './radio/PhysicalPttMonitor.js';
-import type { RigctldBridgeConfig, RigctldStatus } from '@tx5dr/contracts';
+import type { RigctldBridgeConfig, RigctldStatus, N1MMInterfaceConfig } from '@tx5dr/contracts';
 import { RadioPowerController } from './radio/RadioPowerController.js';
 import { TuneToneController } from './radio/TuneToneController.js';
 import { buildRadioStatusPayload } from './radio/buildRadioStatusPayload.js';
@@ -307,6 +310,8 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
   private audioSidecar: AudioSidecarController;
   private radioBridge: RadioBridge;
   private rigctldBridge: RigctldBridge;
+  private n1mmCatBridge: KenwoodCatBridge;
+  private n1mmWinKeyer: WinKeyerBridge;
   private squelchStatusMonitor: SquelchStatusMonitor;
   private physicalPttMonitor: PhysicalPttMonitor;
   private transmissionPipeline: TransmissionPipeline;
@@ -836,6 +841,31 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
     });
 
     this.rigctldBridge = new RigctldBridge(this.radioManager, this.physicalTxCoordinator);
+    const interfaces=ConfigManager.getInstance().getN1MMInterfaceConfig();
+    this.n1mmWinKeyer = new WinKeyerBridge({enabled:interfaces.winkey.enabled,host:interfaces.winkey.host,port:interfaces.winkey.port}, id => ({
+      send: async (text,wpm,valid) => {
+        if (this.getEngineMode() !== 'cw') throw new Error('CW engine is not active');
+        const manager=this.getCWKeyerManager();
+        if(text.includes('<') && (await manager.getConfigAsync()).backend !== 'serial') throw new Error('Merged prosigns require the serial CW key backend');
+        await manager.handleTextInput(id,'N1MM WinKeyer',text,undefined,undefined,{wpm,valid});
+      },
+      key: async (down,valid) => {
+        const manager=this.getCWKeyerManager();
+        if(!down){await manager.handleClientDisconnect(id);return;}
+        if(this.getEngineMode() !== 'cw')throw new Error('CW engine is not active');
+        const config=await manager.getConfigAsync();
+        if(config.backend!=='serial'||!config.keyPort)throw new Error('Direct CW keying requires a configured serial key port');
+        await manager.handleKeyAction(id,'N1MM WinKeyer','key-down',valid);
+      },
+      stop: () => this.getCWKeyerManager().handleClientDisconnect(id),
+      speed: async wpm => { await this.getCWKeyerManager().updateConfig({wpm}); },
+    }));
+    this.n1mmCatBridge = new KenwoodCatBridge({
+      enabled:interfaces.cat.enabled,host:interfaces.cat.host,port:interfaces.cat.port,allowPtt:interfaces.cat.allowPtt,
+    }, () => new RadioControllerAdapter(this.radioManager, this.physicalTxCoordinator), {
+      get: async () => (await this.getCWKeyerManager().getConfigAsync()).wpm,
+      set: async wpm => { await this.getCWKeyerManager().updateConfig({ wpm }); },
+    });
     this.rigctldBridge.on('statusChanged', (status) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       this.emit('rigctldStatus' as any, status);
@@ -1485,8 +1515,20 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
       logger.warn('rigctld bridge initial apply failed', { error: (error as Error).message });
     });
 
+    await this.applyN1MMInterfaceConfig(ConfigManager.getInstance().getN1MMInterfaceConfig());
     logger.info(`Initialization complete, current mode: ${this.currentMode.name}, engine mode: ${this.engineMode}`);
   }
+
+  async applyN1MMInterfaceConfig(config:N1MMInterfaceConfig):Promise<void>{
+    const cat={enabled:config.cat.enabled,host:config.cat.host,port:config.cat.port,allowPtt:config.cat.allowPtt};
+    const wk={enabled:config.winkey.enabled,host:config.winkey.host,port:config.winkey.port};
+    await Promise.all([this.n1mmCatBridge.needsConfig(cat)?this.n1mmCatBridge.stop():undefined,this.n1mmWinKeyer.needsConfig(wk)?this.n1mmWinKeyer.stop():undefined]);
+    await Promise.all([this.n1mmCatBridge.applyConfig(cat),this.n1mmWinKeyer.applyConfig(wk)]);
+  }
+
+  getN1MMCatStatus() { return this.n1mmCatBridge.status(); }
+  getN1MMWinKeyStatus() { return this.n1mmWinKeyer.status(); }
+  async abortN1MMWinKey() { await this.n1mmWinKeyer.abort(); }
 
   /** Current rigctld bridge status snapshot (for /api/rigctld/status). */
   getRigctldStatus(): RigctldStatus {
@@ -1936,6 +1978,8 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
 
     // rigctld bridge: tear down outside the engine resource pipeline so we
     // stop accepting external connections before the radio is torn down.
+    await this.n1mmWinKeyer.stop().catch(error => logger.warn('N1MM WinKeyer stop failed', { error: String(error) }));
+    await this.n1mmCatBridge.stop().catch(error => logger.warn('N1MM CAT stop failed', { error: String(error) }));
     await this.rigctldBridge.stop().catch((error) => {
       logger.warn('rigctld bridge stop failed during shutdown', { error: (error as Error).message });
     });

@@ -25,6 +25,7 @@ import type { QSORecord } from '@tx5dr/contracts';
 import { formatFrequencyMHz } from '../../utils/frequencyMHz';
 import { openLogbookWindow } from '../../utils/windowManager';
 import { setCWQSOHisCallsign, setCWQSOTrst, setCWQSORrst, useCWQSODraft } from '../../store/cwQsoDraftStore';
+import { useCWContestProfile, updateCWContestProfile } from '../../store/cwContestProfileStore';
 
 const logger = createLogger('CWQSOLogCard');
 
@@ -78,6 +79,8 @@ export const CWQSOLogCard: React.FC<CWQSOLogCardProps> = ({
   const { operators } = useOperators();
   const { currentOperatorId, setCurrentOperatorId } = useCurrentOperatorId();
   const { hisCallsign } = useCWQSODraft();
+  const contest = useCWContestProfile();
+  const contestEntry = contest.active && !editingQSO;
 
   const [internalCollapsed, setInternalCollapsed] = useState(false);
   const [formData, setFormData] = useState<QSOFormData>(initialFormData);
@@ -169,7 +172,7 @@ export const CWQSOLogCard: React.FC<CWQSOLogCardProps> = ({
       grid: editingQSO.grid ?? '',
       comment: editingQSO.comment ?? editingQSO.notes ?? '',
     });
-    setCWQSOHisCallsign(editingQSO.callsign);
+    if (!contest.active) setCWQSOHisCallsign(editingQSO.callsign);
     setStartTime(editingQSO.startTime);
     setEndTime(editingQSO.endTime ?? null);
     setCurrentFrequency(editingQSO.frequency);
@@ -189,7 +192,7 @@ export const CWQSOLogCard: React.FC<CWQSOLogCardProps> = ({
   const updateField = (field: keyof QSOFormData, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     if (field === 'callsign') {
-      setCWQSOHisCallsign(value);
+      if (!editingQSO || !contest.active) setCWQSOHisCallsign(value);
     } else if (field === 'rstSent') {
       setCWQSOTrst(value);
     } else if (field === 'rstReceived') {
@@ -221,6 +224,14 @@ export const CWQSOLogCard: React.FC<CWQSOLogCardProps> = ({
 
     setIsSubmitting(true);
     try {
+      if (contestEntry) {
+        const entry = await api.getN1MMEntry();
+        if (!entry.online || !entry.actions?.includes('LOG')) throw new Error('N1MM LOG control is unavailable');
+        await api.updateN1MMEntry({call: formData.callsign.trim().toUpperCase(), zone: contest.receivedZone, action:'LOG'});
+        // The command is queued, not yet proof of a recorded QSO.
+        addToast({title:'N1MM LOG requested',description:'Confirm in N1MM or the contact mirror.',color:'primary',timeout:3000});
+        return;
+      }
       const qsoFrequency = editingQSO ? currentFrequency : (liveFrequency ?? currentFrequency);
       const qsoMode = 'CW';
 
@@ -315,6 +326,7 @@ export const CWQSOLogCard: React.FC<CWQSOLogCardProps> = ({
       onCancelEdit?.();
     } else {
       resetForm();
+      if (contestEntry) updateCWContestProfile({receivedZone:''});
     }
   };
 
@@ -341,7 +353,7 @@ export const CWQSOLogCard: React.FC<CWQSOLogCardProps> = ({
             className={`text-default-400 text-xs transition-transform duration-200 ${isCollapsed ? '' : 'rotate-90'}`}
           />
           <span className="text-sm font-semibold">
-            {isEditing ? t('radio:cw.qso.editTitle') : t('radio:cw.qso.title')}
+            {isEditing ? t('radio:cw.qso.editTitle') : contestEntry ? 'CQ WW CW / N1MM' : t('radio:cw.qso.title')}
           </span>
         </div>
 
@@ -419,6 +431,7 @@ export const CWQSOLogCard: React.FC<CWQSOLogCardProps> = ({
           classNames={{ input: 'font-mono font-bold text-xl uppercase' }}
         />
 
+        {contestEntry ? <div className="flex gap-2"><Input size="sm" label="RST" value="599" isReadOnly /><Input size="sm" label={t('radio:cw.contest.receivedZone')} value={contest.receivedZone} onValueChange={value=>updateCWContestProfile({receivedZone:value.replace(/\D/g,'').slice(0,2)})}/></div> : <>
         {/* RST row */}
         <div className="flex gap-2">
           <Input
@@ -478,6 +491,7 @@ export const CWQSOLogCard: React.FC<CWQSOLogCardProps> = ({
           maxRows={3}
         />
 
+        </>}
         {/* Time display */}
         <div className="flex gap-4 text-xs text-default-400">
           <span>{t('radio:cw.qso.startTime')}: <span className="font-mono">{formatTime(startTime)}</span></span>
@@ -500,7 +514,7 @@ export const CWQSOLogCard: React.FC<CWQSOLogCardProps> = ({
             className="flex-1"
             size="sm"
           >
-            {isEditing ? t('radio:cw.qso.save') : t('radio:cw.qso.logQSO')}
+            {isEditing ? t('radio:cw.qso.save') : contestEntry ? 'N1MM LOG' : t('radio:cw.qso.logQSO')}
           </Button>
           <Button
             variant="flat"

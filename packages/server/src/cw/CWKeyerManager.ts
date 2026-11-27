@@ -204,7 +204,8 @@ export class CWKeyerManager extends EventEmitter<CWKeyerManagerEvents> {
     await this.writePersistedConfig();
     logger.info('CW keyer config updated', { config: this.config });
     this.emit('cwConfigChanged', this.getConfig());
-    this.setStatus(this.idleStatus());
+    // Updating WPM alone must not advertise RX while an existing message is still active.
+    if (!this.active) this.setStatus(this.idleStatus());
   }
 
   /**
@@ -350,8 +351,9 @@ export class CWKeyerManager extends EventEmitter<CWKeyerManagerEvents> {
 
   // ========== 手键操作 ==========
 
-  async handleKeyAction(clientId: string, label: string, action: 'key-down' | 'key-up'): Promise<void> {
+  async handleKeyAction(clientId: string, label: string, action: 'key-down' | 'key-up', externalValid?: () => boolean): Promise<void> {
     await this.ensureConfigLoaded();
+    if(externalValid && (!externalValid() || (this.active && this.active.clientId !== clientId))) throw new Error('External CW key cancelled or keyer busy');
     const backend = this.getBackend();
     if (!backend.supportsManualKeying || !backend.keyDown || !backend.keyUp) {
       throw new Error('CAT backend does not support real-time manual keying');
@@ -391,7 +393,9 @@ export class CWKeyerManager extends EventEmitter<CWKeyerManagerEvents> {
       try {
         await this.ensureStarted();
         await this.acquirePhysicalLease('CW manual key', () => backend.keyUp!());
+        if(externalValid && !externalValid()) throw new Error('External CW key cancelled before key-down');
         await backend.keyDown();
+        if(externalValid && !externalValid()) {await backend.keyUp();throw new Error('External CW key cancelled');}
         this.confirmPhysicalLease();
         this.setStatus(this.statusFor(clientId, label, 'keying', null));
       } catch (error) {
@@ -426,8 +430,10 @@ export class CWKeyerManager extends EventEmitter<CWKeyerManagerEvents> {
     text: string,
     callsign?: string,
     placeholderValues?: CWPlaceholderValues,
+    external?: { wpm: number; valid: () => boolean },
   ): Promise<void> {
     await this.ensureConfigLoaded();
+    if (external && (!external.valid() || this.active)) throw new Error('External CW message cancelled or keyer busy');
     // 如果当前有手键活动，拒绝文字输入
     if (this.active?.mode === 'manual') {
       logger.debug('Text input rejected: manual key active');
@@ -465,10 +471,10 @@ export class CWKeyerManager extends EventEmitter<CWKeyerManagerEvents> {
 
     try {
       await this.ensureStarted();
-      await this.executePlayback(active, replaced);
+      await this.executePlayback(active, replaced, external?.wpm);
+      if (external && (active.stopRequested || !external.valid())) throw new Error('External CW message cancelled');
     } catch (error) {
-      this.active = null;
-      this.setStatus(this.idleStatus());
+      if (this.active === active) { this.active = null; this.setStatus(this.idleStatus()); }
       throw error;
     }
   }
@@ -597,7 +603,7 @@ export class CWKeyerManager extends EventEmitter<CWKeyerManagerEvents> {
 
   // ========== 私有方法 ==========
 
-  private async executePlayback(active: ActiveKeying, text: string): Promise<void> {
+  private async executePlayback(active: ActiveKeying, text: string, wpm = this.config.wpm): Promise<void> {
     if (active.stopRequested || this.active !== active) {
       return;
     }
@@ -609,7 +615,7 @@ export class CWKeyerManager extends EventEmitter<CWKeyerManagerEvents> {
       return;
     }
     try {
-      await backend.sendText(text, this.config.wpm, {
+      await backend.sendText(text, wpm, {
         isStopped: () => active.stopRequested || this.active !== active,
         wait: async (ms) => {
           await this.delay(ms, active);

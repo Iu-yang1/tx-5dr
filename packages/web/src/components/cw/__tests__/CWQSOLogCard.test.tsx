@@ -17,7 +17,7 @@ const mocks = vi.hoisted(() => ({
   frequency: 14_025_000 as number | null,
   service: { wsClientInstance: { send: vi.fn(), onWSEvent: vi.fn(), offWSEvent: vi.fn() } },
   operators: [{ id: 'op1', context: { myCall: 'BG5DRB', myGrid: 'OM88' } }],
-  api: { createQSO: vi.fn(), updateQSO: vi.fn(), deleteQSO: vi.fn() },
+  api: { createQSO: vi.fn(), updateQSO: vi.fn(), deleteQSO: vi.fn(), getN1MMEntry:vi.fn(), updateN1MMEntry:vi.fn() },
 }));
 
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
@@ -33,6 +33,7 @@ vi.mock('../../../store/radioStore', () => ({
 }));
 
 import { CWQSOLogCard } from '../CWQSOLogCard';
+import { updateCWContestProfile } from '../../../store/cwContestProfileStore';
 import { setCWQSOHisCallsign, setCWQSORrst, setCWQSOTrst, useCWQSODraft } from '../../../store/cwQsoDraftStore';
 
 const ui = (props: React.ComponentProps<typeof CWQSOLogCard> = {}) => (
@@ -50,6 +51,7 @@ function readDraft() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  updateCWContestProfile({active:false,receivedZone:''});
   vi.stubGlobal('localStorage', createStorageStub());
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
   window.matchMedia = vi.fn().mockImplementation(() => ({ matches: false, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} }));
@@ -63,6 +65,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  updateCWContestProfile({active:false,receivedZone:''});
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -210,5 +213,18 @@ describe('CWQSOLogCard editing', () => {
       reportReceived: '569',
     }));
     await waitFor(() => expect(onEditComplete).toHaveBeenCalled());
+  });
+});
+
+describe('CQWW shared native log card',()=>{
+  it('requests the N1MM action, rather than writing to the ordinary ADIF log',async()=>{
+    updateCWContestProfile({active:true,receivedZone:'25',stationCall:'BG8GLR'});
+    mocks.api.getN1MMEntry.mockResolvedValue({online:true,actions:['LOG']});
+    mocks.api.updateN1MMEntry.mockResolvedValue({online:true});
+    render(ui());
+    fireEvent.change(input('radio:cw.qso.callsign'),{target:{value:'JA1ABC'}});
+    fireEvent.click(screen.getByRole('button',{name:'N1MM LOG'}));
+    await waitFor(()=>expect(mocks.api.updateN1MMEntry).toHaveBeenCalledWith({call:'JA1ABC',zone:'25',action:'LOG'}));
+    expect(mocks.api.createQSO).not.toHaveBeenCalled();
   });
 });

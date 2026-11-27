@@ -1,0 +1,116 @@
+name: Windows N1MM Virtual Serial Smoke
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'packages/server/src/contest/**'
+      - 'packages/contracts/src/schema/cw-contest.schema.ts'
+      - '.github/workflows/windows-n1mm-virtual-serial.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: windows-n1mm-serial-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+jobs:
+  windows-com-smoke:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.1'
+      - name: Enable Yarn and install dependencies
+        env:
+          ONNXRUNTIME_NODE_INSTALL: skip
+        run: |
+          corepack enable
+          corepack prepare yarn@4.12.0 --activate
+          yarn install --immutable
+          yarn workspace @tx5dr/contracts build
+          yarn workspace @tx5dr/rigctld-server build
+      - name: Install pinned upstream virtual USB provider on disposable runner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path $env:RUNNER_TEMP 'SerialLoom_0.4.0_x64-setup.exe'
+          Invoke-WebRequest -Uri 'https://github.com/RahulP5/SerialLoom/releases/download/v0.4.0/SerialLoom_0.4.0_x64-setup.exe' -OutFile $installer
+          $expected = '35976de022f7a37447376be1d21a7b21fefd2539319e5e3d2c69decd748eeab1'
+          if ((Get-FileHash $installer -Algorithm SHA256).Hash.ToLower() -ne $expected) { throw 'Installer hash mismatch' }
+          $p = Start-Process -FilePath $installer -ArgumentList '/S' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "SerialLoom setup failed: $($p.ExitCode)" }
+          $root = Join-Path $env:ProgramFiles 'SerialLoom'
+          foreach ($file in @('usbip2_ude.cat','usbip2_filter.cat')) {
+            $sig = Get-AuthenticodeSignature (Join-Path $root "usbip\driver\$file")
+            if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'Microsoft Windows Hardware Compatibility Publisher') { throw "Unexpected catalog signer: $file $($sig.Status)" }
+          }
+          $controller = Get-PnpDevice -PresentOnly -Class USB | Where-Object { $_.FriendlyName -like '*USBip*Emulated Host Controller*' -and $_.Status -eq 'OK' }
+          if (-not $controller) { throw 'Signed USBip controller is not ready after setup' }
+          Get-Service SerialLoomHelper -ErrorAction SilentlyContinue | Format-Table Status,Name
+      - name: Start SerialLoom and test actual COM devices in the same Windows session
+        env:
+          TX5DR_SERIALLOOM_SMOKE: '1'
+        working-directory: packages/server
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:ProgramFiles 'SerialLoom'
+          $app = Join-Path $root 'serialloom.exe'
+          $cli = Join-Path $root 'serialloom-cli.exe'
+          $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+          $session = (Get-Process -Id $PID).SessionId
+          Write-Host "Smoke account SID=$($identity.User.Value) session=$session"
+          if ($session -eq 0) { throw 'SerialLoom requires a signed-in desktop session, not session 0' }
+          # Only on this disposable runner: stop any installer-launched desktop instance
+          # before writing settings. Do not terminate the privileged Helper service.
+          $old = Get-CimInstance Win32_Process -Filter "Name='serialloom.exe'" |
+            Where-Object { $_.ExecutablePath -eq $app -and $_.SessionId -eq $session -and $_.CommandLine -notmatch '--serialloom-(admin|service)' }
+          foreach ($proc in $old) {
+            Stop-Process -Id $proc.ProcessId -Force
+            Wait-Process -Id $proc.ProcessId -Timeout 15 -ErrorAction SilentlyContinue
+          }
+          $config = Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'io.github.serialloom'
+          New-Item -ItemType Directory -Force $config | Out-Null
+          $settings = Join-Path $config 'settings.json'
+          [IO.File]::WriteAllText($settings, '{"driver":"usb","version":2,"automation":true,"startWithWindows":false}', [Text.UTF8Encoding]::new($false))
+          Write-Host "SerialLoom settings: $settings"
+          Get-Content $settings
+          # Explicit launch: upstream CLI refuses to auto-start from an elevated runner.
+          # Keep the desktop process and the serial probe in the same job step/session.
+          $process = Start-Process -FilePath $app -ArgumentList '--background' -WorkingDirectory $root -PassThru
+          try {
+            if ($process.SessionId -ne $session) { throw 'SerialLoom started in a different Windows session' }
+            $deadline = [DateTime]::UtcNow.AddSeconds(90)
+            $ready = $false
+            do {
+              $process.Refresh()
+              if ($process.HasExited) { throw "SerialLoom desktop exited with code $($process.ExitCode)" }
+              $status = & $cli --no-start --timeout 3 status 2>&1
+              if ($LASTEXITCODE -eq 0) {
+                $status | Write-Host
+                $ready = $true
+                break
+              }
+              Write-Host "Waiting for SerialLoom IPC: $status"
+              Start-Sleep -Seconds 2
+            } while ([DateTime]::UtcNow -lt $deadline)
+            if (-not $ready) { throw 'SerialLoom automation pipe did not become ready in the desktop session' }
+            yarn exec tsx src/contest/serialloom-windows-smoke.ts
+            if ($LASTEXITCODE -ne 0) { throw "Real COM smoke failed: $LASTEXITCODE" }
+          } finally {
+            $log = Join-Path $env:LOCALAPPDATA 'SerialLoom\logs\serialloom.log'
+            if (Test-Path $log) { Get-Content $log -Tail 250 | Write-Host }
+            else { Write-Host "SerialLoom application log missing: $log" }
+            $process.Refresh()
+            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+          }
+      - name: Windows device diagnostics
+        if: always()
+        shell: pwsh
+        run: |
+          Get-PnpDevice -Class Ports -ErrorAction SilentlyContinue | Format-Table Status,FriendlyName,InstanceId -AutoSize
+          Get-PnpDevice -Class USB -ErrorAction SilentlyContinue | Where-Object FriendlyName -like '*USBip*' | Format-Table Status,FriendlyName,InstanceId -AutoSize
+          Get-Service SerialLoomHelper -ErrorAction SilentlyContinue | Format-Table Status,Name
+          $log = Join-Path $env:LOCALAPPDATA 'SerialLoom\logs\serialloom.log'
+          if (Test-Path $log) { Get-Content $log -Tail 250 | Write-Host }
