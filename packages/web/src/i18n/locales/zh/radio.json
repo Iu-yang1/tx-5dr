@@ -1281,6 +1281,16 @@
     }
   },
   "cw": {
+    "contest": {
+      "stationCall": "参赛呼号",
+      "sentZone": "发送 CQ 分区",
+      "hisCall": "对方呼号",
+      "useLookup": "使用 N1MM 呼号",
+      "logAuthority": "所有竞赛 QSO 在 N1MM 中确认和记录。TX-5DR 报文独立使用。",
+      "observed": "已接收 QSO（仅本次会话）",
+      "workedCandidate": "已见波段",
+      "mirrorUnavailable": "N1MM 镜像未启用、已过期或未配置。请继续使用 N1MM。"
+    },
     "title": "CW",
     "keyerTitle": "CW 发报",
     "wpm": "WPM 速度",

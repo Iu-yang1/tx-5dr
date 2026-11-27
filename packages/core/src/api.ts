@@ -2593,6 +2593,11 @@ export const api = {
     );
   },
 
+  // ===== CW Contest API =====
+  async getCWContestSnapshot(apiBase?: string): Promise<import('@tx5dr/contracts').CWContestSnapshot> {
+    return apiRequest<import('@tx5dr/contracts').CWContestSnapshot>('/cw/contest/n1mm', undefined, apiBase);
+  },
+
   // ===== CW Keyer API =====
 
   async getCWKeyerConfig(apiBase?: string): Promise<{ success: boolean; config: import('@tx5dr/contracts').CWKeyerConfig | null }> {

@@ -1281,6 +1281,16 @@
     }
   },
   "cw": {
+    "contest": {
+      "stationCall": "Contest callsign",
+      "sentZone": "Sent CQ zone",
+      "hisCall": "Other callsign",
+      "useLookup": "Use N1MM lookup",
+      "logAuthority": "Log and confirm all contest QSOs in N1MM. TX-5DR presets are independent.",
+      "observed": "Observed QSOs (session only)",
+      "workedCandidate": "Seen on band",
+      "mirrorUnavailable": "N1MM mirror inactive, stale, or not configured. Continue in N1MM."
+    },
     "title": "CW",
     "keyerTitle": "CW Keyer",
     "wpm": "WPM",

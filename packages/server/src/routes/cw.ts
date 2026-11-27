@@ -12,6 +12,7 @@ import { DigitalRadioEngine } from '../DigitalRadioEngine.js';
 import { requireAbility, requireCallsignAccess, requireRole } from '../auth/authPlugin.js';
 import { RadioError, RadioErrorCode } from '../utils/errors/RadioError.js';
 import { createLogger } from '../utils/logger.js';
+import { N1MMContestReceiver } from '../contest/N1MMContestReceiver.js';
 
 const logger = createLogger('CWRoutes');
 
@@ -44,6 +45,18 @@ async function requireCWDecoderConfigUpdateForPatch(request: FastifyRequest, rep
 
 export async function cwRoutes(fastify: FastifyInstance) {
   const engine = DigitalRadioEngine.getInstance();
+  const configuredPort = Number(process.env.N1MM_CW_UDP_PORT ?? 12060);
+  const contestReceiver = new N1MMContestReceiver({
+    enabled: process.env.N1MM_CW_UDP_ENABLED === '1',
+    bind: process.env.N1MM_CW_UDP_BIND ?? '127.0.0.1',
+    port: Number.isInteger(configuredPort) && configuredPort > 0 && configuredPort <= 65535 ? configuredPort : 12060,
+    stationCall: (process.env.N1MM_CW_STATION_CALL ?? '').trim().toUpperCase(),
+  });
+  fastify.addHook('onReady', async () => { contestReceiver.start(); });
+  fastify.addHook('onClose', async () => { contestReceiver.close(); });
+  fastify.get('/contest/n1mm', { preHandler: [requireRole(UserRole.OPERATOR)] }, async (_req, reply) => {
+    return reply.send(contestReceiver.snapshot());
+  });
 
   fastify.get('/decoder/backends', async (_req, reply) => {
     return reply.send({ success: true, backends: engine.getCWDecoderBackends() });

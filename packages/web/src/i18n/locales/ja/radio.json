@@ -1281,6 +1281,16 @@
     }
   },
   "cw": {
+    "contest": {
+      "stationCall": "コンテストコール",
+      "sentZone": "送信 CQ ゾーン",
+      "hisCall": "相手コール",
+      "useLookup": "N1MM のコールを使用",
+      "logAuthority": "コンテスト QSO は N1MM で確認・記録します。TX-5DR のメッセージは独立しています。",
+      "observed": "受信 QSO（セッションのみ）",
+      "workedCandidate": "確認済みバンド",
+      "mirrorUnavailable": "N1MM ミラーが無効、期限切れ、または未設定です。N1MM で操作を続けてください。"
+    },
     "title": "CW",
     "keyerTitle": "CWレポート",
     "wpm": "WPM速度",

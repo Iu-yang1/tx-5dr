@@ -11,6 +11,7 @@ export interface ModeRightTopTabsProps {
   operatorId: string | null | undefined;
   nativeContent: React.ReactNode;
   toolbarRight?: React.ReactNode;
+  extraNativeItems?: { key: string; label: string; content: React.ReactNode }[];
 }
 
 interface WorkspaceItem {
@@ -29,6 +30,7 @@ export const ModeRightTopTabs: React.FC<ModeRightTopTabsProps> = ({
   operatorId,
   nativeContent,
   toolbarRight,
+  extraNativeItems,
 }) => {
   const entries = useVisiblePluginPanelsForSlot(operatorId, slotId);
 
@@ -45,6 +47,7 @@ export const ModeRightTopTabs: React.FC<ModeRightTopTabsProps> = ({
 
     return [
       nativeItem,
+      ...(extraNativeItems ?? []),
       ...entries.map((entry) => ({
         key: entry.key,
         label: entry.tabLabel,
@@ -67,7 +70,7 @@ export const ModeRightTopTabs: React.FC<ModeRightTopTabsProps> = ({
         ),
       })),
     ];
-  }, [entries, nativeContent, nativeTabLabel, operatorId]);
+  }, [entries, extraNativeItems, nativeContent, nativeTabLabel, operatorId]);
 
   const [selectedKey, setSelectedKey] = React.useState<string>(() => items[0]?.key ?? '');
 
