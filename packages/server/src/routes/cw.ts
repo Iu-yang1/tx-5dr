@@ -64,6 +64,10 @@ export async function cwRoutes(fastify: FastifyInstance) {
     return reply.send({ ...contestReceiver.snapshot(typeof query.call==='string'?query.call:undefined), cat: engine.getN1MMCatStatus(), winkey: engine.getN1MMWinKeyStatus(), entry: entryBridge.snapshot() });
   });
 
+  fastify.post('/contest/mirror/reset', { preHandler: [requireRole(UserRole.OPERATOR)] }, async (_req, reply) => {
+    contestReceiver.resetMirror();
+    return reply.send(contestReceiver.snapshot());
+  });
   fastify.get('/contest/entry', { preHandler: [requireRole(UserRole.OPERATOR)] }, async (_req, reply) => reply.send(entryBridge.snapshot()));
   fastify.put('/contest/entry', { preHandler: [requireRole(UserRole.OPERATOR)] }, async (req, reply) => {
     const {action,...fields} = N1MMEntryRequestSchema.parse(req.body);

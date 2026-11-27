@@ -2598,6 +2598,9 @@ export const api = {
     return apiRequest<import('@tx5dr/contracts').CWContestSnapshot>('/cw/contest/n1mm'+(call?'?call='+encodeURIComponent(call):''), undefined, apiBase);
   },
 
+  async resetN1MMContestMirror(apiBase?: string): Promise<import('@tx5dr/contracts').CWContestSnapshot> {
+    return apiRequest('/cw/contest/mirror/reset', {method:'POST'}, apiBase);
+  },
   async getN1MMEntry(apiBase?: string): Promise<import('@tx5dr/contracts').N1MMEntryState> {
     return apiRequest('/cw/contest/entry', undefined, apiBase);
   },

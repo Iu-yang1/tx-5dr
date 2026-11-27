@@ -52,3 +52,26 @@ describe('N1MM UDP transport', () => {
     }
   });
 });
+
+describe('distributed log identity and full rebroadcast recovery', () => {
+  it('deduplicates the global ID even when different databases assign different contest numbers', () => {
+    const r = receiver();
+    r.ingest(qso());
+    r.ingest(qso().replace('<contestnr>3', '<contestnr>99'));
+    expect(r.snapshot().observedContacts).toBe(1);
+    r.ingest('<contactdelete><app>N1MM</app><mycall>BG8GLR</mycall><contestnr>12</contestnr><ID>abc</ID></contactdelete>');
+    expect(r.snapshot().observedContacts).toBe(0);
+  });
+  it('rebuilds only the local mirror after an explicit reset and ignores another active contest', () => {
+    const r = receiver();
+    const app = (name: string, nr: number) => '<AppInfo><app>N1MM</app><dbname>contest.s3db</dbname><contestnr>'+nr+'</contestnr><contestname>'+name+'</contestname><StationName>JVM-PC</StationName><mycall>BG8GLR</mycall></AppInfo>';
+    r.ingest(app('CQWWCW', 3));r.ingest(qso());
+    expect(r.snapshot().application?.contestNr).toBe('3');
+    r.resetMirror(123);
+    expect(r.snapshot()).toMatchObject({observedContacts:0,mirrorResetAt:123});
+    r.ingest(qso());r.ingest(qso().replace('<ID>abc','<ID>def'));
+    expect(r.snapshot().observedContacts).toBe(2);
+    r.ingest(app('CQWPX',4));r.ingest(qso());
+    expect(r.snapshot().observedContacts).toBe(0);
+  });
+});

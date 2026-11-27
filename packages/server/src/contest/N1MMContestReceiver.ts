@@ -70,6 +70,9 @@ export class N1MMContestReceiver {
   private contacts = new Map<string, ContestContact>();
   private spots = new Map<string,ContestSpot>();
   private score?:ContestScore;
+  private application?: CWContestSnapshot['application'];
+  private mirrorResetAt?: number;
+  private lastContactAt?: number;
   constructor(private readonly config: { enabled: boolean; bind: string; port: number; stationCall: string; stationName?: string }) {}
 
   start(): void {
@@ -99,6 +102,13 @@ export class N1MMContestReceiver {
     if (socket) { try { socket.close(); } catch { /* already closed */ } }
   }
 
+  /** Discard the local projection before an explicit N1MM full-log rebroadcast. */
+  resetMirror(now = Date.now()): void {
+    this.contacts.clear();
+    this.lastContactAt = undefined;
+    this.mirrorResetAt = now;
+  }
+
   /** Passive projection only: never writes to the contest log or controls RF. */
   ingest(xml: string, now = Date.now()): void {
     const score=parseN1MMScore(xml,this.config.stationCall,now);
@@ -110,6 +120,9 @@ export class N1MMContestReceiver {
       const dx=call(f.dxcall),frequencyHz=Math.round(Number(f.frequency)*1000);
       if(!dx||!Number.isSafeInteger(frequencyHz)||frequencyHz<1000||frequencyHz>10_000_000_000||f.mode?.toUpperCase()!=='CW')return;
       const key=dx+':'+frequencyHz;
+      for (const [id, spot] of this.spots) {
+        if (now - spot.receivedAt >= 30 * 60 * 1000) this.spots.delete(id);
+      }
       if(f.action?.toLowerCase()==='delete'){this.spots.delete(key);return;}
       if(f.action?.toLowerCase()!=='add')return;
       this.spots.set(key,{call:dx,frequencyHz,spotter:call(f.spottercall),timestamp:f.timestamp??'',status:f.status??'',comment:f.comment??'',receivedAt:now});
@@ -119,8 +132,21 @@ export class N1MMContestReceiver {
     if (!stationCall || (this.config.stationCall && stationCall !== call(this.config.stationCall))) return;
     // On a distributed team, every computer may report the same contest call.
     // Keep local radio/entry state separate from the team contact projection.
-    if ((type === 'radioinfo' || type === 'lookupinfo') && this.config.stationName &&
+    if ((type === 'radioinfo' || type === 'lookupinfo' || type === 'appinfo') && this.config.stationName &&
         call(f.stationname) !== call(this.config.stationName)) return;
+    if (type === 'appinfo') {
+      if (!f.dbname || !f.contestnr || !f.contestname) return;
+      const next = { database: f.dbname, contestNr: f.contestnr, contest: f.contestname, station: f.stationname ?? '', receivedAt: now };
+      const previous = this.application;
+      if (previous && previous.station === next.station && (previous.database !== next.database || previous.contestNr !== next.contestNr || previous.contest !== next.contest)) {
+        this.resetMirror(now);
+        this.score = undefined;
+        this.lookup = undefined;
+        this.spots.clear();
+      }
+      this.application = next;
+      return;
+    }
     if (type === 'radioinfo') {
       const frequencyHz = hz(f.freq);
       if (!frequencyHz || f.mode?.toUpperCase() !== 'CW' || (f.radionr && f.radionr !== '1')) return;
@@ -135,14 +161,19 @@ export class N1MMContestReceiver {
     }
     const id = f.id?.trim();
     if (!id || id.length > 128 || !f.contestnr) return;
-    const key = stationCall + ':' + f.contestnr + ':' + id;
+    // ID is globally unique; contestnr is scoped to the sender's database.
+    // All Computers can forward the same QSO under a different contestnr.
+    const key = stationCall + ':' + id;
+    if (this.application && !isCQWW(this.application.contest)) return;
     if (type === 'contactdelete') {
       this.contacts.delete(key);
+      this.lastContactAt = now;
       return;
     }
     if (!['contactinfo', 'contactreplace'].includes(type) || !isCQWW(f.contestname) || f.mode?.toUpperCase() !== 'CW') return;
     const frequencyHz = hz(f.rxfreq);
     if (!frequencyHz || !call(f.call) || !f.timestamp) return;
+    this.lastContactAt = now;
     this.contacts.set(key, { id, contestNr: f.contestnr, station: f.stationname ?? '',
       stationCall, operator: call(f.operator), call: call(f.call), timestamp: f.timestamp,
       frequencyHz, mode: 'CW', band: f.band ?? '', rstSent: f.snt ?? '', rstReceived: f.rcv ?? '',
@@ -163,6 +194,7 @@ export class N1MMContestReceiver {
     return { enabled: this.config.enabled, listening: this.listening, bind: this.config.bind,
       port: this.listening && this.socket ? this.socket.address().port : this.config.port,
       stationCall: this.config.stationCall, error: this.error,
+      application: this.application, mirrorResetAt: this.mirrorResetAt, lastContactAt: this.lastContactAt,
       radio: this.radio, lookup: this.lookup, observedContacts: this.contacts.size,
       workedBands:queryCall?[...new Set(observed.filter(q=>q.call===call(queryCall)).map(q=>q.band))]:[],
       rate:{last10,last60},observedBands:[...bands].map(([band,v])=>({band,qsos:v.qsos,zones:v.zones.size,countries:v.countries.size})),

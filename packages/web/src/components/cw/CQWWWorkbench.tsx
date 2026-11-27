@@ -25,7 +25,8 @@ export function CQWWWorkbench() {
   const { stationCall, sentZone, run } = useCWContestProfile();
   const [snapshot, setSnapshot] = useState<CWContestSnapshot>();
   const [entry,setEntry] = useState<N1MMEntryState>();
-  const [zone,setZone] = useState('');
+  const { receivedZone: zone } = useCWContestProfile();
+  const [confirmRebuild, setConfirmRebuild] = useState(false);
   const [spotFilter,setSpotFilter] = useState<'all'|'mult'|'new'>('all');
   const [entryError,setEntryError] = useState('');
   const [nativeMacros,setNativeMacros] = useState(false);
@@ -33,10 +34,10 @@ export function CQWWWorkbench() {
   const editing=useRef(false);
   const editTimer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
   const tail=useRef(Promise.resolve());
-  const wanted=useRef<N1MMEntryFields>({call:'',zone:''});
+  const wanted=useRef<N1MMEntryFields>({call:hisCallsign,zone});
   const sequence=useRef(0);
   const applyEntry=(fields:N1MMEntryFields)=>{
-    wanted.current=fields;setCWQSOHisCallsign(fields.call);setZone(fields.zone);
+    wanted.current=fields;setCWQSOHisCallsign(fields.call);updateCWContestProfile({receivedZone:fields.zone});
   };
   const requestEntry=(fields:N1MMEntryFields)=>{
     applyEntry(fields);
@@ -63,7 +64,7 @@ export function CQWWWorkbench() {
   },[]);
   // The existing decoder and ordinary CW log card write the same draft store.
   // Project only locally originated changes; applying remote readback updates wanted first.
-  useEffect(()=>{if(hisCallsign!==wanted.current.call)requestEntry({call:hisCallsign.toUpperCase().replace(/[^A-Z0-9/]/g,'').slice(0,20),zone});},[hisCallsign]);
+  useEffect(()=>{if(hisCallsign!==wanted.current.call || zone!==wanted.current.zone)requestEntry({call:hisCallsign.toUpperCase().replace(/[^A-Z0-9/]/g,'').slice(0,20),zone});},[hisCallsign,zone]);
   const action = async (name:N1MMEntryAction)=>{
     if(actionBusy||!entry?.online||!entry.actions?.includes(name))return;
     if(editTimer.current)clearTimeout(editTimer.current);
@@ -71,6 +72,13 @@ export function CQWWWorkbench() {
     try{await tail.current.catch(()=>undefined);const state=await api.updateN1MMEntry({...wanted.current,action:name});setEntry(state);setEntryError('');}
     catch(error){setEntryError(String(error));}
     finally{editing.current=false;setActionBusy(false);}
+  };
+  const rebuildMirror = async () => {
+    try {
+      const next = await api.resetN1MMContestMirror();
+      setSnapshot(next);setConfirmRebuild(false);
+      setEntryError('N1MM: Tools → Rebroadcast all Contest QSOs to other Apps');
+    } catch (error) { setEntryError(String(error)); }
   };
   const qsy=async(frequency:number)=>{
     if(!canWriteRadioFrequency(canSetFrequency,connectionState.coreCapabilities)||!canExecuteRadioFrequency(ability,frequency))return;
@@ -142,8 +150,12 @@ export function CQWWWorkbench() {
       <div className="max-h-48 overflow-auto">{snapshot?.spots?.filter(s=>spotFilter==='all'||(spotFilter==='mult'?s.status.includes('mult'):s.status==='new qso')).map(s=><div key={s.call+':'+s.frequencyHz} title={s.comment+' / '+s.spotter} className="grid w-full grid-cols-4 gap-1 border-b border-default-100 py-1 text-left text-xs font-mono"><button type="button" onClick={()=>void qsy(s.frequencyHz)}>{(s.frequencyHz/1000).toFixed(2)}</button><button type="button" onClick={()=>requestEntry({call:s.call,zone:''})}>{s.call}</button><span className={s.status.includes('mult')?'text-success':s.status==='dupe'?'text-default-400':''}>{s.status}</span><span className="truncate">{s.spotter}</span></div>)}</div>
       <div className="flex items-center justify-between text-xs">
         <span>{t('cw.contest.observed')}: {snapshot?.observedContacts ?? 0}</span>
+        <Button size="sm" variant="flat" onPress={()=>setConfirmRebuild(v=>!v)}>Rebuild</Button>
         {workedBands.length>0&&<Chip size="sm" color="warning" variant="flat">{t('cw.contest.workedCandidate')}: {workedBands.join(', ')}</Chip>}
       </div>
+      {confirmRebuild && <div className="rounded-md bg-content2 p-2 text-xs"><p>Clear TX-5DR mirror only, then use N1MM Tools → Rebroadcast all Contest QSOs to other Apps. N1MM log is unchanged.</p><Button size="sm" color="warning" onPress={()=>void rebuildMirror()}>Reset mirror</Button><Button size="sm" variant="light" onPress={()=>setConfirmRebuild(false)}>Cancel</Button></div>}
+      {snapshot?.application && <p className="text-xs text-default-500">{snapshot.application.database} · {snapshot.application.contest} #{snapshot.application.contestNr}</p>}
+      {snapshot?.mirrorResetAt && <p className="text-xs text-default-500">Mirror rebuilt from UDP since {new Date(snapshot.mirrorResetAt).toISOString()} (not a verified full copy)</p>}
       {(!snapshot?.listening || unavailable || !fresh) && <p className="text-xs text-warning">{t('cw.contest.mirrorUnavailable')}{snapshot?.error ? ': ' + snapshot.error : ''}</p>}
       <div className="min-h-0 overflow-auto">
         {filtered.map(q => <div key={q.stationCall + ':' + q.contestNr + ':' + q.id} className="grid grid-cols-4 gap-1 border-b border-default-100 py-1 text-xs font-mono">
