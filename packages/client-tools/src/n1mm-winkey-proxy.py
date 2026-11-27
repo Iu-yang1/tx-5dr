@@ -1,10 +1,12 @@
 """Connect a Windows virtual COM peer to a TX-5DR TCP CAT or WinKeyer bridge."""
 import argparse
+import errno
+import queue
 import socket
 import threading
 
 
-def socket_to_serial(sock, port, done):
+def socket_to_serial(sock, port, done, failures):
     try:
         while not done.is_set():
             try:
@@ -15,7 +17,7 @@ def socket_to_serial(sock, port, done):
                 break
             port.write(data)
     except OSError as exc:
-        print("N1MM TCP receive failed:", exc, flush=True)
+        failures.put(exc)
     finally:
         done.set()
 
@@ -23,7 +25,10 @@ def socket_to_serial(sock, port, done):
 def relay(port, sock):
     sock.settimeout(0.2)
     done = threading.Event()
-    thread = threading.Thread(target=socket_to_serial, args=(sock, port, done), daemon=True)
+    failures = queue.SimpleQueue()
+    thread = threading.Thread(
+        target=socket_to_serial, args=(sock, port, done, failures), daemon=True
+    )
     thread.start()
     try:
         while not done.is_set():
@@ -35,8 +40,13 @@ def relay(port, sock):
         try:
             sock.shutdown(socket.SHUT_RDWR)
         except OSError as exc:
-            print("N1MM TCP shutdown:", exc, flush=True)
+            if exc.errno not in (errno.ENOTCONN, errno.EBADF):
+                failures.put(exc)
         thread.join(2)
+    if thread.is_alive():
+        raise TimeoutError("N1MM TCP receiver did not terminate")
+    if not failures.empty():
+        raise ConnectionError("N1MM TCP/serial relay failed") from failures.get()
 
 
 def main():
