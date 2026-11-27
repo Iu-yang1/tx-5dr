@@ -2598,6 +2598,13 @@ export const api = {
     return apiRequest<import('@tx5dr/contracts').CWContestSnapshot>('/cw/contest/n1mm', undefined, apiBase);
   },
 
+  async getN1MMEntry(apiBase?: string): Promise<import('@tx5dr/contracts').N1MMEntryState> {
+    return apiRequest('/cw/contest/entry', undefined, apiBase);
+  },
+  async updateN1MMEntry(fields: import('@tx5dr/contracts').N1MMEntryFields, apiBase?: string): Promise<import('@tx5dr/contracts').N1MMEntryState> {
+    return apiRequest('/cw/contest/entry', {method:'PUT',body:JSON.stringify(fields)}, apiBase);
+  },
+
   // ===== CW Keyer API =====
 
   async getCWKeyerConfig(apiBase?: string): Promise<{ success: boolean; config: import('@tx5dr/contracts').CWKeyerConfig | null }> {

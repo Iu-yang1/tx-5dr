@@ -1,5 +1,5 @@
 import { createSocket, type Socket } from 'node:dgram';
-import type { ContestContact, ContestRadioInfo, CWContestSnapshot } from '@tx5dr/contracts';
+import type { ContestContact, ContestRadioInfo, CWContestSnapshot, ContestSpot, ContestScore } from '@tx5dr/contracts';
 
 type Fields = Record<string, string>;
 
@@ -46,6 +46,21 @@ function integer(value?: string): number | undefined {
   return Number.isSafeInteger(n) ? n : undefined;
 }
 
+// Score broadcasts have a distinct nested schema and no app field. Only
+// inspect the documented score fields; reject DTD/ENTITY and never resolve XML.
+export function parseN1MMScore(xml:string,stationCall:string,now:number):ContestScore|undefined{
+  if(xml.length>65507||/<!DOCTYPE|<!ENTITY/i.test(xml)||!/<dynamicresults[\s>]/i.test(xml))return;
+  const field=(name:string)=>new RegExp('<'+name+'>([^<]*)</'+name+'>','i').exec(xml)?.[1]?.trim();
+  if(!isCQWW(field('contest'))||!field('call')||(stationCall&&call(field('call'))!==call(stationCall)))return;
+  const score=integer(field('score')); if(score===undefined||score<0)return;
+  const breakdown:ContestScore['breakdown']=[];
+  const body=/<breakdown>([\s\S]*?)<\/breakdown>/i.exec(xml)?.[1]??'';
+  for(const match of body.matchAll(/<(qso|point|mult)\s+([^>]+)>(\d+)<\/\1>/gi)){
+    const attr=(key:string)=>new RegExp('(?:^|\\s)'+key+'\\s*=\\s*["\x27]([^"\x27]*)["\x27]','i').exec(match[2])?.[1];
+    breakdown.push({kind:match[1].toLowerCase(),band:attr('band')??'',mode:attr('mode')??'',type:attr('type'),value:Number(match[3])});
+  }
+  return {score,timestamp:field('timestamp')??'',receivedAt:now,breakdown};
+}
 export class N1MMContestReceiver {
   private socket?: Socket;
   private listening = false;
@@ -53,6 +68,8 @@ export class N1MMContestReceiver {
   private radio?: ContestRadioInfo;
   private lookup?: CWContestSnapshot['lookup'];
   private contacts = new Map<string, ContestContact>();
+  private spots = new Map<string,ContestSpot>();
+  private score?:ContestScore;
   constructor(private readonly config: { enabled: boolean; bind: string; port: number; stationCall: string; stationName?: string }) {}
 
   start(): void {
@@ -84,9 +101,20 @@ export class N1MMContestReceiver {
 
   /** Passive projection only: never writes to the contest log or controls RF. */
   ingest(xml: string, now = Date.now()): void {
+    const score=parseN1MMScore(xml,this.config.stationCall,now);
+    if(score){this.score=score;return;}
     const packet = parseN1MMFlatXml(xml);
     if (!packet) return;
     const { type, fields: f } = packet;
+    if(type==='spot'){
+      const dx=call(f.dxcall),frequencyHz=Math.round(Number(f.frequency)*1000);
+      if(!dx||!Number.isSafeInteger(frequencyHz)||frequencyHz<1000||frequencyHz>10_000_000_000||f.mode?.toUpperCase()!=='CW')return;
+      const key=dx+':'+frequencyHz;
+      if(f.action?.toLowerCase()==='delete'){this.spots.delete(key);return;}
+      if(f.action?.toLowerCase()!=='add')return;
+      this.spots.set(key,{call:dx,frequencyHz,spotter:call(f.spottercall),timestamp:f.timestamp??'',status:f.status??'',comment:f.comment??'',receivedAt:now});
+      return;
+    }
     const stationCall = call(f.mycall);
     if (!stationCall || (this.config.stationCall && stationCall !== call(this.config.stationCall))) return;
     // On a distributed team, every computer may report the same contest call.
@@ -127,6 +155,7 @@ export class N1MMContestReceiver {
       port: this.listening && this.socket ? this.socket.address().port : this.config.port,
       stationCall: this.config.stationCall, error: this.error,
       radio: this.radio, lookup: this.lookup, observedContacts: this.contacts.size,
+      score:this.score,spots:[...this.spots.values()].filter(s=>Date.now()-s.receivedAt<30*60*1000).sort((a,b)=>a.frequencyHz-b.frequencyHz),
       contacts: [...this.contacts.values()].sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 100) };
   }
 }

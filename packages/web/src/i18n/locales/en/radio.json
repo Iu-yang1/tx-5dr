@@ -1282,6 +1282,8 @@
   },
   "cw": {
     "contest": {
+      "receivedZone": "Received CQ zone",
+      "score": "N1MM score",
       "stationCall": "Contest callsign",
       "sentZone": "Sent CQ zone",
       "hisCall": "Other callsign",

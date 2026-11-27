@@ -147,6 +147,8 @@ jobs:
             src/decode/__tests__/MfskLiveRxService.test.ts
             src/routes/__tests__/mfskQsoRecord.test.ts
             src/__tests__/server-logbook-startup-isolation.test.ts
+            src/contest/N1MMEntryBridge.test.ts
+            src/contest/N1MMAssisted.test.ts
             src/contest/WinKeyerSession.test.ts
             src/contest/KenwoodCatBridge.test.ts
             src/contest/N1MMContestReceiver.test.ts

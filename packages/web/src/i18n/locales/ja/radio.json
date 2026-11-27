@@ -1282,6 +1282,8 @@
   },
   "cw": {
     "contest": {
+      "receivedZone": "受信 CQ ゾーン",
+      "score": "N1MM スコア",
       "stationCall": "コンテストコール",
       "sentZone": "送信 CQ ゾーン",
       "hisCall": "相手コール",

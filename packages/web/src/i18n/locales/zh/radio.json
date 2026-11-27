@@ -1282,6 +1282,8 @@
   },
   "cw": {
     "contest": {
+      "receivedZone": "接收 CQ 分区",
+      "score": "N1MM 实时成绩",
       "stationCall": "参赛呼号",
       "sentZone": "发送 CQ 分区",
       "hisCall": "对方呼号",
