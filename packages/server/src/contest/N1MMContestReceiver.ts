@@ -53,7 +53,7 @@ export class N1MMContestReceiver {
   private radio?: ContestRadioInfo;
   private lookup?: CWContestSnapshot['lookup'];
   private contacts = new Map<string, ContestContact>();
-  constructor(private readonly config: { enabled: boolean; bind: string; port: number; stationCall: string }) {}
+  constructor(private readonly config: { enabled: boolean; bind: string; port: number; stationCall: string; stationName?: string }) {}
 
   start(): void {
     if (!this.config.enabled || this.socket) return;
@@ -89,6 +89,10 @@ export class N1MMContestReceiver {
     const { type, fields: f } = packet;
     const stationCall = call(f.mycall);
     if (!stationCall || (this.config.stationCall && stationCall !== call(this.config.stationCall))) return;
+    // On a distributed team, every computer may report the same contest call.
+    // Keep local radio/entry state separate from the team contact projection.
+    if ((type === 'radioinfo' || type === 'lookupinfo') && this.config.stationName &&
+        call(f.stationname) !== call(this.config.stationName)) return;
     if (type === 'radioinfo') {
       const frequencyHz = hz(f.freq);
       if (!frequencyHz || f.mode?.toUpperCase() !== 'CW' || (f.radionr && f.radionr !== '1')) return;
@@ -120,7 +124,8 @@ export class N1MMContestReceiver {
 
   snapshot(): CWContestSnapshot {
     return { enabled: this.config.enabled, listening: this.listening, bind: this.config.bind,
-      port: this.config.port, stationCall: this.config.stationCall, error: this.error,
+      port: this.listening && this.socket ? this.socket.address().port : this.config.port,
+      stationCall: this.config.stationCall, error: this.error,
       radio: this.radio, lookup: this.lookup, observedContacts: this.contacts.size,
       contacts: [...this.contacts.values()].sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 100) };
   }

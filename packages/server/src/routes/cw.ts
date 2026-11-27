@@ -51,6 +51,7 @@ export async function cwRoutes(fastify: FastifyInstance) {
     bind: process.env.N1MM_CW_UDP_BIND ?? '127.0.0.1',
     port: Number.isInteger(configuredPort) && configuredPort > 0 && configuredPort <= 65535 ? configuredPort : 12060,
     stationCall: (process.env.N1MM_CW_STATION_CALL ?? '').trim().toUpperCase(),
+    stationName: (process.env.N1MM_CW_STATION_NAME ?? '').trim(),
   });
   fastify.addHook('onReady', async () => { contestReceiver.start(); });
   fastify.addHook('onClose', async () => { contestReceiver.close(); });

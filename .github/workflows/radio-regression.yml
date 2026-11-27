@@ -98,6 +98,10 @@ jobs:
             src/components/settings/DigitalDecodePreferencesPanel.test.tsx
             src/components/radio/operators/NativeOperatorProgress.test.ts
             src/components/radio/digital/JttyReceiveTerminal.test.ts
+            src/components/cw/__tests__/contestMessages.test.ts
+            src/components/cw/__tests__/CWKeyerPanel.test.tsx
+            src/components/cw/__tests__/CWDecoderPanel.test.tsx
+            src/components/cw/__tests__/CWFrequencyControl.test.tsx
             src/components/jtty/__tests__/jttyMessagePanel.test.ts
             src/components/jtty/__tests__/jttyQsoSubmission.test.ts
             src/audio/__tests__/softwareSquelchPreference.test.ts
@@ -143,6 +147,11 @@ jobs:
             src/decode/__tests__/MfskLiveRxService.test.ts
             src/routes/__tests__/mfskQsoRecord.test.ts
             src/__tests__/server-logbook-startup-isolation.test.ts
+            src/contest/KenwoodCatBridge.test.ts
+            src/contest/N1MMContestReceiver.test.ts
+            src/cw/__tests__/CWKeyerManager.test.ts
+            src/cw/__tests__/RadioCatCWKeyerBackend.test.ts
+            src/cw-decoder/__tests__/CWDecoderManager.test.ts
             src/jtty/__tests__/JttyMessagePanels.test.ts
             src/utils/__tests__/frequencyMHz.test.ts
             src/audio/__tests__/AudioHotplugRecovery.test.ts

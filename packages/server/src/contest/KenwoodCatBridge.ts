@@ -172,8 +172,10 @@ export class KenwoodCatBridge {
   }
 
   status(): KenwoodCatStatus {
+    const address = this.server?.address();
     return { enabled: this.config.enabled, listening: this.server?.listening ?? false,
-      host: this.config.host, port: this.config.port, clients: this.sockets.size, error: this.lastError };
+      host: this.config.host, port: typeof address === 'object' && address ? address.port : this.config.port,
+      clients: this.sockets.size, error: this.lastError };
   }
 
   async stop(): Promise<void> {

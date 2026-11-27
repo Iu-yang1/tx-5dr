@@ -38,7 +38,12 @@ $env:N1MM_CW_UDP_ENABLED = "1"
 $env:N1MM_CW_UDP_BIND = "127.0.0.1"
 $env:N1MM_CW_UDP_PORT = "12060"
 $env:N1MM_CW_STATION_CALL = "BG8GLR"
+# Optional: actual N1MM Windows computer name, e.g. JVM-PC.
+$env:N1MM_CW_STATION_NAME = "JVM-PC"
 ```
+Replace JVM-PC with the actual N1MM StationName (NetBIOS name), or omit it
+if only the local N1MM instance sends UDP. This separates local RadioInfo and
+LookupInfo from other BG8GLR stations while preserving team contact projection.
 Configure N1MM Configurer > Broadcast Data: Radio, Contacts, External Callsign
 Lookup -> 127.0.0.1:12060. On a remote RF server, bind only a trusted private
 interface and point N1MM to that address. The receiver is read-only and has no
@@ -62,3 +67,12 @@ continue using the actual operator account.
 The initial implementation does not emulate WinKeyer, inject Windows keys,
 recover missed UDP contacts, or derive official contest scores. Those interfaces
 require independent protocol and real N1MM client verification.
+
+## Regression scope
+
+The focused radio CI explicitly runs the new CAT/UDP unit and localhost socket
+integration tests, CW contest message tests, and existing CW keyer, decoder and
+frequency-control tests. Hardware fallback, physical dial/real CAT latency,
+N1MM native F-key keying and contest-log networking require station acceptance:
+first test with a dummy load or RF output disabled, then disconnect/close
+TX-5DR and verify N1MM direct CAT, F1/F2, Esc and logging independently.

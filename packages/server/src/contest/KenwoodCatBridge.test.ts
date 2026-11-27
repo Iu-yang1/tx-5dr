@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { RadioController, RigctlMode } from '@tx5dr/rigctld-server';
-import { KenwoodCatSession } from './KenwoodCatBridge.js';
+import { createConnection } from 'node:net';
+import { once } from 'node:events';
+import { KenwoodCatBridge, KenwoodCatSession } from './KenwoodCatBridge.js';
 function fixture(allowPtt = false) {
   let hz = 14025000, mode: RigctlMode = 'CW', ptt = false, wpm = 25;
   const radio: RadioController = {
@@ -43,5 +45,37 @@ describe('N1MM single VFO CAT subset', () => {
     await enabled.session.close();
     expect(await enabled.radio.getPTT()).toBe(false);
     expect(await enabled.session.command('TX')).toBe('?;');
+  });
+});
+
+ describe('Kenwood CAT TCP transport', () => {
+  it('handles fragmented/coalesced CAT requests and releases session PTT on disconnect', async () => {
+    const { radio } = fixture();
+    const bridge = new KenwoodCatBridge({ enabled: true, host: '127.0.0.1', port: 0, allowPtt: true },
+      () => radio, { async get() { return 25; }, async set() {} });
+    await bridge.start();
+    const socket = createConnection({ host: '127.0.0.1', port: bridge.status().port });
+    try {
+      await once(socket, 'connect');
+      let answer = '';
+      const expected = 'ID021;FA00014025000;FA00007025000;';
+      const replies = new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('CAT response timeout: ' + answer)), 3000);
+        socket.on('data', data => {
+          answer += data.toString('ascii');
+          if (answer.length >= expected.length) { clearTimeout(timeout); resolve(); }
+        });
+      });
+      socket.write('I');
+      socket.write('D;FA;FA00007025000;FA;TX;');
+      await replies;
+      expect(answer).toBe(expected);
+      await vi.waitFor(async () => expect(await radio.getPTT()).toBe(true));
+      socket.destroy();
+      await vi.waitFor(async () => expect(await radio.getPTT()).toBe(false));
+    } finally {
+      socket.destroy();
+      await bridge.stop();
+    }
   });
 });
