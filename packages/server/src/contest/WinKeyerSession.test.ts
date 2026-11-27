@@ -59,3 +59,26 @@ describe('WinKeyer advanced host commands',()=>{
     expect(s.status.error).toContain('does not support');expect(s.status.busy).toBe(false);
   });
 });
+
+describe('WinKeyer pending buffer pointer protocol',()=>{
+  it('corrects reserved callsign bytes, skips nulls and appends after fragmented pointer commands',async()=>{
+    const sent:string[]=[];
+    const s=new WinKeyerSession({send:async text=>{sent.push(text);},stop:async()=>{},speed:async()=>{}},()=>{});
+    s.feed(Buffer.from([0,2,0x06,1,0x16,3,6]));
+    s.feed(Buffer.from(' 5NN 24'));
+    s.feed(Buffer.from([0x16,1]));s.feed(Buffer.from([1]));s.feed(Buffer.from('JA1ABC'));
+    s.feed(Buffer.from([0x16,1,6,0x16,3,1,0x16,2,0]));
+    s.feed(Buffer.from(' TU'));s.feed(Buffer.from([0x06,0]));
+    await vi.waitFor(()=>expect(sent).toEqual(['JA1AB 5NN 24 TU']));
+    await s.close();
+  });
+  it('does not retransmit already handed-off bytes when a host requests a late correction',async()=>{
+    const sent:string[]=[];let done=()=>{};
+    const s=new WinKeyerSession({send:async text=>{sent.push(text);await new Promise<void>(r=>{done=r;});},stop:async()=>{done();},speed:async()=>{}},()=>{});
+    s.feed(Buffer.from([0,2]));s.feed(Buffer.from('JA1ABC'));
+    await vi.waitFor(()=>expect(sent).toEqual(['JA1ABC']));
+    s.feed(Buffer.from([0x16,1,2]));s.feed(Buffer.from('X'));
+    expect(s.status.error).toContain('not pending');await s.close();
+    expect(sent).toEqual(['JA1ABC']);
+  });
+});

@@ -196,7 +196,7 @@ export class N1MMContestReceiver {
       stationCall: this.config.stationCall, error: this.error,
       application: this.application, mirrorResetAt: this.mirrorResetAt, lastContactAt: this.lastContactAt,
       radio: this.radio, lookup: this.lookup, observedContacts: this.contacts.size,
-      logCandidates:queryCall && queryCall.length>=3 ? [...new Set(observed.map(q=>q.call))].filter(c=>c.includes(call(queryCall)) || c.startsWith(call(queryCall).slice(0,-1))).slice(0,100):[],
+      logCandidates:queryCall && queryCall.length>=3 ? [...new Set(observed.map(q=>q.call))].filter(c=>Math.abs(c.length-queryCall.length)<=1 || c.includes(call(queryCall))).slice(0,1000):[],
       workedBands:queryCall?[...new Set(observed.filter(q=>q.call===call(queryCall)).map(q=>q.band))]:[],
       rate:{last10,last60},observedBands:[...bands].map(([band,v])=>({band,qsos:v.qsos,zones:v.zones.size,countries:v.countries.size})),
       score:this.score,spots:[...this.spots.values()].filter(s=>Date.now()-s.receivedAt<30*60*1000).sort((a,b)=>a.frequencyHz-b.frequencyHz),

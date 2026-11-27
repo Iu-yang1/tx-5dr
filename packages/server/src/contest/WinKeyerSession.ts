@@ -10,12 +10,15 @@ export interface WinKeyerBackend {
   speed(wpm: number): Promise<void>;
   key?(down: boolean, valid: () => boolean): Promise<void>;
 }
-type Job = { text: string } | { wpm: number } | { wait: number } | { keyFor: number };
+type Job = { text: string; start: number } | { wpm: number } | { wait: number } | { keyFor: number };
 const PROSIGNS = new Set(['AR','SK','BT','KN','BK','CL']);
 export class WinKeyerSession {
   private input: number[] = [];
   private queue: Job[] = [];
   private draft = '';
+  private draftStart = 1;
+  private nextPosition = 1;
+  private overwritePosition?: number;
   private opened = false;
   private closed = false;
   private running = false;
@@ -78,7 +81,7 @@ export class WinKeyerSession {
       const text = String.fromCharCode(c).toUpperCase();
       if (!/^[A-Z0-9 .,?/=@+\-:;'!&()_$"]$/.test(text)) return;
       if (this.queuedChars() >= 160) { this.error = 'WinKeyer input buffer overflow'; this.cancel(); return; }
-      this.draft += text;
+      this.writeCharacter(text);
       this.schedule();
       this.report();
       return;
@@ -90,7 +93,7 @@ export class WinKeyerSession {
       case 0x05: this.minWpm = v; break;
       case 0x06: this.paused = v !== 0; if (!this.paused) this.schedule(); this.report(); break;
       case 0x07: this.reply(0x80 | Math.max(0,Math.min(63,this.wpm-this.minWpm))); break;
-      case 0x08: if (this.draft) this.draft = this.draft.slice(0,-1); else {const last=this.queue[this.queue.length-1]; if(last && 'text' in last) last.text=last.text.slice(0,-1);} break;
+      case 0x08: this.backspace(); break;
       case 0x0a: this.cancel(); break;
       case 0x0b:
         if (v === 1) this.beginTune();
@@ -102,13 +105,14 @@ export class WinKeyerSession {
         if(b[2]>=5 && b[2]<=60) {this.baseWpm=b[2];this.flush();this.enqueue({wpm:b[2]});}
         this.minWpm=b[7]; break;
       case 0x15: this.report(); break;
+      case 0x16: this.pointer(v,b[2]);break;
       case 0x19:
         if(v<=99){this.flush();this.enqueue({keyFor:v*1000});}
         break;
       case 0x1a: if(v<=99){this.flush();this.enqueue({wait:v*1000});} break;
       case 0x1b: {
         const pair=String.fromCharCode(v,b[2]).toUpperCase();
-        if(PROSIGNS.has(pair)) {this.draft+='<'+pair+'>';this.schedule();this.report();}
+        if(PROSIGNS.has(pair)) {this.flush();this.overwritePosition=undefined;this.queue.push({text:'<'+pair+'>',start:this.nextPosition});this.nextPosition+=2;this.schedule();this.report();}
         else this.error='Unsupported merged CW characters: '+pair;
         break;
       }
@@ -153,8 +157,57 @@ export class WinKeyerSession {
       this.report();
     });
   }
+  private writeCharacter(text:string):void {
+    if(this.overwritePosition!==undefined){
+      const position=this.overwritePosition++;
+      const replace=(value:string,start:number)=>{
+        const offset=position-start;
+        if(offset<0||offset>=value.length||value.includes('<'))return undefined;
+        return value.slice(0,offset)+text+value.slice(offset+1);
+      };
+      for(const job of this.queue){
+        if(!('text' in job))continue;
+        const changed=replace(job.text,job.start);
+        if(changed!==undefined){job.text=changed;return;}
+      }
+      const changed=replace(this.draft,this.draftStart);
+      if(changed!==undefined){this.draft=changed;return;}
+      // Text already handed to the physical backend cannot be edited.
+      this.error='WinKeyer overwrite position is not pending: '+position;
+      return;
+    }
+    if(!this.draft)this.draftStart=this.nextPosition;
+    this.draft+=text;this.nextPosition++;
+  }
+  private pointer(command:number,position:number):void {
+    if(command===0){
+      if(this.status.busy){this.error='WinKeyer pointer reset requires an empty buffer';return;}
+      this.nextPosition=1;this.draftStart=1;this.overwritePosition=undefined;
+    }else if(command===1){
+      if(position<1){this.error='WinKeyer overwrite pointer must be positive';return;}
+      this.overwritePosition=position;
+    }else if(command===2){
+      // WK-compatible append mode adds at the logical tail.
+      this.overwritePosition=undefined;
+    }else if(command===3){
+      for(let i=0;i<position;i++){
+        if(this.queuedChars()>=160){this.error='WinKeyer input buffer overflow';break;}
+        this.writeCharacter('\u0000');
+      }
+      this.schedule();this.report();
+    }else this.error='Unsupported WinKeyer pointer command '+command;
+  }
+  private backspace():void {
+    this.overwritePosition=undefined;
+    if(this.draft){this.draft=this.draft.slice(0,-1);this.nextPosition--;return;}
+    const last=this.queue[this.queue.length-1];
+    if(last&&'text' in last&&!last.text.includes('<')&&last.text.length){
+      last.text=last.text.slice(0,-1);this.nextPosition--;
+      if(!last.text)this.queue.pop();
+    }
+  }
   private flush() {
-    if (this.draft) { this.queue.push({text:this.draft}); this.draft=''; }
+    if (this.draft) { this.queue.push({text:this.draft,start:this.draftStart}); this.draft=''; }
   }
   private enqueue(job: Job) { this.queue.push(job); this.schedule(); }
   private schedule() {
@@ -177,9 +230,11 @@ export class WinKeyerSession {
           try { if(valid())await this.wait(job.keyFor); }
           finally { await this.transitionKey(false,valid); }
         }
-        else if(job.text.trim()){
-          await this.backend.send(job.text,this.wpm,valid);
-          if(valid()&&this.echo) this.reply(...Buffer.from(job.text.replace(/<([A-Z]+)>/g,'$1'),'ascii'));
+        else {
+          const text=job.text.replace(/\u0000/g,'');
+          if(!text.trim())continue;
+          await this.backend.send(text,this.wpm,valid);
+          if(valid()&&this.echo) this.reply(...Buffer.from(text.replace(/<([A-Z]+)>/g,'$1'),'ascii'));
         }
       }
     } catch(error) { if(valid()){this.error=String(error);this.queue=[];this.draft='';} }
@@ -187,6 +242,7 @@ export class WinKeyerSession {
   }
   private cancel() {
     this.epoch++;this.queue=[];this.draft='';this.paused=false;this.tuning=false;
+    this.nextPosition=1;this.draftStart=1;this.overwritePosition=undefined;
     if(this.tuneTimer)clearTimeout(this.tuneTimer);
     this.tuneTimer=undefined;
     if(this.timer)clearTimeout(this.timer);this.timer=undefined;

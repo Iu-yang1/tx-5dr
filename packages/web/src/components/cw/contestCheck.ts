@@ -17,7 +17,7 @@ function distance(a:string,b:string):number{
 }
 export function checkCandidates(query:string,calls:string[],limit=12):Array<{call:string;kind:'exact'|'partial'|'near'}>{
   const q=query.trim().toUpperCase();if(q.length<3)return [];
-  return [...new Set(calls)].flatMap(call=>{
+  return [...new Set(calls)].flatMap<{call:string;kind:'exact'|'partial'|'near';rank:number}>(call=>{
     if(call===q)return [{call,kind:'exact' as const,rank:0}];
     if(call.includes(q))return [{call,kind:'partial' as const,rank:1}];
     if(Math.abs(call.length-q.length)<=1&&distance(call,q)<=1)return [{call,kind:'near' as const,rank:2}];

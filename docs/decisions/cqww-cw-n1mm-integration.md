@@ -101,3 +101,7 @@ Host immediate tune (0B) and buffered key-down (19) use the existing serial CW k
 
 ## Native ESM and local check sources
 Use --native-keys on the Entry Agent to expose explicit ESM Enter, Insert, Alt+Enter, Space, Tab and Alt+Y (Yank). These are native N1MM commands, not a second ESM state machine. The bound window must be foreground at dispatch; actual keyboard behavior must be checked on Windows. Check / SCP supports locally imported Master.scp and simple Call,Zone CSV, observed log candidates and spots. These candidates do not reproduce every N1MM ranking, Telnet quality rule or Check Window feature. The original CW log card is shared outside the tabs so it remains visible in CQ WW mode.
+
+
+### Pointer editing and simulation
+The virtual host supports 16/00 reset when empty, 16/01 one-based overwrite of pending character slots, 16/02 append mode, and 16/03 null placeholders. It never rewrites or retransmits a text block already delivered to the physical backend. Native N1MM late callsign correction across in-flight CAT blocks remains unverified; the protocol simulation explicitly tests rejected late edits. The focused CI includes actual React DOM rendering of the workbench and shared log card, and simulated native ESM action/at-most-once invocation. These are not pixel screenshots or a real Windows N1MM process test.

@@ -54,6 +54,13 @@ class EntryAgentTests(unittest.TestCase):
         self.apply()
         self.assertEqual(self.call.writes, 1)
 
+    def test_native_esm_action_invokes_once(self):
+        pending = dict(self.pending, action='ENTER')
+        buttons = {'ENTER': self.button}
+        self.assertEqual(self.executor.apply(pending, self.call, self.zone, buttons, 1000), {'appliedRevision': 3})
+        self.assertIn('error', self.executor.apply(pending, self.call, self.zone, buttons, 1000))
+        self.assertEqual(self.button.invocations, 1)
+
     def test_native_log_action_is_at_most_once(self):
         self.assertEqual(self.apply("LOG"), {"appliedRevision": 3})
         self.assertIn("error", self.apply("LOG"))

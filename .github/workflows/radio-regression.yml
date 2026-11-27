@@ -100,6 +100,7 @@ jobs:
             src/components/radio/digital/JttyReceiveTerminal.test.ts
             src/components/cw/__tests__/contestMessages.test.ts
             src/components/cw/__tests__/contestCheck.test.ts
+            src/components/cw/__tests__/CQWWWorkbench.test.tsx
             src/components/cw/__tests__/CWQSOLogCard.test.tsx
             src/components/cw/__tests__/CWKeyerPanel.test.tsx
             src/components/cw/__tests__/CWDecoderPanel.test.tsx

@@ -118,7 +118,7 @@ export function CQWWWorkbench() {
   const workedBands = snapshot?.workedBands ?? [];
   const nativeActionEnabled=(name:N1MMEntryAction)=>Boolean(entry?.online&&entry.actions?.includes(name)&&!entry.pending?.action&&!actionBusy);
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto p-1">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-auto p-1" aria-label="CQ WW CW Workbench">
       <div className="flex flex-wrap items-center gap-1 text-xs">
         <Chip size="sm" variant="flat" color={fresh ? 'success' : 'default'}>N1MM {fresh ? 'RX' : '—'}</Chip>
         <Chip size="sm" variant="flat" color={snapshot?.cat?.clients ? 'success' : 'default'}>CAT {snapshot?.cat?.clients ?? 0}</Chip>
