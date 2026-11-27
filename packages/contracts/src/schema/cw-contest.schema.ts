@@ -16,7 +16,7 @@ export const ContestContactSchema = z.object({
   countryPrefix:z.string().optional(),
 });
 export const N1MMEntryFieldsSchema = z.object({ call: z.string().max(20).regex(/^[A-Z0-9/]*$/), zone: z.string().max(2).regex(/^\d{0,2}$/) });
-export const N1MMEntryActionSchema = z.enum(['F1','F2','F3','F4','F5','F6','F7','F8','F9','F10','F11','F12','STOP','LOG','WIPE','MARK','STORE','SPOT','RUN','S&P']);
+export const N1MMEntryActionSchema = z.enum(['F1','F2','F3','F4','F5','F6','F7','F8','F9','F10','F11','F12','STOP','LOG','WIPE','MARK','STORE','SPOT','RUN','S&P','ENTER','INSERT','ALT_ENTER','SPACE','TAB','YANK']);
 export type N1MMEntryAction = z.infer<typeof N1MMEntryActionSchema>;
 export const N1MMEntryRequestSchema = N1MMEntryFieldsSchema.extend({action:N1MMEntryActionSchema.optional()});
 export const N1MMEntryStateSchema = z.object({
@@ -57,6 +57,7 @@ export const CWContestSnapshotSchema = z.object({
   contacts: z.array(ContestContactSchema),
   observedContacts: z.number().int().nonnegative(),
   workedBands:z.array(z.string()).optional(),
+  logCandidates:z.array(z.string()).optional(),
   rate:z.object({last10:z.number(),last60:z.number()}).optional(),
   observedBands:z.array(z.object({band:z.string(),qsos:z.number(),zones:z.number(),countries:z.number()})).optional(),
 });

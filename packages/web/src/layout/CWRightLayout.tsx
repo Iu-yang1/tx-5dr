@@ -12,6 +12,7 @@ import { RadioControl } from '../components/radio/control/RadioControl';
 import { CWQSOLogCard } from '../components/cw/CWQSOLogCard';
 import { CWRecentQSOList } from '../components/cw/CWRecentQSOList';
 import { CWRightTopTabs } from '../components/cw/CWRightTopTabs';
+import { useCWContestProfile } from '../store/cwContestProfileStore';
 import { ThemeToggle } from '../components/common/ThemeToggle';
 import { ClientNotificationButton } from '../components/common/ClientNotificationButton';
 import { ServerHealthButton } from '../components/system/ServerHealthButton';
@@ -43,6 +44,7 @@ export const CWRightLayout: React.FC = () => {
   const showLoginEntry = authState.authEnabled && !authState.jwt && authState.isPublicViewer;
 
   // QSO log state management
+  const contest = useCWContestProfile();
   const [selectedQSO, setSelectedQSO] = useState<QSORecord | null>(null);
   const [lastUpdatedQSO, setLastUpdatedQSO] = useState<QSORecord | null>(null);
   const [lastDeletedId, setLastDeletedId] = useState<string | null>(null);
@@ -160,19 +162,15 @@ export const CWRightLayout: React.FC = () => {
                   lastDeletedId={lastDeletedId}
                 />
               </div>
-              <div className="flex-shrink-0">
-                <CWQSOLogCard
-                  editingQSO={selectedQSO}
-                  onEditComplete={handleEditComplete}
-                  onDeleteComplete={handleDeleteComplete}
-                  onCancelEdit={() => setSelectedQSO(null)}
-                />
-              </div>
+
             </>
           )}
         />
       </div>
 
+      <div className="flex-shrink-0 px-2 md:px-5 pb-2 max-h-[45%] overflow-y-auto">
+        <CWQSOLogCard editingQSO={contest.active ? null : selectedQSO} onEditComplete={handleEditComplete} onDeleteComplete={handleDeleteComplete} onCancelEdit={()=>setSelectedQSO(null)} />
+      </div>
       {/* Bottom area: Radio Control (fixed) */}
       <div className="flex-shrink-0 p-2 pt-0 md:px-5 md:pb-5">
         <RadioControl onOpenRadioSettings={handleOpenRadioSettings} />

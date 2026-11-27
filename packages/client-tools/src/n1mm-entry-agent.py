@@ -6,6 +6,9 @@ import re
 import time
 import urllib.request
 
+NATIVE_KEYS = {"ENTER": "{ENTER}", "INSERT": "{INSERT}", "ALT_ENTER": "%{ENTER}",
+               "SPACE": "{SPACE}", "TAB": "{TAB}", "YANK": "%y"}
+
 ALLOWED_ACTIONS = {"STOP", "LOG", "WIPE", "MARK", "STORE", "SPOT", "RUN", "S&P"} | {
     "F" + str(i) for i in range(1, 13)
 }
@@ -70,6 +73,31 @@ class EntryExecutor:
             return {"appliedRevision": rev, "error": str(exc)[:400]}
 
 
+class NativeKeyAction:
+    """Invoke an explicit shortcut on the bound N1MM Entry window."""
+    def __init__(self, window, keys):
+        from types import SimpleNamespace
+        self.window = window
+        self.keys = keys
+        self.element_info = SimpleNamespace(control_type="Button")
+
+    def invoke(self):
+        import ctypes
+        from ctypes import wintypes
+        from pywinauto import keyboard
+
+        user32 = ctypes.windll.user32
+        user32.GetForegroundWindow.restype = wintypes.HWND
+        user32.GetAncestor.argtypes = (wintypes.HWND, wintypes.UINT)
+        user32.GetAncestor.restype = wintypes.HWND
+        expected = int(self.window.handle)
+        if user32.GetAncestor(user32.GetForegroundWindow(), 2) != expected:
+            self.window.set_focus()
+        if user32.GetAncestor(user32.GetForegroundWindow(), 2) != expected:
+            raise RuntimeError("N1MM Entry is not the foreground window")
+        keyboard.send_keys(self.keys, pause=0.01)
+
+
 def find_window(title, exe):
     from pywinauto import Desktop
     import psutil
@@ -120,6 +148,7 @@ def main():
     ap.add_argument("--exe", default="N1MMLogger.net.exe")
     ap.add_argument("--actions", help="JSON mapping native actions to N1MM AutomationIds")
     ap.add_argument("--inspect", action="store_true", help="List actual control names and IDs")
+    ap.add_argument("--native-keys", action="store_true", help="Enable explicit native ESM keyboard shortcuts on the bound Entry window")
     ap.add_argument("--no-auth", action="store_true", help="Only for a server with authentication disabled")
     args = ap.parse_args()
     if args.inspect:
@@ -145,7 +174,10 @@ def main():
 
     def controls():
         window = find_window(args.title, args.exe)
-        return resolve_controls(window, args.call_id, args.zone_id, action_ids)
+        call_control, zone_control, buttons = resolve_controls(window, args.call_id, args.zone_id, action_ids)
+        if args.native_keys:
+            buttons.update({name: NativeKeyAction(window, keys) for name, keys in NATIVE_KEYS.items()})
+        return call_control, zone_control, buttons
 
     executor = EntryExecutor()
     acknowledged = None

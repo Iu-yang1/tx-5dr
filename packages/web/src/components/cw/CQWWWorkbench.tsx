@@ -10,6 +10,7 @@ import { useCWKeyer } from '../../hooks/useCWKeyer';
 import { useOperators, useCurrentOperatorId, useRadioConnectionState } from '../../store/radioStore';
 import { useCWQSODraft, setCWQSOHisCallsign } from '../../store/cwQsoDraftStore';
 import { cqwwMessages } from './contestMessages';
+import { ContestCheckPanel } from './ContestCheckPanel';
 import { useCWContestProfile, updateCWContestProfile } from '../../store/cwContestProfileStore';
 
 export function CQWWWorkbench() {
@@ -147,6 +148,8 @@ export function CQWWWorkbench() {
         <Button size="sm" color="danger" variant="flat" onPress={()=>{stopMessage();if(nativeActionEnabled('STOP'))void action('STOP');}}>STOP</Button>
       </div>
       <div className="flex flex-wrap gap-1">{(['LOG','WIPE','MARK','STORE','SPOT','RUN','S&P'] as const).map(name=><Button key={name} size="sm" variant="flat" color={name==='LOG'?'primary':'default'} isDisabled={!nativeActionEnabled(name)} onPress={()=>void action(name)}>{name}</Button>)}</div>
+      <div className="flex flex-wrap gap-1">{(['ENTER','INSERT','ALT_ENTER','SPACE','TAB','YANK'] as const).map(name=><Button key={name} size="sm" variant="flat" isDisabled={!nativeActionEnabled(name)} onPress={()=>void action(name)}>{name==='ENTER'?'ESM Enter':name}</Button>)}</div>
+      <ContestCheckPanel query={hisCallsign} zone={zone} logCalls={snapshot?.logCandidates??[]} spotCalls={snapshot?.spots?.map(s=>s.call)??[]} onSelect={call=>requestEntry({call,zone:''})} />
       {(entryError||entry?.error||snapshot?.winkey?.error)&&<p className="text-xs text-warning">{entryError||entry?.error||snapshot?.winkey?.error}</p>}
       <p className="text-xs text-default-500">{t('cw.contest.logAuthority')}</p>
       {snapshot?.score&&<div className="rounded-md bg-content2 p-2 text-xs"><strong>{t('cw.contest.score')}: {snapshot.score.score.toLocaleString()}</strong> <span className="text-default-500">{snapshot.score.timestamp}</span><div className="flex flex-wrap gap-2">{snapshot.score.breakdown.filter(x=>x.mode==='CW'||x.mode==='ALL').map((x,i)=><span key={i}>{x.band} {x.type||x.kind}: {x.value}</span>)}</div></div>}
