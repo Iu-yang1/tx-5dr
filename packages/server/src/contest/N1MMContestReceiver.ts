@@ -17,7 +17,7 @@ export function parseN1MMFlatXml(raw: string): { type: string; fields: Fields } 
   for (const m of body.matchAll(tag)) {
     if (body.slice(previous, m.index).trim()) return;
     const key = (m[1] ?? m[3]).toLowerCase();
-    if (Object.hasOwn(fields, key)) return;
+    if (Object.prototype.hasOwnProperty.call(fields, key)) return;
     fields[key] = (m[2] ?? '').replace(/&(amp|lt|gt|quot|apos|#\d+|#x[0-9a-f]+);/gi, (entity, name: string) => {
       const entities: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
       if (name[0] !== '#') return entities[name.toLowerCase()] ?? entity;
