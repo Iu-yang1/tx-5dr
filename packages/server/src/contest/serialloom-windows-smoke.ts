@@ -6,6 +6,9 @@ import type {RadioController} from '@tx5dr/rigctld-server';
 import {SerialLoomProvider} from './SerialLoomProvider.js';
 import {KenwoodCatBridge} from './KenwoodCatBridge.js';
 import {WinKeyerBridge} from './WinKeyerBridge.js';
+import {createLogger} from '../utils/logger.js';
+
+const logger=createLogger('SerialLoomWindowsSmoke');
 
 async function until(check:()=>boolean|Promise<boolean>,description:string,timeout=30000){
   const deadline=Date.now()+timeout;
@@ -63,11 +66,14 @@ async function main(){
     await write(wkPort,Buffer.from([0x0a]));
     await until(()=>stops>0,'WinKeyer clear reaches simulated keyer');
     assert.equal((await provider.status()).connections.filter(c=>c.connected).length,2);
-    console.info('PASS: real Windows COM enumeration, CAT query/set, WinKeyer handshake/text/clear; no RF');
+    logger.info('PASS: real Windows COM enumeration, CAT query/set, WinKeyer handshake/text/clear; no RF');
+  }catch(error){
+    logger.error('Windows COM smoke failed before cleanup', {error:String(error), provider:await provider.status(), ports:await SerialPort.list().catch(listError=>String(listError)), cat:cat.status(), winkey:wk.status()});
+    throw error;
   }finally{
     await Promise.allSettled([closePort(catPort),closePort(wkPort)]);
     await Promise.allSettled([provider.apply({channel:'cat',action:'remove'},config),provider.apply({channel:'winkey',action:'remove'},config)]);
     await Promise.allSettled([cat.stop(),wk.stop()]);
   }
 }
-void main().catch(error=>{console.error(error);process.exitCode=1;});
+void main().catch(error=>{logger.error('Windows COM smoke failed', {error:String(error)});process.exitCode=1;});

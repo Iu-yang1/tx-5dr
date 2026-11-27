@@ -1,6 +1,6 @@
 import Fastify, { type FastifyRequest } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { UserRole } from '@tx5dr/contracts';
+import { N1MMInterfaceConfigSchema, UserRole } from '@tx5dr/contracts';
 
 const getPanel = vi.fn(async () => ({ callsign: 'stub', slotCount: 12, slots: [] }));
 const updatePanel = vi.fn(async () => ({ callsign: 'stub', slotCount: 12, slots: [] }));
@@ -22,6 +22,7 @@ vi.mock('../../DigitalRadioEngine.js', () => ({
 vi.mock('../../config/config-manager.js', () => ({
   ConfigManager: {
     getInstance: () => ({
+      getN1MMInterfaceConfig: () => N1MMInterfaceConfigSchema.parse({}),
       getOperatorsConfig: () => [
         { id: 'operator-1', myCallsign: 'BG5DRB' },
         { id: 'operator-2', myCallsign: 'AA1BB' },

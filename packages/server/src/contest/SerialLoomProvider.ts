@@ -59,6 +59,12 @@ export class SerialLoomProvider{
     }else if(current){
       await this.invoke(action.action==='stop'?{command:'stopHub',id:current.spec.id}:{command:'deleteHub',id:current.spec.id,removeVirtualPorts:true});
     }
-    return this.status();
+    const status=await this.status();
+    if(action.action==='start'){
+      const connection=status.connections.find(item=>item.channel===channel);
+      if(!status.available||!connection||!connection.running)throw new Error('SerialLoom did not start the requested bridge: '+(status.error??name(channel)));
+      if(connection.com.toUpperCase()!==config[channel].com.toUpperCase())throw new Error('SerialLoom assigned '+connection.com+' instead of '+config[channel].com+'; inspect the virtual port in SerialLoom or remove the bridge and choose a free COM number');
+    }
+    return status;
   }
 }
