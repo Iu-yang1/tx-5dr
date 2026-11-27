@@ -30,7 +30,10 @@ export const N1MMInterfaceSettings=forwardRef<N1MMInterfaceSettingsRef,{onUnsave
   const serialAction=async(action?:N1MMVirtualSerialAction)=>{
     setBusy(true);
     try{setSerial(action?await api.updateN1MMVirtualSerial(action):await api.getN1MMVirtualSerial());setError('');}
-    catch(e){setError(String(e));}finally{setBusy(false);}
+    catch(e){
+      setError(String(e));
+      if(action)setSerial(await api.getN1MMVirtualSerial().catch(()=>undefined));
+    }finally{setBusy(false);}
   };
   return <SettingsPage title={t('n1mm.title')} description={t('n1mm.description')} actions={<Button size="sm" variant="flat" isDisabled={busy||dirty} onPress={()=>void refresh()}>{t('rigctld.refreshButton')}</Button>}>
     {error&&<p className="text-sm text-danger">{error}</p>}

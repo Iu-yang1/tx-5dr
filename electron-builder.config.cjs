@@ -55,6 +55,8 @@ module.exports = {
     'packages/mfsk-native/mfsk-native.node',
     'packages/client-tools/src/proxy.js',
     'packages/client-tools/src/proxyForwarding.js',
+    'packages/client-tools/src/n1mm-entry-agent.py',
+    'packages/client-tools/src/n1mm-winkey-proxy.py',
     'packages/electron-main/assets/**',
     'node_modules/**',
     '!node_modules/.cache/**',

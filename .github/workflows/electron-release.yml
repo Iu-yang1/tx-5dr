@@ -462,6 +462,8 @@ jobs:
             "$APP_ROOT/packages/server/dist"
             "$APP_ROOT/packages/web/dist"
             "$APP_ROOT/packages/client-tools/src/proxy.js"
+            "$APP_ROOT/packages/client-tools/src/n1mm-entry-agent.py"
+            "$APP_ROOT/packages/client-tools/src/n1mm-winkey-proxy.py"
           )
 
           for required in "${required_paths[@]}"; do
