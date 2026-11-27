@@ -33,3 +33,29 @@ describe('WinKeyer host framing',()=>{
     finally{socket.destroy();await bridge.stop();}
   });
 });
+
+describe('WinKeyer advanced host commands',()=>{
+  it('preserves queued speed boundaries and merges supported prosigns',async()=>{
+    const sent:Array<[string,number]>=[];
+    const s=new WinKeyerSession({send:async(text,wpm)=>{sent.push([text,wpm]);},stop:async()=>{},speed:async()=>{}},()=>{});
+    s.feed(Buffer.from([0,2,2,25]));s.feed(Buffer.from('CQ'));s.feed(Buffer.from([2,30,0x1b,65,82]));
+    await vi.waitFor(()=>expect(sent).toEqual([['CQ',25],['<AR>',30]]));
+    await s.close();
+  });
+  it('ends tune on clear and waits for in-flight keydown before releasing the session',async()=>{
+    let release=()=>{};let down=false;
+    const key=vi.fn(async(on:boolean)=>{if(on){await new Promise<void>(r=>{release=r;});}down=on;});
+    const stop=vi.fn(async()=>{down=false;});
+    const s=new WinKeyerSession({send:async()=>{},stop,speed:async()=>{},key},()=>{});
+    s.feed(Buffer.from([0,2,0x0b,1]));
+    await vi.waitFor(()=>expect(key).toHaveBeenCalledTimes(1));
+    const abort=s.abort();release();await abort;
+    expect(down).toBe(false);expect(s.status.busy).toBe(false);
+    await s.close();
+  });
+  it('reports unsupported tune rather than silently claiming keydown',()=>{
+    const s=new WinKeyerSession({send:async()=>{},stop:async()=>{},speed:async()=>{}},()=>{});
+    s.feed(Buffer.from([0,2,0x0b,1]));
+    expect(s.status.error).toContain('does not support');expect(s.status.busy).toBe(false);
+  });
+});

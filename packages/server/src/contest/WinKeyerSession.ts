@@ -8,8 +8,10 @@ export interface WinKeyerBackend {
   send(text: string, wpm: number, valid: () => boolean): Promise<void>;
   stop(): Promise<void>;
   speed(wpm: number): Promise<void>;
+  key?(down: boolean, valid: () => boolean): Promise<void>;
 }
-type Job = { text: string } | { wpm: number } | { wait: number };
+type Job = { text: string } | { wpm: number } | { wait: number } | { keyFor: number };
+const PROSIGNS = new Set(['AR','SK','BT','KN','BK','CL']);
 export class WinKeyerSession {
   private input: number[] = [];
   private queue: Job[] = [];
@@ -27,12 +29,15 @@ export class WinKeyerSession {
   private waitTimer?: ReturnType<typeof setTimeout>;
   private releaseWait?: () => void;
   private stopTail = Promise.resolve();
+  private keyTransition = Promise.resolve();
+  private tuneTimer?: ReturnType<typeof setTimeout>;
+  private tuning = false;
   private error?: string;
   constructor(private readonly backend: WinKeyerBackend, private readonly output: (bytes: Buffer) => void) {}
-  get status() { return { opened: this.opened, busy: this.running || !!this.draft || this.queue.length > 0, wpm: this.wpm, error: this.error }; }
+  get status() { return { opened: this.opened, busy: this.tuning || this.running || !!this.draft || this.queue.length > 0, wpm: this.wpm, error: this.error }; }
   private reply(...bytes: number[]) { if (!this.closed) this.output(Buffer.from(bytes)); }
   private report() {
-    if (this.opened) this.reply(0xc0 | (this.status.busy ? 4 : 0) | (this.queuedChars() >= 106 ? 1 : 0) | (this.paused ? 0x10 : 0));
+    if (this.opened) this.reply(0xc0 | (this.status.busy ? 4 : 0) | (this.queuedChars() >= 106 ? 1 : 0) | ((this.paused || this.tuning || this.waitTimer) ? 0x10 : 0));
   }
   private queuedChars() { return this.draft.length + this.queue.reduce((n,j) => n + ('text' in j ? j.text.length : 1),0); }
   feed(bytes: Buffer) {
@@ -80,20 +85,33 @@ export class WinKeyerSession {
     }
     switch(c) {
       case 0x02:
-        if (v >= 5 && v <= 60) { this.baseWpm = v; this.wpm = v; this.flush(); this.enqueue({wpm:v}); }
+        if (v >= 5 && v <= 60) { this.baseWpm = v; this.flush(); this.enqueue({wpm:v}); }
         break;
       case 0x05: this.minWpm = v; break;
       case 0x06: this.paused = v !== 0; if (!this.paused) this.schedule(); this.report(); break;
       case 0x07: this.reply(0x80 | Math.max(0,Math.min(63,this.wpm-this.minWpm))); break;
       case 0x08: if (this.draft) this.draft = this.draft.slice(0,-1); else {const last=this.queue[this.queue.length-1]; if(last && 'text' in last) last.text=last.text.slice(0,-1);} break;
       case 0x0a: this.cancel(); break;
+      case 0x0b:
+        if (v === 1) this.beginTune();
+        else if (v === 0 && this.tuning) this.cancel();
+        break;
       case 0x0e: this.echo = !!(v & 4); break;
       case 0x0f:
         this.echo = !!(v & 4);
-        if(b[2]>=5 && b[2]<=60) {this.baseWpm=b[2];this.wpm=b[2];this.flush();this.enqueue({wpm:b[2]});}
+        if(b[2]>=5 && b[2]<=60) {this.baseWpm=b[2];this.flush();this.enqueue({wpm:b[2]});}
         this.minWpm=b[7]; break;
       case 0x15: this.report(); break;
-      case 0x1a: this.flush(); this.enqueue({wait:v*1000}); break;
+      case 0x19:
+        if(v<=99){this.flush();this.enqueue({keyFor:v*1000});}
+        break;
+      case 0x1a: if(v<=99){this.flush();this.enqueue({wait:v*1000});} break;
+      case 0x1b: {
+        const pair=String.fromCharCode(v,b[2]).toUpperCase();
+        if(PROSIGNS.has(pair)) {this.draft+='<'+pair+'>';this.schedule();this.report();}
+        else this.error='Unsupported merged CW characters: '+pair;
+        break;
+      }
       case 0x1c: if(v>=5&&v<=60){this.flush();this.enqueue({wpm:v});} break;
       case 0x1e: this.flush(); this.enqueue({wpm:this.baseWpm}); break;
       // The radio owns its own sidetone, lead/tail, weight and paddle settings.
@@ -102,6 +120,38 @@ export class WinKeyerSession {
       case 0x10: case 0x11: case 0x12: case 0x17: case 0x13: case 0x1f: break;
       default: this.error = 'Unsupported WinKeyer command 0x' + c.toString(16); break;
     }
+  }
+  private async transitionKey(down: boolean, valid: () => boolean): Promise<void> {
+    if (!this.backend.key) throw new Error('Physical CW backend does not support direct keying');
+    const task = this.keyTransition.catch(()=>undefined).then(async()=>{
+      if (!down || valid()) await this.backend.key!(down,valid);
+    });
+    this.keyTransition = task;
+    await task;
+  }
+  private beginTune(): void {
+    if (this.tuning) return;
+    if (this.status.busy) { this.error='CW keyer is busy';return; }
+    if (!this.backend.key) { this.error='Physical CW backend does not support direct keying';return; }
+    this.tuning=true;
+    const epoch=this.epoch;
+    const valid=()=>this.opened&&!this.closed&&this.epoch===epoch&&this.tuning;
+    this.report();
+    const priorStop=this.stopTail;
+    void priorStop.then(async()=>{
+      if(!valid())return;
+      await this.transitionKey(true,valid);
+      if(valid())this.tuneTimer=setTimeout(()=>this.cancel(),100_000);
+    }).catch(error=>{
+      if(valid()){this.error=String(error);this.cancel();}
+    });
+  }
+  private wait(ms:number):Promise<void> {
+    return new Promise(resolve=>{
+      this.releaseWait=resolve;
+      this.waitTimer=setTimeout(()=>{this.waitTimer=undefined;this.releaseWait=undefined;resolve();},ms);
+      this.report();
+    });
   }
   private flush() {
     if (this.draft) { this.queue.push({text:this.draft}); this.draft=''; }
@@ -112,7 +162,7 @@ export class WinKeyerSession {
     this.timer = setTimeout(() => { this.timer=undefined; this.flush(); void this.drain(); }, 30);
   }
   private async drain() {
-    if (this.running || this.paused || !this.opened || this.closed) return;
+    if (this.running || this.paused || this.tuning || !this.opened || this.closed) return;
     this.running=true; const epoch=this.epoch;
     const valid=()=>this.opened && !this.closed && this.epoch===epoch;
     this.report();
@@ -121,20 +171,29 @@ export class WinKeyerSession {
       while(valid()&&!this.paused&&this.queue.length){
         const job=this.queue.shift()!;
         if ('wpm' in job) { this.wpm=job.wpm; await this.backend.speed(job.wpm); }
-        else if ('wait' in job) await new Promise<void>(resolve=>{this.releaseWait=resolve;this.waitTimer=setTimeout(resolve,job.wait);});
+        else if ('wait' in job) await this.wait(job.wait);
+        else if ('keyFor' in job) {
+          await this.transitionKey(true,valid);
+          try { if(valid())await this.wait(job.keyFor); }
+          finally { await this.transitionKey(false,valid); }
+        }
         else if(job.text.trim()){
           await this.backend.send(job.text,this.wpm,valid);
-          if(valid()&&this.echo) this.reply(...Buffer.from(job.text,'ascii'));
+          if(valid()&&this.echo) this.reply(...Buffer.from(job.text.replace(/<([A-Z]+)>/g,'$1'),'ascii'));
         }
       }
     } catch(error) { if(valid()){this.error=String(error);this.queue=[];this.draft='';} }
     finally {this.running=false;this.releaseWait=undefined;if(this.waitTimer)clearTimeout(this.waitTimer);this.report();if(this.queue.length&&this.opened&&!this.paused&&!this.closed)this.schedule();}
   }
   private cancel() {
-    this.epoch++;this.queue=[];this.draft='';this.paused=false;
+    this.epoch++;this.queue=[];this.draft='';this.paused=false;this.tuning=false;
+    if(this.tuneTimer)clearTimeout(this.tuneTimer);
+    this.tuneTimer=undefined;
     if(this.timer)clearTimeout(this.timer);this.timer=undefined;
     if(this.waitTimer)clearTimeout(this.waitTimer);this.releaseWait?.();this.releaseWait=undefined;
-    this.stopTail=this.stopTail.catch(()=>undefined).then(()=>this.backend.stop()).catch(error=>{this.error=String(error);});
+    // Wait for any in-flight direct key transition before releasing this host's lease.
+    const transition=this.keyTransition;
+    this.stopTail=this.stopTail.catch(()=>undefined).then(()=>transition.catch(()=>undefined)).then(()=>this.backend.stop()).catch(error=>{this.error=String(error);});
     this.report();
   }
   async abort() { this.cancel(); await this.stopTail; }

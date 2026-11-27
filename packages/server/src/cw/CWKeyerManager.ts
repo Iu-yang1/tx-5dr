@@ -351,8 +351,9 @@ export class CWKeyerManager extends EventEmitter<CWKeyerManagerEvents> {
 
   // ========== 手键操作 ==========
 
-  async handleKeyAction(clientId: string, label: string, action: 'key-down' | 'key-up'): Promise<void> {
+  async handleKeyAction(clientId: string, label: string, action: 'key-down' | 'key-up', externalValid?: () => boolean): Promise<void> {
     await this.ensureConfigLoaded();
+    if(externalValid && (!externalValid() || (this.active && this.active.clientId !== clientId))) throw new Error('External CW key cancelled or keyer busy');
     const backend = this.getBackend();
     if (!backend.supportsManualKeying || !backend.keyDown || !backend.keyUp) {
       throw new Error('CAT backend does not support real-time manual keying');
@@ -392,7 +393,9 @@ export class CWKeyerManager extends EventEmitter<CWKeyerManagerEvents> {
       try {
         await this.ensureStarted();
         await this.acquirePhysicalLease('CW manual key', () => backend.keyUp!());
+        if(externalValid && !externalValid()) throw new Error('External CW key cancelled before key-down');
         await backend.keyDown();
+        if(externalValid && !externalValid()) {await backend.keyUp();throw new Error('External CW key cancelled');}
         this.confirmPhysicalLease();
         this.setStatus(this.statusFor(clientId, label, 'keying', null));
       } catch (error) {

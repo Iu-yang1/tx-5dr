@@ -36,6 +36,7 @@ export function CQWWWorkbench() {
   const tail=useRef(Promise.resolve());
   const wanted=useRef<N1MMEntryFields>({call:hisCallsign,zone});
   const sequence=useRef(0);
+  const revisionFloor=useRef(0);
   const applyEntry=(fields:N1MMEntryFields)=>{
     wanted.current=fields;setCWQSOHisCallsign(fields.call);updateCWContestProfile({receivedZone:fields.zone});
   };
@@ -47,7 +48,7 @@ export function CQWWWorkbench() {
     editTimer.current=setTimeout(()=>{
       tail.current=tail.current.catch(()=>undefined).then(async()=>{
         if(seq!==sequence.current)return;
-        try{const state=await api.updateN1MMEntry(fields);if(seq===sequence.current){setEntry(state);setEntryError('');}}
+        try{const state=await api.updateN1MMEntry(fields);if(seq===sequence.current){revisionFloor.current=Math.max(revisionFloor.current,state.revision);setEntry(state);setEntryError('');}}
         catch(error){if(seq===sequence.current)setEntryError(String(error));}
         finally{if(seq===sequence.current)editing.current=false;}
       });
@@ -56,7 +57,12 @@ export function CQWWWorkbench() {
   useEffect(()=>{
     let disposed=false;let timer:ReturnType<typeof setTimeout>;
     const poll=async()=>{
-      try{const state=await api.getN1MMEntry();if(!disposed){setEntry(state);if(state.online&&!state.pending&&!editing.current){applyEntry(state.fields);}}}
+      try{const state=await api.getN1MMEntry();if(!disposed){
+        // A GET begun before a PUT may complete after it. Do not overwrite a newer draft.
+        if(state.revision<revisionFloor.current && state.online)return;
+        revisionFloor.current=state.revision;setEntry(state);
+        if(state.online&&!state.pending&&!editing.current){applyEntry(state.fields);}
+      }}
       catch{if(!disposed)setEntry(undefined);}
       finally{if(!disposed)timer=setTimeout(()=>{void poll();},250);}
     };
@@ -69,7 +75,7 @@ export function CQWWWorkbench() {
     if(actionBusy||!entry?.online||!entry.actions?.includes(name))return;
     if(editTimer.current)clearTimeout(editTimer.current);
     sequence.current++;editing.current=true;setActionBusy(true);
-    try{await tail.current.catch(()=>undefined);const state=await api.updateN1MMEntry({...wanted.current,action:name});setEntry(state);setEntryError('');}
+    try{await tail.current.catch(()=>undefined);const state=await api.updateN1MMEntry({...wanted.current,action:name});revisionFloor.current=Math.max(revisionFloor.current,state.revision);setEntry(state);setEntryError('');}
     catch(error){setEntryError(String(error));}
     finally{editing.current=false;setActionBusy(false);}
   };

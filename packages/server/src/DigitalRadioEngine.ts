@@ -846,7 +846,17 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
     this.n1mmWinKeyer = new WinKeyerBridge({ enabled: process.env.N1MM_WINKEY_ENABLED === '1', host: process.env.N1MM_WINKEY_BIND ?? '127.0.0.1', port: Number.isInteger(wkPort) && wkPort > 0 && wkPort <= 65535 ? wkPort : 4534 }, id => ({
       send: async (text,wpm,valid) => {
         if (this.getEngineMode() !== 'cw') throw new Error('CW engine is not active');
-        await this.getCWKeyerManager().handleTextInput(id,'N1MM WinKeyer',text,undefined,undefined,{wpm,valid});
+        const manager=this.getCWKeyerManager();
+        if(text.includes('<') && (await manager.getConfigAsync()).backend !== 'serial') throw new Error('Merged prosigns require the serial CW key backend');
+        await manager.handleTextInput(id,'N1MM WinKeyer',text,undefined,undefined,{wpm,valid});
+      },
+      key: async (down,valid) => {
+        const manager=this.getCWKeyerManager();
+        if(!down){await manager.handleClientDisconnect(id);return;}
+        if(this.getEngineMode() !== 'cw')throw new Error('CW engine is not active');
+        const config=await manager.getConfigAsync();
+        if(config.backend!=='serial'||!config.keyPort)throw new Error('Direct CW keying requires a configured serial key port');
+        await manager.handleKeyAction(id,'N1MM WinKeyer','key-down',valid);
       },
       stop: () => this.getCWKeyerManager().handleClientDisconnect(id),
       speed: async wpm => { await this.getCWKeyerManager().updateConfig({wpm}); },
