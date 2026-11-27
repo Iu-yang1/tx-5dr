@@ -7,7 +7,14 @@ export class WinKeyerBridge {
   private closing = Promise.resolve();
   private error?: string;
   private nextId=0;
-  constructor(private readonly config:{enabled:boolean;host:string;port:number},private readonly backend:(id:string)=>WinKeyerBackend){}
+  constructor(private config:{enabled:boolean;host:string;port:number},private readonly backend:(id:string)=>WinKeyerBackend){}
+  needsConfig(next:{enabled:boolean;host:string;port:number}):boolean{
+    return Object.keys(next).some(key=>next[key as keyof typeof next]!==this.config[key as keyof typeof next]);
+  }
+  async applyConfig(next:{enabled:boolean;host:string;port:number}):Promise<void>{
+    if(this.needsConfig(next)){await this.stop();this.config={...next};}
+    await this.start();
+  }
   async start():Promise<void>{
     if(!this.config.enabled||this.server)return;
     const server=createServer(socket=>{

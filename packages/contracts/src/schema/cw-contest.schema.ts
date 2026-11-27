@@ -64,3 +64,27 @@ export const CWContestSnapshotSchema = z.object({
 export type ContestRadioInfo = z.infer<typeof ContestRadioInfoSchema>;
 export type ContestContact = z.infer<typeof ContestContactSchema>;
 export type CWContestSnapshot = z.infer<typeof CWContestSnapshotSchema>;
+
+const interfaceListener = (port:number) => z.object({
+  enabled:z.boolean().default(false),
+  host:z.string().trim().min(1).max(255).default('127.0.0.1'),
+  port:z.number().int().min(1).max(65535).default(port),
+});
+const comName=z.string().trim().toUpperCase().regex(/^COM[1-9][0-9]{0,3}$/);
+export const N1MMInterfaceConfigSchema=z.object({
+  cat:interfaceListener(4533).extend({allowPtt:z.boolean().default(false),com:comName.default('COM22')}).prefault({}),
+  winkey:interfaceListener(4534).extend({com:comName.default('COM20')}).prefault({}),
+  udp:interfaceListener(12060).extend({stationCall:z.string().trim().toUpperCase().max(20).regex(/^[A-Z0-9/]*$/).default(''),stationName:z.string().trim().max(64).default('')}).prefault({}),
+  fastPoll:z.boolean().default(false),
+}).refine(c=>c.cat.com!==c.winkey.com,{message:'CAT and WinKeyer must use different COM ports'})
+  .refine(c=>!c.cat.enabled||!c.winkey.enabled||c.cat.port!==c.winkey.port,{message:'CAT and WinKeyer must use different TCP ports'});
+export type N1MMInterfaceConfig=z.infer<typeof N1MMInterfaceConfigSchema>;
+export const N1MMInterfaceStatusSchema=z.object({config:N1MMInterfaceConfigSchema,cat:CWContestSnapshotSchema.shape.cat,winkey:CWContestSnapshotSchema.shape.winkey,udp:z.object({listening:z.boolean(),error:z.string().optional()})});
+export type N1MMInterfaceStatus=z.infer<typeof N1MMInterfaceStatusSchema>;
+export const N1MMVirtualSerialActionSchema=z.object({channel:z.enum(['cat','winkey']),action:z.enum(['start','stop','remove'])});
+export type N1MMVirtualSerialAction=z.infer<typeof N1MMVirtualSerialActionSchema>;
+export const N1MMVirtualSerialStatusSchema=z.object({
+  supported:z.boolean(),available:z.boolean(),error:z.string().optional(),
+  connections:z.array(z.object({channel:z.enum(['cat','winkey']),com:z.string(),address:z.string(),running:z.boolean(),connected:z.boolean(),peerOpen:z.boolean()})),
+});
+export type N1MMVirtualSerialStatus=z.infer<typeof N1MMVirtualSerialStatusSchema>;

@@ -10,6 +10,8 @@ import {
   PSKReporterConfig,
   DEFAULT_DECODE_WINDOW_SETTINGS,
   DEFAULT_RIGCTLD_BRIDGE_CONFIG,
+  N1MMInterfaceConfigSchema,
+  type N1MMInterfaceConfig,
   CWDecoderConfigSchema,
   EngineModeSchema,
   RttyConfigSchema,
@@ -184,6 +186,7 @@ export interface AppConfig {
   plugins?: PluginsConfig;
   /** rigctld-compatible TCP bridge (lets N1MM / WSJT-X / JTDX connect to this tx5dr instance). */
   rigctld?: RigctldBridgeConfig;
+  n1mmInterfaces?: N1MMInterfaceConfig;
   /** CW receive-side decoder configuration. */
   cwDecoder?: CWDecoderConfig;
   /** RTTY modem configuration (tones, profile, receive options). */
@@ -374,6 +377,8 @@ export function validateAppConfigCandidate(value: unknown): Record<string, unkno
   assertOptionalObject(value, 'pskreporter');
   assertOptionalObject(value, 'plugins');
   assertOptionalObject(value, 'rigctld');
+  assertOptionalObject(value, 'n1mmInterfaces');
+  if(value.n1mmInterfaces!==undefined)N1MMInterfaceConfigSchema.parse(value.n1mmInterfaces);
   assertOptionalObject(value, 'cwDecoder');
   assertOptionalObject(value, 'rtty');
   assertOptionalObjectOrNull(value, 'decodeWindowSettings');
@@ -1815,6 +1820,25 @@ export class ConfigManager {
    * RIGCTLD_BIND / RIGCTLD_PORT) take precedence over the stored value, so Docker
    * and headless deployments can enable the bridge without touching the UI.
    */
+  getN1MMInterfaceConfig():N1MMInterfaceConfig {
+    if(this.config.n1mmInterfaces)return N1MMInterfaceConfigSchema.parse(this.config.n1mmInterfaces);
+    const port=(value:string|undefined,fallback:number)=>{
+      const n=Number(value);return Number.isInteger(n)&&n>=1&&n<=65535?n:fallback;
+    };
+    return N1MMInterfaceConfigSchema.parse({
+      cat:{enabled:process.env.N1MM_CAT_ENABLED==='1',host:process.env.N1MM_CAT_BIND||'127.0.0.1',port:port(process.env.N1MM_CAT_PORT,4533),allowPtt:process.env.N1MM_CAT_PTT_ENABLED==='1'},
+      winkey:{enabled:process.env.N1MM_WINKEY_ENABLED==='1',host:process.env.N1MM_WINKEY_BIND||'127.0.0.1',port:port(process.env.N1MM_WINKEY_PORT,4534)},
+      udp:{enabled:process.env.N1MM_CW_UDP_ENABLED==='1',host:process.env.N1MM_CW_UDP_BIND||'127.0.0.1',port:port(process.env.N1MM_CW_UDP_PORT,12060),stationCall:process.env.N1MM_CW_STATION_CALL??'',stationName:process.env.N1MM_CW_STATION_NAME??''},
+      fastPoll:process.env.N1MM_CW_FAST_POLL==='1',
+    });
+  }
+  async updateN1MMInterfaceConfig(config:N1MMInterfaceConfig):Promise<N1MMInterfaceConfig>{
+    const next=N1MMInterfaceConfigSchema.parse(config);
+    const previous=this.config.n1mmInterfaces;
+    this.config.n1mmInterfaces=next;
+    try{await this.saveConfig();}catch(error){this.config.n1mmInterfaces=previous;throw error;}
+    return next;
+  }
   getRigctldConfig(): RigctldBridgeConfig {
     const stored = this.config.rigctld ?? { ...DEFAULT_RIGCTLD_BRIDGE_CONFIG };
     const envEnabled = process.env.RIGCTLD_ENABLED;

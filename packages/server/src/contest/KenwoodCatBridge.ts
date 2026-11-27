@@ -111,9 +111,16 @@ export class KenwoodCatBridge {
   private sockets = new Set<Socket>();
   private tasks = new Set<Promise<void>>();
   private lastError?: string;
-  constructor(private readonly config: { enabled: boolean; host: string; port: number; allowPtt: boolean },
+  constructor(private config: { enabled: boolean; host: string; port: number; allowPtt: boolean },
     private readonly controller: () => RadioController, private readonly speed: KenwoodKeyerSpeed) {}
 
+  needsConfig(next:{enabled:boolean;host:string;port:number;allowPtt:boolean}):boolean{
+    return Object.keys(next).some(key=>next[key as keyof typeof next]!==this.config[key as keyof typeof next]);
+  }
+  async applyConfig(next:{enabled:boolean;host:string;port:number;allowPtt:boolean}):Promise<void>{
+    if(this.needsConfig(next)){await this.stop();this.config={...next};}
+    await this.start();
+  }
   async start(): Promise<void> {
     if (!this.config.enabled || this.server) return;
     const server = createServer(socket => this.connect(socket));

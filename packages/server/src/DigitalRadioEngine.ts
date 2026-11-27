@@ -140,7 +140,7 @@ import { KenwoodCatBridge } from './contest/KenwoodCatBridge.js';
 import { WinKeyerBridge } from './contest/WinKeyerBridge.js';
 import { SquelchStatusMonitor } from './radio/SquelchStatusMonitor.js';
 import { PhysicalPttMonitor } from './radio/PhysicalPttMonitor.js';
-import type { RigctldBridgeConfig, RigctldStatus } from '@tx5dr/contracts';
+import type { RigctldBridgeConfig, RigctldStatus, N1MMInterfaceConfig } from '@tx5dr/contracts';
 import { RadioPowerController } from './radio/RadioPowerController.js';
 import { TuneToneController } from './radio/TuneToneController.js';
 import { buildRadioStatusPayload } from './radio/buildRadioStatusPayload.js';
@@ -841,9 +841,8 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
     });
 
     this.rigctldBridge = new RigctldBridge(this.radioManager, this.physicalTxCoordinator);
-    const catPort = Number(process.env.N1MM_CAT_PORT ?? 4533);
-    const wkPort = Number(process.env.N1MM_WINKEY_PORT ?? 4534);
-    this.n1mmWinKeyer = new WinKeyerBridge({ enabled: process.env.N1MM_WINKEY_ENABLED === '1', host: process.env.N1MM_WINKEY_BIND ?? '127.0.0.1', port: Number.isInteger(wkPort) && wkPort > 0 && wkPort <= 65535 ? wkPort : 4534 }, id => ({
+    const interfaces=ConfigManager.getInstance().getN1MMInterfaceConfig();
+    this.n1mmWinKeyer = new WinKeyerBridge({enabled:interfaces.winkey.enabled,host:interfaces.winkey.host,port:interfaces.winkey.port}, id => ({
       send: async (text,wpm,valid) => {
         if (this.getEngineMode() !== 'cw') throw new Error('CW engine is not active');
         const manager=this.getCWKeyerManager();
@@ -862,10 +861,7 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
       speed: async wpm => { await this.getCWKeyerManager().updateConfig({wpm}); },
     }));
     this.n1mmCatBridge = new KenwoodCatBridge({
-      enabled: process.env.N1MM_CAT_ENABLED === '1',
-      host: process.env.N1MM_CAT_BIND ?? '127.0.0.1',
-      port: Number.isInteger(catPort) && catPort > 0 && catPort <= 65535 ? catPort : 4533,
-      allowPtt: process.env.N1MM_CAT_PTT_ENABLED === '1',
+      enabled:interfaces.cat.enabled,host:interfaces.cat.host,port:interfaces.cat.port,allowPtt:interfaces.cat.allowPtt,
     }, () => new RadioControllerAdapter(this.radioManager, this.physicalTxCoordinator), {
       get: async () => (await this.getCWKeyerManager().getConfigAsync()).wpm,
       set: async wpm => { await this.getCWKeyerManager().updateConfig({ wpm }); },
@@ -1519,9 +1515,15 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
       logger.warn('rigctld bridge initial apply failed', { error: (error as Error).message });
     });
 
-    void this.n1mmCatBridge.start().catch(error => logger.warn('N1MM CAT start failed', { error: String(error) }));
-    void this.n1mmWinKeyer.start().catch(error => logger.warn('N1MM WinKeyer start failed', { error: String(error) }));
+    await this.applyN1MMInterfaceConfig(ConfigManager.getInstance().getN1MMInterfaceConfig());
     logger.info(`Initialization complete, current mode: ${this.currentMode.name}, engine mode: ${this.engineMode}`);
+  }
+
+  async applyN1MMInterfaceConfig(config:N1MMInterfaceConfig):Promise<void>{
+    const cat={enabled:config.cat.enabled,host:config.cat.host,port:config.cat.port,allowPtt:config.cat.allowPtt};
+    const wk={enabled:config.winkey.enabled,host:config.winkey.host,port:config.winkey.port};
+    await Promise.all([this.n1mmCatBridge.needsConfig(cat)?this.n1mmCatBridge.stop():undefined,this.n1mmWinKeyer.needsConfig(wk)?this.n1mmWinKeyer.stop():undefined]);
+    await Promise.all([this.n1mmCatBridge.applyConfig(cat),this.n1mmWinKeyer.applyConfig(wk)]);
   }
 
   getN1MMCatStatus() { return this.n1mmCatBridge.status(); }

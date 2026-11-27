@@ -75,6 +75,22 @@ export class N1MMContestReceiver {
   private lastContactAt?: number;
   constructor(private readonly config: { enabled: boolean; bind: string; port: number; stationCall: string; stationName?: string }) {}
 
+  async startAsync():Promise<void>{
+    this.start();
+    const socket=this.socket;
+    if(!socket||this.listening)return;
+    await new Promise<void>(resolve=>{
+      const done=()=>{socket.off('listening',done);socket.off('error',done);socket.off('close',done);resolve();};
+      socket.once('listening',done);socket.once('error',done);socket.once('close',done);
+    });
+  }
+  async closeAsync():Promise<void>{
+    const socket=this.socket;
+    this.socket=undefined;this.listening=false;
+    if(socket)await new Promise<void>(resolve=>{
+      try{socket.close(()=>resolve());}catch{resolve();}
+    });
+  }
   start(): void {
     if (!this.config.enabled || this.socket) return;
     const socket = createSocket('udp4');

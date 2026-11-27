@@ -19,6 +19,7 @@ import { OperatorSettings, type OperatorSettingsRef } from './OperatorSettings';
 import { DisplayNotificationSettings, type DisplayNotificationSettingsRef } from './DisplayNotificationSettings';
 import { SystemSettings, type SystemSettingsRef } from './SystemSettings';
 import { HelpImproveSettings, type HelpImproveSettingsRef } from './HelpImproveSettings';
+import { N1MMInterfaceSettings,type N1MMInterfaceSettingsRef } from './N1MMInterfaceSettings';
 import { RigctldBridgeSettings, type RigctldBridgeSettingsRef } from './RigctldBridgeSettings';
 import { FrequencyPresetSettings, type FrequencyPresetSettingsRef } from './FrequencyPresetSettings';
 import { TokenManagement } from '../auth/TokenManagement';
@@ -44,7 +45,7 @@ interface SettingsModalProps {
 }
 
 // 设置标签页类型（radio 和 audio 已迁移到 ProfileModal，logbook_sync 已迁移到 SyncConfigModal）
-export type SettingsTab = 'radio' | 'audio' | 'operator' | 'display' | 'radio_profile' | 'system' | 'help_improve' | 'rigctld' | 'frequency_presets' | 'tokens' | 'station_info' | 'openwebrx' | 'plugins' | 'shortcuts' | 'about';
+export type SettingsTab = 'radio' | 'audio' | 'operator' | 'display' | 'radio_profile' | 'system' | 'help_improve' | 'rigctld' | 'n1mm' | 'frequency_presets' | 'tokens' | 'station_info' | 'openwebrx' | 'plugins' | 'shortcuts' | 'about';
 
 const DEFAULT_USES_MODAL_FOOTER_SAVE: Record<SettingsTab, boolean> = {
   radio: false,
@@ -55,6 +56,7 @@ const DEFAULT_USES_MODAL_FOOTER_SAVE: Record<SettingsTab, boolean> = {
   system: true,
   help_improve: true,
   rigctld: true,
+  n1mm: true,
   frequency_presets: true,
   tokens: false,
   station_info: true,
@@ -93,6 +95,7 @@ export function SettingsModal({ isOpen, onClose, initialTab, initialFrequencyPre
   const displaySettingsRef = useRef<DisplayNotificationSettingsRef | null>(null);
   const systemSettingsRef = useRef<SystemSettingsRef | null>(null);
   const helpImproveSettingsRef = useRef<HelpImproveSettingsRef | null>(null);
+  const n1mmSettingsRef=useRef<N1MMInterfaceSettingsRef|null>(null);
   const rigctldSettingsRef = useRef<RigctldBridgeSettingsRef | null>(null);
   const frequencyPresetSettingsRef = useRef<FrequencyPresetSettingsRef | null>(null);
   const stationInfoSettingsRef = useRef<StationInfoSettingsRef | null>(null);
@@ -155,6 +158,8 @@ export function SettingsModal({ isOpen, onClose, initialTab, initialFrequencyPre
         return systemSettingsRef.current?.hasUnsavedChanges() || false;
       case 'help_improve':
         return helpImproveSettingsRef.current?.hasUnsavedChanges() || false;
+      case 'n1mm':
+        return n1mmSettingsRef.current?.hasUnsavedChanges()||false;
       case 'rigctld':
         return rigctldSettingsRef.current?.hasUnsavedChanges() || false;
       case 'frequency_presets':
@@ -220,6 +225,9 @@ export function SettingsModal({ isOpen, onClose, initialTab, initialFrequencyPre
           if (helpImproveSettingsRef.current) {
             await helpImproveSettingsRef.current.save();
           }
+          break;
+        case 'n1mm':
+          await n1mmSettingsRef.current?.save();
           break;
         case 'rigctld':
           if (rigctldSettingsRef.current) {
@@ -321,6 +329,8 @@ export function SettingsModal({ isOpen, onClose, initialTab, initialFrequencyPre
           return '⚙️';
         case 'help_improve':
           return <FontAwesomeIcon icon={faHeart} aria-label={t('modal.tabHelpImprove')} />;
+        case 'n1mm':
+          return 'N1MM';
         case 'rigctld':
           return '🔗';
         case 'frequency_presets':
@@ -354,6 +364,8 @@ export function SettingsModal({ isOpen, onClose, initialTab, initialFrequencyPre
         return `⚙️ ${t('modal.tabSystem')}`;
       case 'help_improve':
         return <span className="flex items-center gap-2"><FontAwesomeIcon icon={faHeart} />{t('modal.tabHelpImprove')}</span>;
+      case 'n1mm':
+        return t('n1mm.title');
       case 'rigctld':
         return `🔗 ${t('modal.tabRigctld')}`;
       case 'frequency_presets':
@@ -407,6 +419,8 @@ export function SettingsModal({ isOpen, onClose, initialTab, initialFrequencyPre
             onUnsavedChanges={setHasUnsavedChanges}
           />
         );
+      case 'n1mm':
+        return <N1MMInterfaceSettings ref={n1mmSettingsRef} onUnsavedChanges={setHasUnsavedChanges}/>;
       case 'rigctld':
         return (
           <RigctldBridgeSettings
@@ -551,6 +565,7 @@ export function SettingsModal({ isOpen, onClose, initialTab, initialFrequencyPre
                       title={getTabTitle('system', isMobile)}
                     />
                   )}
+                  {isAdmin && <Tab key="n1mm" title={getTabTitle('n1mm',isMobile)}/>}
                   {canRigctld && (
                     <Tab
                       key="rigctld"

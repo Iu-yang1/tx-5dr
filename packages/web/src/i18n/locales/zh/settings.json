@@ -1022,6 +1022,32 @@
       "message": "防机器人冷却保护中，将在 {{seconds}} 秒后自动执行切换。"
     }
   },
+  "n1mm": {
+    "title": "N1MM / 竞赛接口",
+    "description": "保存后应用 CAT、WinKeyer 和日志广播监听服务。",
+    "cat": "CAT (TCP)",
+    "winkey": "WinKeyer (TCP)",
+    "udp": "N1MM 广播 (UDP)",
+    "enable": "启用接口",
+    "allowPtt": "允许 CAT PTT",
+    "stationCall": "参赛呼号",
+    "stationName": "N1MM 电脑名称",
+    "radio": "电台同步",
+    "fastPoll": "CW 快速频率轮询",
+    "virtualSerial": "Windows 虚拟串口",
+    "com": "N1MM COM 端口",
+    "providerHint": "使用 SerialLoom（同一 Windows 登录用户）。安装后启用其 Automation，再保存接口并创建串口。",
+    "install": "获取 SerialLoom v0.4.0",
+    "detect": "检测",
+    "ready": "驱动管理接口可用",
+    "unavailable": "未连接到 SerialLoom",
+    "windowsOnly": "需要 Windows 服务端",
+    "start": "创建 / 启动",
+    "stop": "停止",
+    "remove": "移除",
+    "connected": "TCP 已连接",
+    "disconnected": "TCP 未连接"
+  },
   "rigctld": {
     "title": "Rigctld 桥接",
     "description": "开放 Hamlib NET rigctl 端口，让 N1MM / WSJT-X / JTDX / fldigi 等软件接入当前电台。",

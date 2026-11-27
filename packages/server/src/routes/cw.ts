@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import {
   UserRole,
   N1MMEntryRequestSchema,
+  N1MMInterfaceConfigSchema,N1MMVirtualSerialActionSchema,type N1MMInterfaceConfig,
   N1MMEntryAgentUpdateSchema,
   CWKeyerBackendSchema,
   CWDecoderConfigPatchSchema,
@@ -15,6 +16,8 @@ import { requireAbility, requireCallsignAccess, requireRole } from '../auth/auth
 import { RadioError, RadioErrorCode } from '../utils/errors/RadioError.js';
 import { createLogger } from '../utils/logger.js';
 import { N1MMContestReceiver } from '../contest/N1MMContestReceiver.js';
+import { ConfigManager } from '../config/config-manager.js';
+import { SerialLoomProvider } from '../contest/SerialLoomProvider.js';
 import { N1MMEntryBridge } from '../contest/N1MMEntryBridge.js';
 
 const logger = createLogger('CWRoutes');
@@ -49,16 +52,35 @@ async function requireCWDecoderConfigUpdateForPatch(request: FastifyRequest, rep
 export async function cwRoutes(fastify: FastifyInstance) {
   const engine = DigitalRadioEngine.getInstance();
   const entryBridge = new N1MMEntryBridge();
-  const configuredPort = Number(process.env.N1MM_CW_UDP_PORT ?? 12060);
-  const contestReceiver = new N1MMContestReceiver({
-    enabled: process.env.N1MM_CW_UDP_ENABLED === '1',
-    bind: process.env.N1MM_CW_UDP_BIND ?? '127.0.0.1',
-    port: Number.isInteger(configuredPort) && configuredPort > 0 && configuredPort <= 65535 ? configuredPort : 12060,
-    stationCall: (process.env.N1MM_CW_STATION_CALL ?? '').trim().toUpperCase(),
-    stationName: (process.env.N1MM_CW_STATION_NAME ?? '').trim(),
+  const configManager=ConfigManager.getInstance();
+  const receiverConfig=(config:N1MMInterfaceConfig)=>({enabled:config.udp.enabled,bind:config.udp.host,port:config.udp.port,stationCall:config.udp.stationCall,stationName:config.udp.stationName});
+  let active=configManager.getN1MMInterfaceConfig();
+  let contestReceiver=new N1MMContestReceiver(receiverConfig(active));
+  const serial=new SerialLoomProvider();
+  let tail:Promise<unknown>=Promise.resolve();
+  const serialTask=<T>(fn:()=>Promise<T>):Promise<T>=>{const task=tail.catch(()=>undefined).then(fn);tail=task;return task;};
+  const status=()=>{const udp=contestReceiver.snapshot();return {config:active,cat:engine.getN1MMCatStatus(),winkey:engine.getN1MMWinKeyStatus(),udp:{listening:udp.listening,error:udp.error}};};
+  fastify.addHook('onReady',async()=>{await contestReceiver.startAsync();});
+  fastify.addHook('onClose',async()=>{await tail.catch(()=>undefined);await contestReceiver.closeAsync();});
+  fastify.get('/contest/interfaces',{preHandler:[requireRole(UserRole.ADMIN)]},async()=>status());
+  fastify.put('/contest/interfaces',{preHandler:[requireRole(UserRole.ADMIN)]},async(req,reply)=>{
+    const next=N1MMInterfaceConfigSchema.parse(req.body);
+    return reply.send(await serialTask(async()=>{
+      await configManager.updateN1MMInterfaceConfig(next);
+      await engine.applyN1MMInterfaceConfig(next);
+      if(JSON.stringify(active.udp)!==JSON.stringify(next.udp)){
+        await contestReceiver.closeAsync();
+        contestReceiver=new N1MMContestReceiver(receiverConfig(next));
+      }
+      await contestReceiver.startAsync();
+      active=next;return status();
+    }));
   });
-  fastify.addHook('onReady', async () => { contestReceiver.start(); });
-  fastify.addHook('onClose', async () => { contestReceiver.close(); });
+  fastify.get('/contest/virtual-serial',{preHandler:[requireRole(UserRole.ADMIN)]},async()=>serial.status());
+  fastify.post('/contest/virtual-serial',{preHandler:[requireRole(UserRole.ADMIN)]},async(req,reply)=>{
+    const action=N1MMVirtualSerialActionSchema.parse(req.body);
+    return reply.send(await serialTask(()=>serial.apply(action,active)));
+  });
   fastify.get('/contest/n1mm', { preHandler: [requireRole(UserRole.OPERATOR)] }, async (req, reply) => {
     const query=req.query as {call?:string};
     return reply.send({ ...contestReceiver.snapshot(typeof query.call==='string'?query.call:undefined), cat: engine.getN1MMCatStatus(), winkey: engine.getN1MMWinKeyStatus(), entry: entryBridge.snapshot() });

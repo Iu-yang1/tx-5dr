@@ -2594,6 +2594,18 @@ export const api = {
   },
 
   // ===== CW Contest API =====
+  async getN1MMInterfaces(apiBase?:string):Promise<import('@tx5dr/contracts').N1MMInterfaceStatus>{
+    return apiRequest('/cw/contest/interfaces',undefined,apiBase);
+  },
+  async updateN1MMInterfaces(config:import('@tx5dr/contracts').N1MMInterfaceConfig,apiBase?:string):Promise<import('@tx5dr/contracts').N1MMInterfaceStatus>{
+    return apiRequest('/cw/contest/interfaces',{method:'PUT',body:JSON.stringify(config)},apiBase);
+  },
+  async getN1MMVirtualSerial(apiBase?:string):Promise<import('@tx5dr/contracts').N1MMVirtualSerialStatus>{
+    return apiRequest('/cw/contest/virtual-serial',undefined,apiBase);
+  },
+  async updateN1MMVirtualSerial(action:import('@tx5dr/contracts').N1MMVirtualSerialAction,apiBase?:string):Promise<import('@tx5dr/contracts').N1MMVirtualSerialStatus>{
+    return apiRequest('/cw/contest/virtual-serial',{method:'POST',body:JSON.stringify(action)},apiBase);
+  },
   async getCWContestSnapshot(apiBase?: string, call?:string): Promise<import('@tx5dr/contracts').CWContestSnapshot> {
     return apiRequest<import('@tx5dr/contracts').CWContestSnapshot>('/cw/contest/n1mm'+(call?'?call='+encodeURIComponent(call):''), undefined, apiBase);
   },
