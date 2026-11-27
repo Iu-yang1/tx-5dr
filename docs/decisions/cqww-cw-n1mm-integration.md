@@ -105,3 +105,5 @@ Use --native-keys on the Entry Agent to expose explicit ESM Enter, Insert, Alt+E
 
 ### Pointer editing and simulation
 The virtual host supports 16/00 reset when empty, 16/01 one-based overwrite of pending character slots, 16/02 append mode, and 16/03 null placeholders. It never rewrites or retransmits a text block already delivered to the physical backend. Native N1MM late callsign correction across in-flight CAT blocks remains unverified; the protocol simulation explicitly tests rejected late edits. The focused CI includes actual React DOM rendering of the workbench and shared log card, and simulated native ESM action/at-most-once invocation. These are not pixel screenshots or a real Windows N1MM process test.
+
+The focused frontend test also mounts the real frequency, decoder, CW preset, QSO entry, and contest components together. It exports the simulated DOM with synthetic RF spectrum; Chromium renders it using the production CSS at 1440x900, 1024x768 and 390x844. The cqww-console-render artifact contains the screenshots. This is not a screenshot of a connected radio or live N1MM instance; translated labels in the fixture use test translation keys.

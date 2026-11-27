@@ -115,7 +115,15 @@ jobs:
           EXISTING=()
           for f in "${TESTS[@]}"; do if test -f "$f"; then EXISTING+=("$f"); fi; done
           if test ${#EXISTING[@]} -eq 0; then exit 1; fi
-          yarn exec vitest run "${EXISTING[@]}" --maxWorkers=2
+          CW_CONSOLE_RENDER_DIR="$GITHUB_WORKSPACE/contest-console-render" yarn exec vitest run "${EXISTING[@]}" --maxWorkers=2
+      - name: Render simulated CW console at desktop and narrow widths
+        run: node scripts/render-contest-console.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cqww-console-render
+          path: contest-console-render/
+          if-no-files-found: warn
 
   backend:
     runs-on: ubuntu-24.04

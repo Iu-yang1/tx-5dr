@@ -28,7 +28,7 @@ import { useCurrentOperatorId, useOperators } from '../store/radioStore';
  *
  * Right panel layout for CW mode:
  * - Top toolbar (auth, theme, settings) — inside tabs
- * - CWRightTopTabs containing CWRecentQSOList + CWQSOLogCard
+ * - CWRightTopTabs and the shared CWQSOLogCard
  * - RadioControl fixed at the bottom
  */
 export const CWRightLayout: React.FC = () => {
