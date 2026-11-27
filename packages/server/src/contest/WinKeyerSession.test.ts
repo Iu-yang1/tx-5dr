@@ -82,3 +82,24 @@ describe('WinKeyer pending buffer pointer protocol',()=>{
     expect(sent).toEqual(['JA1ABC']);
   });
 });
+
+it('disabling a configured WinKeyer releases the active host and permits restart',async()=>{
+  const stop=vi.fn(async()=>{});
+  const options={enabled:true,host:'127.0.0.1',port:0};
+  const bridge=new WinKeyerBridge(options,()=>({send:async()=>{},stop,speed:async()=>{}}));
+  await bridge.start();
+  const socket=createConnection({host:'127.0.0.1',port:bridge.status().port});
+  try{
+    await once(socket,'connect');
+    const response=once(socket,'data');
+    socket.write(Buffer.from([0,2]));
+    await response;
+    await bridge.applyConfig(options);
+    expect(bridge.status().opened).toBe(true);
+    await bridge.applyConfig({...options,enabled:false});
+    expect(stop).toHaveBeenCalled();
+    expect(bridge.status().listening).toBe(false);
+    await bridge.applyConfig(options);
+    expect(bridge.status().listening).toBe(true);
+  }finally{socket.destroy();await bridge.stop();}
+});

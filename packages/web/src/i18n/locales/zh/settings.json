@@ -1023,6 +1023,8 @@
     }
   },
   "n1mm": {
+    "comOpen": "COM 已打开",
+    "comClosed": "COM 未打开",
     "title": "N1MM / 竞赛接口",
     "description": "保存后应用 CAT、WinKeyer 和日志广播监听服务。",
     "cat": "CAT (TCP)",

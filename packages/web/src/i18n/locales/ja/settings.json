@@ -1023,6 +1023,8 @@
     }
   },
   "n1mm": {
+    "comOpen": "COM 使用中",
+    "comClosed": "COM 未使用",
     "title": "N1MM / コンテスト接続",
     "description": "保存時に CAT、WinKeyer、ログ配信を適用します。",
     "cat": "CAT (TCP)",

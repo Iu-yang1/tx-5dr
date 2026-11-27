@@ -60,6 +60,16 @@ describe('ConfigManager audio identity persistence', () => {
     await rm(configDir, { recursive: true, force: true });
   });
 
+  it('persists the N1MM interface settings across a fresh ConfigManager instance',async()=>{
+    const initial=configManager.getN1MMInterfaceConfig();
+    const config={...initial,cat:{...initial.cat,enabled:true,port:14533,com:'COM42'},winkey:{...initial.winkey,enabled:true,com:'COM43'},udp:{...initial.udp,stationCall:'BG8GLR'},fastPoll:true};
+    await configManager.updateN1MMInterfaceConfig(config);
+    resetSingletons();
+    configManager=ConfigManager.getInstance();
+    await configManager.initialize();
+    expect(configManager.getN1MMInterfaceConfig()).toEqual(config);
+  });
+
   it('clears stale device/hardware ids when updateAudioConfig renames without new identity', async () => {
     await configManager.updateAudioConfig({
       inputDeviceName: 'Built-in Mic',

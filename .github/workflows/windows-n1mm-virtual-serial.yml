@@ -1,0 +1,63 @@
+name: Windows N1MM Virtual Serial Smoke
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'packages/server/src/contest/**'
+      - 'packages/contracts/src/schema/cw-contest.schema.ts'
+      - '.github/workflows/windows-n1mm-virtual-serial.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: windows-n1mm-serial-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+jobs:
+  windows-com-smoke:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.1'
+      - name: Enable Yarn and install dependencies
+        env:
+          ONNXRUNTIME_NODE_INSTALL: skip
+        run: |
+          corepack enable
+          corepack prepare yarn@4.12.0 --activate
+          yarn install --immutable
+          yarn workspace @tx5dr/contracts build
+          yarn workspace @tx5dr/rigctld-server build
+      - name: Install pinned upstream virtual USB provider on disposable runner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path $env:RUNNER_TEMP 'SerialLoom_0.4.0_x64-setup.exe'
+          Invoke-WebRequest -Uri 'https://github.com/RahulP5/SerialLoom/releases/download/v0.4.0/SerialLoom_0.4.0_x64-setup.exe' -OutFile $installer
+          $expected = '35976de022f7a37447376be1d21a7b21fefd2539319e5e3d2c69decd748eeab1'
+          if ((Get-FileHash $installer -Algorithm SHA256).Hash.ToLower() -ne $expected) { throw 'Installer hash mismatch' }
+          $p = Start-Process -FilePath $installer -ArgumentList '/S' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "SerialLoom setup failed: $($p.ExitCode)" }
+          $root = Join-Path $env:ProgramFiles 'SerialLoom'
+          foreach ($file in @('usbip2_ude.cat','usbip2_filter.cat')) {
+            $sig = Get-AuthenticodeSignature (Join-Path $root "usbip\driver\$file")
+            if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'Microsoft Windows Hardware Compatibility Publisher') { throw "Unexpected catalog signer: $file $($sig.Status)" }
+          }
+          # This is a clean, disposable test VM, not a user's settings.
+          $config = Join-Path $env:APPDATA 'io.github.serialloom'
+          New-Item -ItemType Directory -Force $config | Out-Null
+          '{"driver":"usb","version":2,"automation":true,"startWithWindows":false}' | Set-Content -Encoding utf8 (Join-Path $config 'settings.json')
+          Start-Process (Join-Path $root 'serialloom.exe') -ArgumentList '--background'
+      - name: Test actual COM devices with production CAT and WinKeyer bridges
+        env:
+          TX5DR_SERIALLOOM_SMOKE: '1'
+        working-directory: packages/server
+        run: yarn exec tsx src/contest/serialloom-windows-smoke.ts
+      - name: Windows device diagnostics
+        if: always()
+        shell: pwsh
+        run: |
+          Get-PnpDevice -Class Ports -ErrorAction SilentlyContinue | Format-Table Status,FriendlyName,InstanceId -AutoSize
+          Get-PnpDevice -Class USB -ErrorAction SilentlyContinue | Where-Object FriendlyName -like '*USBip*' | Format-Table Status,FriendlyName,InstanceId -AutoSize

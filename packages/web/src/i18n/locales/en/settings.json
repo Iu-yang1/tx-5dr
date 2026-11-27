@@ -1023,6 +1023,8 @@
     }
   },
   "n1mm": {
+    "comOpen": "COM open",
+    "comClosed": "COM closed",
     "title": "N1MM / Contest interfaces",
     "description": "Save to apply CAT, WinKeyer and log broadcast listeners.",
     "cat": "CAT (TCP)",

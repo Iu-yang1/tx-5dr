@@ -3552,7 +3552,7 @@ export class PhysicalRadioManager extends EventEmitter<PhysicalRadioManagerEvent
     const fast = Date.now() < this.fastFrequencyPollingUntil;
     // Opt-in CW contest station profile: use the existing non-overlapping CAT
     // monitoring cycle, never a second poller. Backend busy/PTT guards remain.
-    if (this.configManager.getN1MMInterfaceConfig().fastPoll && this.configManager.getLastEngineMode() === 'cw') {
+    if (this.configManager.getLastEngineMode() === 'cw' && this.configManager.getN1MMInterfaceConfig().fastPoll) {
       return fast ? 100 : 250;
     }
     return fast ? FAST_FREQUENCY_POLL_MS : NORMAL_FREQUENCY_POLL_MS;

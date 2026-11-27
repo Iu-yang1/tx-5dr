@@ -79,3 +79,24 @@ describe('N1MM single VFO CAT subset', () => {
     }
   });
 });
+
+it('reconfigures an active CAT listener without restarting the physical radio',async()=>{
+  const {radio}=fixture();
+  const options={enabled:true,host:'127.0.0.1',port:0,allowPtt:false};
+  const bridge=new KenwoodCatBridge(options,()=>radio,{get:async()=>25,set:async()=>{}});
+  await bridge.start();
+  const socket=createConnection({host:'127.0.0.1',port:bridge.status().port});
+  try{
+    await once(socket,'connect');
+    await vi.waitFor(()=>expect(bridge.status().clients).toBe(1));
+    await bridge.applyConfig(options);
+    expect(bridge.status().clients).toBe(1);
+    const closed=once(socket,'close');
+    await bridge.applyConfig({...options,enabled:false});
+    await closed;
+    expect(bridge.status().listening).toBe(false);
+    await bridge.applyConfig(options);
+    expect(bridge.status().listening).toBe(true);
+    expect(await radio.getFrequency()).toBe(14025000);
+  }finally{socket.destroy();await bridge.stop();}
+});

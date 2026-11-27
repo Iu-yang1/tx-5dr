@@ -53,7 +53,7 @@ export const N1MMInterfaceSettings=forwardRef<N1MMInterfaceSettingsRef,{onUnsave
         {serial?.error&&<p className="text-xs text-warning">{serial.error}</p>}</SettingsBlock>
       {(['cat','winkey'] as const).map(channel=>{
         const connection=serial?.connections.find(c=>c.channel===channel);
-        return <SettingsRow key={channel} label={t('n1mm.'+channel)} description={connection?connection.com+' → '+connection.address+' · '+t(connection.connected?'n1mm.connected':'n1mm.disconnected'):form[channel].com} >
+        return <SettingsRow key={channel} label={t('n1mm.'+channel)} description={connection?connection.com+' → '+connection.address+' · '+t(connection.connected?'n1mm.connected':'n1mm.disconnected')+' · '+t(connection.peerOpen?'n1mm.comOpen':'n1mm.comClosed'):form[channel].com} >
           <div className="flex flex-wrap gap-2">{(['start','stop','remove'] as const).map(action=><Button size="sm" key={action} variant="flat" isDisabled={busy||dirty||!serial?.available||(action==='start'?!status?.[channel]?.listening:!connection)} onPress={()=>void serialAction({channel,action})}>{t('n1mm.'+action)}</Button>)}</div>
         </SettingsRow>;
       })}
