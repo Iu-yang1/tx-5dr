@@ -138,6 +138,8 @@ jobs:
         run: yarn install --immutable
       - name: Build
         run: yarn build
+      - name: Simulated N1MM Windows entry adapter
+        run: python3 -m unittest discover -s packages/client-tools/src -p 'test_n1mm*.py'
       - name: Focused Backend tests
         run: |
           set -euo pipefail

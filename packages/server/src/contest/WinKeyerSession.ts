@@ -137,5 +137,6 @@ export class WinKeyerSession {
     this.stopTail=this.stopTail.catch(()=>undefined).then(()=>this.backend.stop()).catch(error=>{this.error=String(error);});
     this.report();
   }
-  async close() { this.closed=true;this.opened=false;this.input=[];this.cancel();await this.stopTail; }
+  async abort() { this.cancel(); await this.stopTail; }
+  async close() { this.closed=true;this.opened=false;this.input=[];await this.abort(); }
 }

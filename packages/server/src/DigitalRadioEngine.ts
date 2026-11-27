@@ -1516,6 +1516,7 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
 
   getN1MMCatStatus() { return this.n1mmCatBridge.status(); }
   getN1MMWinKeyStatus() { return this.n1mmWinKeyer.status(); }
+  async abortN1MMWinKey() { await this.n1mmWinKeyer.abort(); }
 
   /** Current rigctld bridge status snapshot (for /api/rigctld/status). */
   getRigctldStatus(): RigctldStatus {

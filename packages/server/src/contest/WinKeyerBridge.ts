@@ -34,6 +34,7 @@ export class WinKeyerBridge {
     return {...this.config,port:typeof address==='object'&&address?address.port:this.config.port,listening:!!this.server?.listening,connected:!!this.socket,
       opened:this.session?.status.opened??false,busy:this.session?.status.busy??false,wpm:this.session?.status.wpm??25,error:this.session?.status.error??this.error};
   }
+  async abort(){ await this.session?.abort(); }
   async stop(){
     const server=this.server;this.server=undefined;
     if(this.socket){const socket=this.socket;await new Promise<void>(resolve=>{socket.once('close',()=>resolve());socket.destroy();});}

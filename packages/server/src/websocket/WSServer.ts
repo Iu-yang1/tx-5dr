@@ -2017,6 +2017,7 @@ export class WSServer extends WSMessageHandler {
 
   private async handleCWStopMessage(): Promise<void> {
     try {
+      await this.digitalRadioEngine.abortN1MMWinKey();
       await this.digitalRadioEngine.getCWKeyerManager().stopActive('stopped by client');
     } catch (error) {
       this.handleCommandError(error, 'cwStopMessage');
